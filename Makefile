@@ -14,8 +14,6 @@ GO_BUILD = go build -trimpath -buildvcs=false -tags "$(GO_TAGS)" -ldflags "$(LDF
 AMD64_OUT = $(DIST_DIR)/$(BINARY_NAME)_$(VERSION_TAG)_linux_amd64
 ARM64_OUT = $(DIST_DIR)/$(BINARY_NAME)_$(VERSION_TAG)_linux_arm64
 ARMV7_OUT = $(DIST_DIR)/$(BINARY_NAME)_$(VERSION_TAG)_linux_armv7
-UPX ?= $(shell command -v upx || command -v upx-ucl)
-UPX_FLAGS ?= --best --lzma
 
 .PHONY: all build build-amd64 build-arm64 build-armv7 build-all frontend-dist clean
 
@@ -33,22 +31,16 @@ frontend-dist:
 	cp -R web/dist internal/web/dist
 
 build-amd64: frontend-dist
-	@test -n "$(UPX)" || { echo "错误: 需要安装 upx"; exit 1; }
 	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=amd64 $(GO_BUILD) -o $(AMD64_OUT) $(MAIN_PACKAGE)
-	$(UPX) $(UPX_FLAGS) $(AMD64_OUT)
 
 build-arm64: frontend-dist
-	@test -n "$(UPX)" || { echo "错误: 需要安装 upx"; exit 1; }
 	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=arm64 $(GO_BUILD) -o $(ARM64_OUT) $(MAIN_PACKAGE)
-	$(UPX) $(UPX_FLAGS) $(ARM64_OUT)
 
 build-armv7: frontend-dist
-	@test -n "$(UPX)" || { echo "错误: 需要安装 upx"; exit 1; }
 	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) GOOS=$(GOOS) GOARCH=arm GOARM=7 $(GO_BUILD) -o $(ARMV7_OUT) $(MAIN_PACKAGE)
-	$(UPX) $(UPX_FLAGS) $(ARMV7_OUT)
 
 clean:
 	go clean
