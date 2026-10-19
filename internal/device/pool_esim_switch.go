@@ -256,7 +256,8 @@ func (p *Pool) applyNetworkPreferenceForSwitchSnapshot(worker *Worker, snapshot 
 		if nc.IsConnected() {
 			return nil
 		}
-		return worker.StartNetwork()
+		ctx := context.WithValue(p.ctx, switchSnapshotRegistrationKey{}, true)
+		return worker.startNetwork(ctx)
 	}
 
 	if !nc.IsConnected() {
@@ -326,6 +327,7 @@ func (p *Pool) bringRadioOnlineAfterSwitch(deviceID string, worker *Worker, snap
 func (p *Pool) handleESIMSwitchBefore(deviceID string, targetICCID string) uint64 {
 	snapshot := p.beginESIMSwitch(deviceID, targetICCID)
 	if worker := p.GetWorker(deviceID); worker != nil {
+		worker.cancelCellularRegistration()
 		worker.markHealthRecoveryWindow(qmiHealthGraceAfterSwitch)
 		snapshot.IdentityGeneration = worker.BeginSIMIdentityTransition(snapshot.TargetICCID, "esim_switch_begin")
 		p.updateESIMSwitchIdentityGeneration(deviceID, snapshot.SwitchToken, snapshot.IdentityGeneration)

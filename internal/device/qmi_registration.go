@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
 	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
-	qmipkg "github.com/iniwex5/vohive/internal/qmi"
+	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/internal/backend"
 	"github.com/iniwex5/vohive/internal/config"
+	qmipkg "github.com/iniwex5/vohive/internal/qmi"
 	"github.com/iniwex5/vohive/pkg/logger"
 )
 
@@ -92,6 +92,9 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 		return fmt.Errorf("读取 QMI radio mode 失败: %w", err)
 	}
 	logger.Debug("QMI radio mode 初始检查", "device", deviceID, "mode", int(mode))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	radioRestoredOnline := false
 	if isFlightOperatingMode(mode) {
 		logger.Info("QMI radio 初始处于飞行/低功耗，恢复 Online 后再驻网", "device", deviceID, "mode", int(mode))
@@ -128,12 +131,18 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 	forceNetworkSearchUnsupported := false
 	radioCycleIssued := false
 	for attempt := 1; attempt <= opts.MaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		ss, err := ctrl.GetServingSystem(ctx)
 		if err != nil {
 			return fmt.Errorf("读取 QMI serving system 失败: %w", err)
 		}
 		if ss == nil {
 			return fmt.Errorf("读取 QMI serving system 返回空结果")
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
 		switch ss.RegStatus {
@@ -203,6 +212,9 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 }
 
 func initiateQMIRegistration(ctx context.Context, deviceID string, cfg config.DeviceConfig, ctrl qmiRegistrationController) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if cfg.OperatorSelectionMode == "manual" && cfg.OperatorSelectionPLMN != "" {
 		sel, err := backend.NormalizeManualOperatorSelection(
 			cfg.OperatorSelectionPLMN,
@@ -229,7 +241,13 @@ func initiateQMIRegistration(ctx context.Context, deviceID string, cfg config.De
 }
 
 func initiateQMIAutomaticRegistration(ctx context.Context, deviceID string, ctrl qmiRegistrationController) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	selectionErr := ctrl.NASSetSystemSelectionAutomatic(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if selectionErr != nil {
 		logger.Warn("QMI 系统选择自动模式提交失败，继续尝试 NAS 自动注册", "device", deviceID, "err", selectionErr)
 	} else {
@@ -252,6 +270,9 @@ func initiateQMIAutomaticRegistration(ctx context.Context, deviceID string, ctrl
 		return nil
 	}
 	logger.Warn("QMI NAS 自动注册命令不兼容，改用系统选择自动模式", "device", deviceID, "err", err)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if fallbackErr := ctrl.NASSetSystemSelectionAutomatic(ctx); fallbackErr != nil {
 		logger.Warn("QMI 系统选择自动模式 fallback 失败，继续等待模组自主驻网", "device", deviceID, "err", fallbackErr)
 		return nil
@@ -278,6 +299,9 @@ func shouldRadioCycleForQMIRegistration(attempt int, registerIssued bool, radioC
 }
 
 func radioCycleQMIForRegistration(ctx context.Context, deviceID string, ctrl qmiRegistrationController, wait time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if ctrl == nil {
 		return fmt.Errorf("qmi registration controller unavailable")
 	}
@@ -352,7 +376,7 @@ func sleepQMIRegistrationPoll(ctx context.Context, delay time.Duration) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		return nil
+		return ctx.Err()
 	}
 }
 
@@ -365,10 +389,6 @@ func (w *Worker) ensureQMIRegistration(ctx context.Context, requiredForData bool
 	if w == nil || w.QMICore == nil || w.Backend == nil {
 		return nil
 	}
-	if w.Pool != nil && w.Pool.IsVoWiFiActive(w.ID) {
-		logger.Debug("QMI 驻网协调跳过：VoWiFi 当前活跃", "device", w.ID)
-		return nil
-	}
 	ctrl, ok := w.Backend.(qmiRegistrationController)
 	if !ok {
 		return nil
@@ -378,8 +398,13 @@ func (w *Worker) ensureQMIRegistration(ctx context.Context, requiredForData bool
 	}
 	ctx, cancel := context.WithTimeout(ctx, qmiRegistrationTimeout(requiredForData))
 	defer cancel()
+	ctx, cfg, finish, err := w.beginCellularRegistration(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
 
-	return ensureQMIRegistration(ctx, w.ID, w.Config, w.QMICore, ctrl, qmiRegistrationOptions{
+	return ensureQMIRegistration(ctx, w.ID, cfg, w.QMICore, ctrl, qmiRegistrationOptions{
 		SuppressRadioCycle: w.IsOperatorScanActive,
 	})
 }
@@ -398,6 +423,9 @@ func (w *Worker) StartQMIRegistrationReconcile(ctx context.Context, reason strin
 
 func (w *Worker) startQMIRegistrationReconcile(ctx context.Context, reason string, run func(context.Context) error) bool {
 	if w == nil || run == nil {
+		return false
+	}
+	if w.cellularRegistrationBlocked() {
 		return false
 	}
 	if ctx == nil {
@@ -443,6 +471,10 @@ func (w *Worker) startQMIRegistrationReconcile(ctx context.Context, reason strin
 
 		logger.Debug("QMI 后台驻网协调开始", "device", w.ID, "reason", reason)
 		if err := run(runCtx); err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, errQMIRegistrationSkipped) {
+				logger.Debug("后台驻网协调已取消或由射频策略跳过", "device", w.ID, "reason", reason)
+				return
+			}
 			logger.Warn("QMI 后台驻网协调失败", "device", w.ID, "reason", reason, "elapsed_ms", time.Since(start).Milliseconds(), "err", err)
 			return
 		}

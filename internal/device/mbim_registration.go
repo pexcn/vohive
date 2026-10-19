@@ -68,6 +68,9 @@ func ensureMBIMRegistration(ctx context.Context, deviceID string, cfg config.Dev
 	if err != nil {
 		return fmt.Errorf("读取 MBIM radio mode 失败: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if isFlightOperatingMode(mode) {
 		logger.Info("MBIM radio 初始处于飞行/低功耗，恢复 Online 后再驻网", "device", deviceID, "mode", int(mode))
 		if err := ctrl.SetOperatingMode(ctx, backend.ModeOnline); err != nil {
@@ -86,12 +89,18 @@ func ensureMBIMRegistration(ctx context.Context, deviceID string, cfg config.Dev
 	attachIssued := false
 	radioCycleIssued := false
 	for attempt := 1; attempt <= opts.MaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		ss, err := ctrl.GetServingSystem(ctx)
 		if err != nil {
 			return fmt.Errorf("读取 MBIM serving system 失败: %w", err)
 		}
 		if ss == nil {
 			return fmt.Errorf("读取 MBIM serving system 返回空结果")
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
 		switch ss.RegStatus {
@@ -161,6 +170,9 @@ func waitMBIMSIMReady(ctx context.Context, deviceID string, ctrl mbimRegistratio
 }
 
 func initiateMBIMRegistration(ctx context.Context, deviceID string, cfg config.DeviceConfig, ctrl mbimRegistrationController) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	req := backend.SetOperatorSelectionRequest{Mode: backend.OperatorSelectionAutomatic}
 	if cfg.OperatorSelectionMode == string(backend.OperatorSelectionManual) && cfg.OperatorSelectionPLMN != "" {
 		req = backend.SetOperatorSelectionRequest{
@@ -177,6 +189,9 @@ func initiateMBIMRegistration(ctx context.Context, deviceID string, cfg config.D
 }
 
 func radioCycleMBIMForRegistration(ctx context.Context, deviceID string, ctrl mbimRegistrationController, wait time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if wait <= 0 {
 		wait = 2 * time.Second
 	}
@@ -201,8 +216,14 @@ func (w *Worker) EnsureMBIMRegistration(ctx context.Context, requiredForData boo
 	if err == nil {
 		return nil
 	}
+	if errors.Is(err, errQMIRegistrationSkipped) {
+		return nil
+	}
 	if requiredForData {
 		return err
+	}
+	if errors.Is(err, context.Canceled) {
+		return nil
 	}
 	logger.Warn("MBIM 驻网协调失败，数据网络未开启，按非致命处理", "device", w.ID, "err", err)
 	return nil
@@ -210,10 +231,6 @@ func (w *Worker) EnsureMBIMRegistration(ctx context.Context, requiredForData boo
 
 func (w *Worker) ensureMBIMRegistration(ctx context.Context, requiredForData bool) error {
 	if w == nil || w.MBIMCore == nil || w.Backend == nil {
-		return nil
-	}
-	if w.Pool != nil && w.Pool.IsVoWiFiActive(w.ID) {
-		logger.Debug("MBIM 驻网协调跳过：VoWiFi 当前活跃", "device", w.ID)
 		return nil
 	}
 	ctrl, ok := w.Backend.(mbimRegistrationController)
@@ -225,7 +242,12 @@ func (w *Worker) ensureMBIMRegistration(ctx context.Context, requiredForData boo
 	}
 	ctx, cancel := context.WithTimeout(ctx, mbimRegistrationTimeout(requiredForData))
 	defer cancel()
-	return ensureMBIMRegistration(ctx, w.ID, w.Config, ctrl, mbimRegistrationOptions{
+	ctx, cfg, finish, err := w.beginCellularRegistration(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
+	return ensureMBIMRegistration(ctx, w.ID, cfg, ctrl, mbimRegistrationOptions{
 		SuppressRadioCycle: w.IsOperatorScanActive,
 	})
 }

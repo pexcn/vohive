@@ -15,6 +15,8 @@ func applyPolicyToWorker(w *Worker, p cardpolicy.Policy) {
 	if w == nil {
 		return
 	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
 	w.Config.NetworkEnabled = p.NetworkEnabled
 	w.Config.VoWiFiEnabled = p.VoWiFiEnabled
 	w.Config.AirplaneEnabled = p.AirplaneEnabled
@@ -86,6 +88,10 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 // 已处于飞行则跳过。设备不支持射频控制时仅告警。
 func (p *Pool) enterAirplaneModeFromPolicy(w *Worker, reason string) {
 	if w == nil {
+		return
+	}
+	if err := w.stopCellularRegistration(p.ctx); err != nil {
+		logger.Warn("等待后台驻网退出失败，暂缓进入飞行模式", "device", w.ID, "reason", reason, "err", err)
 		return
 	}
 	if nc := w.NetworkController(); nc != nil && nc.IsConnected() {

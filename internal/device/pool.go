@@ -129,6 +129,9 @@ type Worker struct {
 
 	qmiRegistrationMu       sync.Mutex
 	qmiRegistrationInFlight bool
+	registrationMu          sync.Mutex
+	registrationNextID      uint64
+	registrationRuns        map[uint64]cellularRegistrationRun
 
 	operatorScanMu      sync.Mutex
 	operatorScanCurrent OperatorScanResult
@@ -1165,6 +1168,14 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 		}
 		return nil
 	}
+	if worker.cellularRegistrationBlocked() {
+		worker.cancelCellularRegistration()
+		if nc.IsConnected() {
+			return worker.StopNetwork()
+		}
+		worker.clearCachedIP()
+		return nil
+	}
 
 	if worker.Config.NetworkEnabled {
 		if worker.MBIMCore != nil {
@@ -2004,18 +2015,30 @@ func (w *Worker) Rotate() (oldIP, newIP string, err error) {
 }
 
 func (w *Worker) StartNetwork() error {
+	return w.startNetwork(context.Background())
+}
+
+func (w *Worker) startNetwork(ctx context.Context) error {
 	nc := w.NetworkController()
 	if w == nil || nc == nil {
 		return fmt.Errorf("network_not_available")
 	}
+	ctx, _, finish, err := w.beginCellularRegistration(ctx)
+	if err != nil {
+		return err
+	}
+	defer finish()
 	if w.QMICore != nil {
-		if err := w.EnsureQMIRegistration(context.Background(), true); err != nil {
+		if err := w.EnsureQMIRegistration(ctx, true); err != nil {
 			return err
 		}
 	} else if w.MBIMCore != nil {
-		if err := w.EnsureMBIMRegistration(context.Background(), true); err != nil {
+		if err := w.EnsureMBIMRegistration(ctx, true); err != nil {
 			return err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return nc.Connect()
 }

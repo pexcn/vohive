@@ -133,6 +133,9 @@ func (p *Pool) prepareVoWiFiStartContext(deviceID, traceID, runtimeEPDGOverride 
 		return startCtx, fmt.Errorf("设备 %s 不存在", deviceID)
 	}
 	startCtx.worker = w
+	if err := w.stopCellularRegistration(p.Context()); err != nil {
+		return startCtx, fmt.Errorf("等待后台驻网退出失败: %w", err)
+	}
 
 	modemIface, errModemIface := newVoWiFiModemInterface(w, deviceID)
 	if errModemIface != nil {
