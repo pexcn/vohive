@@ -2,6 +2,7 @@ package vowifihost
 
 import (
 	"context"
+	"sync"
 
 	"github.com/iniwex5/vowifi-go/runtimehost"
 	"github.com/iniwex5/vowifi-go/runtimehost/eventhost"
@@ -10,10 +11,12 @@ import (
 )
 
 type Manager struct {
-	runtimeStore RuntimeStore
-	stateHub     *StateHub
-	recoverStore *DesiredRecoverStore
-	lifecycle    *LifecycleController
+	cleanupMu     sync.Mutex
+	failedCleanup map[string]*retainedCleanup
+	runtimeStore  RuntimeStore
+	stateHub      *StateHub
+	recoverStore  *DesiredRecoverStore
+	lifecycle     *LifecycleController
 	runtimeStart  runtimeStartFunc
 	adapter       Adapter
 	voiceGateway  *voicehost.Gateway

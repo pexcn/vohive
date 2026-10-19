@@ -145,6 +145,7 @@ func (a httpClientAdapter) Do(req *runtimee911.HTTPRequest) (*runtimee911.HTTPRe
 		client = runtimee911.NewDefaultHTTPClient()
 	}
 	resp, err := client.Do(&runtimee911.HTTPRequest{
+		Context: req.Context,
 		Method:  req.Method,
 		URL:     req.URL,
 		Headers: headers,
@@ -160,6 +161,7 @@ func (a httpClientAdapter) Do(req *runtimee911.HTTPRequest) (*runtimee911.HTTPRe
 	body := append([]byte(nil), resp.Body...)
 	return &runtimee911.HTTPResponse{
 		StatusCode: resp.StatusCode,
+		Headers:    append([]runtimee911.HeaderPair(nil), resp.Headers...),
 		Body:       body,
 	}, nil
 }

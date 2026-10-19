@@ -2,6 +2,7 @@ package vowifihost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -79,6 +80,9 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if err := m.retryCleanup(ctx, deviceID); err != nil {
+		return RuntimeStartResult{}, fmt.Errorf("previous VoWiFi startup cleanup remains incomplete: %w", err)
+	}
 
 	prepared := req.Prepared.Prepared
 	profile := prepared.Profile
@@ -110,6 +114,13 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 		},
 	})
 	if err != nil {
+		if inst != nil {
+			m.retainCleanup(deviceID, inst)
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			cleanupErr := m.retryCleanup(cleanupCtx, deviceID)
+			cancel()
+			return RuntimeStartResult{Instance: inst}, errors.Join(err, cleanupErr)
+		}
 		return RuntimeStartResult{}, err
 	}
 

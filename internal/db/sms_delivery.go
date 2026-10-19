@@ -134,16 +134,23 @@ func UpsertSMSDeliveryPart(messageID string, partNo int, callID string, rpMR int
 		CreatedAt: sentAt,
 		UpdatedAt: sentAt,
 	}
-	return DB.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "message_id"}, {Name: "part_no"}},
-		DoUpdates: clause.Assignments(map[string]any{
-			"call_id":    part.CallID,
-			"rp_mr":      part.RPMR,
-			"state":      part.State,
-			"sent_at":    part.SentAt,
-			"updated_at": sentAt,
-		}),
-	}).Create(&part).Error
+	// The deployed schema has a non-unique (message_id, part_no) index, so
+	// SQLite cannot use ON CONFLICT on these columns. The database's single
+	// connection serializes this transaction for both existing and fresh DBs.
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var existing SMSDeliveryPart
+		err := tx.Select("id").Where("message_id = ? AND part_no = ?", messageID, partNo).First(&existing).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return tx.Create(&part).Error
+		}
+		if err != nil {
+			return err
+		}
+		return tx.Model(&SMSDeliveryPart{}).Where("id = ?", existing.ID).Updates(map[string]any{
+			"call_id": part.CallID, "rp_mr": part.RPMR, "state": part.State,
+			"sent_at": part.SentAt, "updated_at": sentAt,
+		}).Error
+	})
 }
 
 func MarkSMSDeliveryPartReport(inReplyTo, callID, deviceID string, rpMR int, state string, sipCode int, rpCause int, errText string, at time.Time) (SMSDeliveryPart, error) {
@@ -238,13 +245,13 @@ func RecomputeSMSDelivery(messageID string, at time.Time) error {
 		at = time.Now()
 	}
 
-	var total int64
-	if err := DB.Model(&SMSDeliveryPart{}).Where("message_id = ?", messageID).Count(&total).Error; err != nil {
+	var delivery SMSDelivery
+	if err := DB.Select("parts_total").Where("message_id = ?", messageID).First(&delivery).Error; err != nil {
 		return err
 	}
-	if total == 0 {
-		return nil
-	}
+	// Rows arrive as multipart submissions are transmitted. A report for the
+	// first persisted part cannot acknowledge parts not yet sent/persisted.
+	expected := int64(delivery.PartsTotal)
 	var acked int64
 	if err := DB.Model(&SMSDeliveryPart{}).Where("message_id = ? AND state = ?", messageID, SMSDeliveryPartStateAcked).Count(&acked).Error; err != nil {
 		return err
@@ -260,7 +267,7 @@ func RecomputeSMSDelivery(messageID string, at time.Time) error {
 		state = SMSDeliveryStateFailed
 		lastError = strings.TrimSpace(failedPart.ErrorText)
 	} else if errors.Is(failErr, gorm.ErrRecordNotFound) {
-		if acked == total {
+		if expected > 0 && acked == expected {
 			state = SMSDeliveryStateAcked
 		} else if acked > 0 {
 			state = SMSDeliveryStatePartialAck

@@ -27,11 +27,6 @@ func (m *Manager) StopInstanceForTeardown(ctx context.Context, deviceID, reason 
 	if reason == "" {
 		reason = "teardown"
 	}
-	inst := m.RuntimeStore().Instance(deviceID)
-	if inst == nil {
-		return false
-	}
-
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -41,7 +36,16 @@ func (m *Manager) StopInstanceForTeardown(ctx context.Context, deviceID, reason 
 		stopCtx, cancel = context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 	}
+	if err := m.retryCleanup(stopCtx, deviceID); err != nil {
+		logger.Warn("VoWiFi 启动失败后的资源仍未清理", "device", deviceID, "err", err)
+		return false
+	}
+	inst := m.RuntimeStore().Instance(deviceID)
+	if inst == nil {
+		return false
+	}
 	if err := inst.Stop(stopCtx); err != nil {
+		m.retainCleanup(deviceID, inst)
 		logger.Warn("VoWiFi teardown 失败", "device", deviceID, "reason", reason, "err", err)
 	}
 	m.RuntimeStore().DeleteInstance(deviceID, inst)
