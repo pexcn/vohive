@@ -267,6 +267,7 @@ func (s *Server) newRouter() *gin.Engine {
 		api.GET("/traffic/analysis", s.handleTrafficAnalysis)       // 流量分析统计
 
 		// ===== 短信 =====
+		s.registerVoiceControlRoutes(api)
 		api.POST("/sms/queue", s.handleQueueSMS)
 		api.GET("/sms/queue/:queue_id", s.handleSMSQueueStatus)
 		api.POST("/sms/send", s.handleSendSMS)                    // 发送短信（自动选择 AT 或 VoWiFi）
