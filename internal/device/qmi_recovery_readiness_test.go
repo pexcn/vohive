@@ -19,6 +19,34 @@ func TestQMIConvergenceShouldEscalate(t *testing.T) {
 	}
 }
 
+func TestQMIConvergenceEscalationRespectsRebuildGuard(t *testing.T) {
+	for _, reason := range []string{"convergence_transport_down", "convergence_timeout"} {
+		t.Run(reason, func(t *testing.T) {
+			p := NewPool(&config.Config{})
+			defer p.cancel()
+			w := &Worker{ID: "dev-1", generation: 1, stop: make(chan struct{})}
+			p.workers[w.ID] = w
+			p.transportRecovery.SetWorkerGeneration(w.ID, w.generation)
+			for i := 0; i < rebuildMaxInWindow; i++ {
+				if !p.transportRecovery.AllowRebuild(w.ID) {
+					t.Fatalf("pre-fill attempt %d should be allowed", i+1)
+				}
+			}
+
+			err := errors.New("identity convergence failed")
+			defaultConvergeEscalate(p, w, reason, err)
+
+			snapshot := w.HealthSnapshot()
+			if snapshot.State != HealthStateFailed || snapshot.EventType != "transport_recovery_giveup" {
+				t.Fatalf("health snapshot = %+v, want rebuild guard refusal", snapshot)
+			}
+			if snapshot.Reason != reason || snapshot.Error != err.Error() {
+				t.Fatalf("health snapshot lost convergence failure details: %+v", snapshot)
+			}
+		})
+	}
+}
+
 func TestConvergeQMIIdentityEscalatesOnPersistentTransportDown(t *testing.T) {
 	origRefresh := convergeIdentityRefreshFn
 	origEscalate := convergeEscalateFn

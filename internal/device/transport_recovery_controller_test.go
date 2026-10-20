@@ -151,18 +151,27 @@ func TestAllowRebuildSlidingWindow(t *testing.T) {
 	}
 }
 
-func TestAllowRebuildResetOnGenerationChange(t *testing.T) {
+func TestAllowRebuildPreservesBudgetAcrossGenerations(t *testing.T) {
 	c := NewTransportRecoveryController(nil)
 	now := time.Now()
 	dev := "dev-2"
 	for i := 0; i < rebuildMaxInWindow; i++ {
-		c.allowRebuildAt(dev, now)
+		c.SetWorkerGeneration(dev, uint64(i+1))
+		if !c.allowRebuildAt(dev, now) {
+			t.Fatalf("attempt %d should be allowed", i+1)
+		}
 	}
 	if c.allowRebuildAt(dev, now) {
 		t.Fatal("should be capped before generation change")
 	}
 	c.SetWorkerGeneration(dev, 42)
-	if !c.allowRebuildAt(dev, now) {
-		t.Fatal("generation change should clear the rebuild window")
+	if c.allowRebuildAt(dev, now) {
+		t.Fatal("generation change must not clear the rebuild window")
+	}
+	if !c.allowRebuildAt("other-device", now) {
+		t.Fatal("one device's rebuild budget must not block another device")
+	}
+	if !c.allowRebuildAt(dev, now.Add(rebuildWindow)) {
+		t.Fatal("rebuild should be allowed when previous attempts leave the window")
 	}
 }
