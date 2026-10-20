@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/iniwex5/vohive/pkg/logger"
+	"github.com/iniwex5/vowifi-go/runtimehost"
 )
 
 const defaultDesiredRecoverReason = "desired_reconcile"
@@ -33,7 +34,16 @@ func (m *Manager) DesiredRecoverable(deviceID string) bool {
 		return false
 	}
 	store := m.RuntimeStore()
-	return !store.Active(deviceID) && !store.Starting(deviceID)
+	if store.Starting(deviceID) {
+		return false
+	}
+	if inst := store.Instance(deviceID); inst != nil {
+		// An IMS registration recovery still owns a live tunnel. Only terminal
+		// instances may be replaced, after serialized lifecycle cleanup.
+		phase := inst.State().Phase
+		return phase == runtimehost.PhaseFailed || phase == runtimehost.PhaseStopped
+	}
+	return true
 }
 
 func (m *Manager) ScheduleDesiredRecover(ctx context.Context, req DesiredRecoverRequest) bool {

@@ -249,6 +249,12 @@ func (m *Manager) recoverRuntime(ctx context.Context, deviceID, reason string, g
 		return nil
 	}
 	_ = m.TeardownSession(ctx, deviceID, TeardownOptions{Reason: reason, RestoreSMS: true})
+	if err := m.retryCleanup(ctx, deviceID); err != nil {
+		return fmt.Errorf("VoWiFi recovery cleanup remains incomplete: %w", err)
+	}
+	if m.RuntimeStore().Instance(deviceID) != nil {
+		return fmt.Errorf("VoWiFi runtime still owned during recovery")
+	}
 	if err := m.enableWhenReady(ctx, deviceID, lifecycleReadyTimeout, reason, overrideEPDG, generation); err != nil {
 		return fmt.Errorf("恢复 VoWiFi 失败(%s): %w", reason, err)
 	}
