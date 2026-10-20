@@ -806,16 +806,20 @@ async function reconnectVoWiFi() {
   if (!confirmed) return
 
   reconnectingVoWiFi.value = true
+  const progressMessage = ElMessage.info({
+    message: '正在重启 VoWiFi 服务，请稍候...',
+    duration: 0
+  })
   try {
     const result = await devicesService.reconnectVoWiFi(id)
     if (!result.ok) throw new Error(result.error.message || '重连请求失败')
-    ElMessage.success('已触发重连指令，VoWiFi 服务正在重启...')
     void refreshDeviceViews().catch(() => {})
     scheduleRefreshDeviceViews(4000)
   } catch (e: unknown) {
     const err = toAppError(e)
     ElMessage.error(err.message || '重连命令下发失败')
   } finally {
+    progressMessage.close()
     reconnectingVoWiFi.value = false
   }
 }
