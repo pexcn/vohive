@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { useSMSStore } from '../stores/sms'
 import { usePollingScheduler } from '../composables/usePollingScheduler'
+import { useSmsThreadReadState } from '../composables/useSmsThreadReadState'
 import { toAppError } from '../services/http'
 import type { SmsThreadQueryParams } from '../services/sms'
 import PageHeader from '../components/PageHeader.vue'
@@ -34,6 +35,7 @@ type SmsThread = {
 const route = useRoute()
 const router = useRouter()
 const smsStore = useSMSStore()
+const { getLastSeen, setLastSeen } = useSmsThreadReadState()
 
 const devices = ref<DeviceMgmtListItem[]>([])
 const devicesLastOkAt = ref<number | null>(null)
@@ -70,27 +72,6 @@ function dateKey(ms: number) {
   const t = new Date(ms)
   if (!Number.isFinite(t.getTime())) return '未知日期'
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
-}
-
-function lastSeenKey(threadKey: string) {
-  return `sms_thread_last_seen:${selectedDevice.value}:${threadKey}`
-}
-
-function getLastSeen(threadKey: string) {
-  try {
-    const v = localStorage.getItem(lastSeenKey(threadKey))
-    return v ? Number(v) || 0 : 0
-  } catch {
-    return 0
-  }
-}
-
-function setLastSeen(threadKey: string, ts: number) {
-  try {
-    localStorage.setItem(lastSeenKey(threadKey), String(ts || Date.now()))
-  } catch {
-    // Ignore storage write failures in private/sandboxed modes.
-  }
 }
 
 const filteredThreads = computed(() => {
