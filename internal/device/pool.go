@@ -1181,6 +1181,14 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 	}
 
 	if worker.Config.NetworkEnabled {
+		if !worker.autoConnectDataAllowed() {
+			if worker.MBIMCore != nil {
+				worker.StartMBIMRegistrationReconcile(p.ctx, "manual_data_only")
+			} else if worker.QMICore != nil {
+				worker.StartQMIRegistrationReconcile(p.ctx, "manual_data_only")
+			}
+			return nil
+		}
 		if worker.MBIMCore != nil {
 			if err := worker.EnsureMBIMRegistration(p.ctx, true); err != nil {
 				return err
@@ -1198,7 +1206,7 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 			p.refreshIPs(worker, true)
 			return nil
 		}
-		if err := worker.StartNetwork(); err != nil {
+		if err := worker.startNetwork(p.ctx); err != nil {
 			return err
 		}
 		p.refreshIPs(worker, true)
@@ -2019,10 +2027,28 @@ func (w *Worker) Rotate() (oldIP, newIP string, err error) {
 }
 
 func (w *Worker) StartNetwork() error {
-	return w.startNetwork(context.Background())
+	return w.connectNetwork(context.Background())
 }
 
+func (w *Worker) autoConnectDataAllowed() bool {
+	if w == nil {
+		return false
+	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
+	return w.Config.AutoConnectData
+}
+
+// startNetwork is for background policy/recovery; only StartNetwork authorizes
+// a manual connection without the explicit background-data opt-in.
 func (w *Worker) startNetwork(ctx context.Context) error {
+	if !w.autoConnectDataAllowed() {
+		return nil
+	}
+	return w.connectNetwork(ctx)
+}
+
+func (w *Worker) connectNetwork(ctx context.Context) error {
 	nc := w.NetworkController()
 	if w == nil || nc == nil {
 		return fmt.Errorf("network_not_available")

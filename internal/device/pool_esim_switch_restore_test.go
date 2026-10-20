@@ -1065,6 +1065,7 @@ func TestHandleESIMSwitchAfterRestoresCurrentCardPolicy(t *testing.T) {
 				ID: "dev-1", Pool: p, Backend: be, Config: tt.before,
 				netOverride: controller,
 			}
+			w.Config.AutoConnectData = true
 			w.Config.ESIMSwitch.RadioCycle = tt.radioCycle
 			p.workers[w.ID] = w
 			snapshot := tt.snapshot

@@ -67,7 +67,7 @@ func (p *Pool) restoreNetworkAfterVoWiFiStartupFailure(traceID, deviceID string,
 		logger.Warn("恢复射频失败", "trace_id", traceID, "device", deviceID, "err", restoreErr)
 	}
 	time.Sleep(500 * time.Millisecond)
-	if connectErr := nc.Connect(); connectErr != nil {
+	if connectErr := w.startNetwork(p.ctx); connectErr != nil {
 		logger.Warn("恢复数据连接失败", "trace_id", traceID, "device", deviceID, "err", connectErr)
 	}
 }

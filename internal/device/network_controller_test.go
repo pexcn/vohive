@@ -153,3 +153,51 @@ func TestWorkerStartNetworkEnsuresMBIMRegistrationBeforeConnect(t *testing.T) {
 		t.Fatalf("events=%v want attach before connect", events)
 	}
 }
+
+func TestNetworkPreferenceRequiresBackgroundDataOptIn(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		p := NewPool(&config.Config{})
+		controller := &fakeController{}
+		w := &Worker{ID: "manual-data", Pool: p, netOverride: controller,
+			Config: config.DeviceConfig{NetworkEnabled: true, AutoConnectData: enabled}}
+		if err := p.applyNetworkPreference(w); err != nil {
+			t.Fatal(err)
+		}
+		if controller.connected != enabled {
+			t.Fatalf("opt-in %v: connected=%v", enabled, controller.connected)
+		}
+		p.cancel()
+	}
+}
+
+func TestSwitchSnapshotDoesNotAuthorizeBackgroundData(t *testing.T) {
+	p := NewPool(&config.Config{})
+	defer p.cancel()
+	controller := &fakeController{}
+	w := &Worker{ID: "manual-data", Pool: p, netOverride: controller,
+		Config: config.DeviceConfig{NetworkEnabled: true}}
+	if err := p.applyNetworkPreferenceForSwitchSnapshot(w, esimSwitchContext{QMIConnectedBefore: true, NetworkEnabledBefore: true}); err != nil {
+		t.Fatal(err)
+	}
+	if controller.connected {
+		t.Fatal("old card connection authorized automatic data on the new card")
+	}
+	if err := w.startNetwork(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if controller.connected {
+		t.Fatal("background recovery activated data")
+	}
+	if err := w.StartNetwork(); err != nil {
+		t.Fatal(err)
+	}
+	if !controller.connected {
+		t.Fatal("explicit manual connection was blocked")
+	}
+	if err := p.applyNetworkPreference(w); err != nil {
+		t.Fatal(err)
+	}
+	if !controller.connected {
+		t.Fatal("policy disconnected an explicitly started connection")
+	}
+}

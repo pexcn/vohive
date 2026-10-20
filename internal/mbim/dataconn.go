@@ -38,11 +38,12 @@ const (
 )
 
 type DataConfig struct {
-	APN       string
-	Interface string
-	IPVersion string
-	Username  string
-	Password  string
+	AutoReconnect bool
+	APN           string
+	Interface     string
+	IPVersion     string
+	Username      string
+	Password      string
 }
 
 func ipTypeFromVersion(v string) uint32 {
@@ -357,7 +358,7 @@ func (m *Manager) handleConnectIndication(st mbim.ConnectState) {
 		return
 	}
 	m.mu.Lock()
-	desired := m.desiredConnection
+	desired := m.desiredConnection && m.dataCfg.AutoReconnect
 	m.connected = false
 	m.mu.Unlock()
 	if !desired {
@@ -374,7 +375,7 @@ func (m *Manager) reconnectWithBackoff() {
 	backoff := time.Second
 	for attempt := 0; attempt < 6; attempt++ {
 		m.mu.Lock()
-		desired := m.desiredConnection
+		desired := m.desiredConnection && m.dataCfg.AutoReconnect
 		m.mu.Unlock()
 		if !desired {
 			return

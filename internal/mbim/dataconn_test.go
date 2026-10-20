@@ -325,7 +325,7 @@ func TestUnexpectedDeactivationTriggersReconnect(t *testing.T) {
 	tr := mbim.NewFakeTransport(mbim.TestAnswerConnectAndIPv4Config)
 	m := New("/dev/cdc-wdm0", "auto")
 	m.netcfg = &fakeNetcfg{}
-	m.SetDataConfig(DataConfig{APN: "internet", Interface: "wwan0", IPVersion: "v4"})
+	m.SetDataConfig(DataConfig{APN: "internet", Interface: "wwan0", IPVersion: "v4", AutoReconnect: true})
 	if err := m.openWithTransport(context.Background(), tr); err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -442,5 +442,26 @@ func TestConnectFailsWhenNotRegistered(t *testing.T) {
 	}
 	if elapsed > 1*time.Second {
 		t.Fatalf("Connect took %v, want < 1s with registrationTimeout=100ms", elapsed)
+	}
+}
+
+func TestUnexpectedDeactivationDoesNotReconnectWithoutOptIn(t *testing.T) {
+	tr := mbim.NewFakeTransport(mbim.TestAnswerConnectAndIPv4Config)
+	m := New("/dev/cdc-wdm0", "auto")
+	m.netcfg = &fakeNetcfg{}
+	m.SetDataConfig(DataConfig{APN: "internet", Interface: "wwan0", IPVersion: "v4"})
+	if err := m.openWithTransport(context.Background(), tr); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	if err := m.Connect(); err != nil {
+		t.Fatal(err)
+	}
+	m.handleConnectIndication(mbim.ConnectState{ActivationState: mbim.ActivationStateDeactivated})
+	// Also exercise the retry entry point directly: disabled automatic data
+	// must not activate even if an earlier connection was desired.
+	m.reconnectWithBackoff()
+	if m.IsConnected() {
+		t.Fatal("unexpected automatic data reconnection")
 	}
 }

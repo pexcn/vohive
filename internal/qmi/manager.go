@@ -234,7 +234,7 @@ func summarizeQMIEvent(event qmimanager.Event) qmiEventSummary {
 		}
 		return qmiEventSummary{
 			Level:   qmiEventLogWarn,
-			Message: "QMI 拨号失败",
+			Message: "QMI 蜂窝数据连接失败",
 			Fields:  fields,
 		}
 	case qmimanager.EventReconnecting:
@@ -845,7 +845,7 @@ func buildQMIManagerConfig(cfg config.DeviceConfig, device qmimanager.ModemDevic
 		APN:             cfg.APN,
 		EnableIPv4:      enableV4,
 		EnableIPv6:      enableV6,
-		AutoReconnect:   true,
+		AutoReconnect:   cfg.AutoConnectData,
 		NoRoute:         false,         // 关键: 允许添加默认路由 (但在底层库中设置了高 Metric=512)
 		NoDNS:           true,          // 关键: 不修改系统 DNS
 		DisableWMSInd:   !isQMIBackend, // 如果是纯 QMI 模式，解禁 QMI WMS 以支持接收短信；否则（AT或Auto）禁用，以防与 AT URC 冲突

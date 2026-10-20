@@ -28,3 +28,12 @@ func TestBuildQMIManagerConfigIPFamily(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildQMIManagerConfigRequiresReconnectOptIn(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		out := buildQMIManagerConfig(config.DeviceConfig{AutoConnectData: enabled}, qmimanager.ModemDevice{})
+		if !out.NoDial || out.AutoReconnect != enabled {
+			t.Fatalf("opt-in %v: NoDial=%v AutoReconnect=%v", enabled, out.NoDial, out.AutoReconnect)
+		}
+	}
+}

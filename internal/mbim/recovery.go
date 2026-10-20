@@ -94,7 +94,7 @@ func (m *Manager) runRecovery(reason string) {
 // data session if one was desired.
 func (m *Manager) doReopen(ctx context.Context) error {
 	m.mu.Lock()
-	wantData := m.desiredConnection
+	wantData := m.desiredConnection && m.dataCfg.AutoReconnect
 	m.mu.Unlock()
 
 	_ = m.Close()

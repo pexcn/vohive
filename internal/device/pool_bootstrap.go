@@ -383,7 +383,7 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 	var mbimSource backend.MBIMSource
 	if isMBIMRequired {
 		mbimCore = mbimcore.New(devCfg.ControlDevice, config.NormalizeMBIMTransport(devCfg.MBIMTransport))
-		mbimCore.SetDataConfig(mbimcore.DataConfig{APN: devCfg.APN, Interface: devCfg.Interface, IPVersion: devCfg.IPVersion})
+		mbimCore.SetDataConfig(mbimcore.DataConfig{APN: devCfg.APN, Interface: devCfg.Interface, IPVersion: devCfg.IPVersion, AutoReconnect: devCfg.AutoConnectData})
 		if err := mbimCore.Open(p.ctx); err != nil {
 			m.Stop()
 			return nil, fmt.Errorf("MBIM 控制通道打开失败: %w", err)
