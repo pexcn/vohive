@@ -293,3 +293,32 @@ func TestVoWiFiRuntimeDispatcherSkipsDuplicateReceivedNotification(t *testing.T)
 		t.Fatalf("received sms count=%d want 1", count)
 	}
 }
+
+func TestVoWiFiSMSHistoryKeepsSessionSubscription(t *testing.T) {
+	initDevicePhoneNumberTestDB(t)
+	p := NewPool(nil)
+	p.workers["dev"] = &Worker{ID: "dev", Backend: &workerPhoneBackendStub{imsi: "sim-new"}}
+	recorder := vowifiSMSHistoryRecorder{pool: p}
+	if _, err := recorder.RecordReceived(eventhost.SMSReceived{DevID: "dev", IMSI: "sim-old", Sender: "1234", Content: "late SMS", Time: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorder.RecordSent(eventhost.SMSSent{DevID: "dev", IMSI: "sim-old", TargetURI: "1234", Content: "late send", Time: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	// Persisted callbacks notify without reinserting previously committed history.
+	if _, err := recorder.RecordReceived(eventhost.SMSReceived{DevID: "dev", IMSI: "sim-old", Persisted: true, Sender: "1234", Content: "already saved", Time: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	var rows []db.SMS
+	if err := db.DB.Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("history duplicated: %+v", rows)
+	}
+	for _, s := range rows {
+		if s.IMSI != "sim-old" {
+			t.Fatalf("SMS attributed to switched SIM: %+v", s)
+		}
+	}
+}

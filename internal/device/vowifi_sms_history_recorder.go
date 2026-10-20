@@ -21,8 +21,8 @@ type vowifiSMSRecordResult struct {
 	Suppressed bool
 }
 
-func RecordVoWiFiSMSSendFailure(p *Pool, deviceID, target, content string, at time.Time) error {
-	return vowifiSMSHistoryRecorder{pool: p}.RecordSendFailure(deviceID, target, content, at)
+func RecordVoWiFiSMSSendFailure(p *Pool, deviceID, target, content string, at time.Time, imsi ...string) error {
+	return vowifiSMSHistoryRecorder{pool: p}.RecordSendFailure(deviceID, target, content, at, imsi...)
 }
 
 func (r vowifiSMSHistoryRecorder) resolveIMSI(devID, fallbackIMSI string) string {
@@ -70,7 +70,10 @@ func (r vowifiSMSHistoryRecorder) RecordReceived(e eventhost.SMSReceived) (vowif
 	if smsnotify.ShouldSuppressReceivedSMS(e.Content) {
 		return vowifiSMSRecordResult{Suppressed: true}, nil
 	}
-	imsi := r.resolveIMSI(e.DevID, "")
+	if e.Persisted {
+		return vowifiSMSRecordResult{Stored: true}, nil
+	}
+	imsi := r.resolveIMSI(e.DevID, e.IMSI)
 	if imsi == "" {
 		return vowifiSMSRecordResult{}, nil
 	}
@@ -93,7 +96,7 @@ func (r vowifiSMSHistoryRecorder) RecordReceived(e eventhost.SMSReceived) (vowif
 }
 
 func (r vowifiSMSHistoryRecorder) RecordSent(e eventhost.SMSSent) error {
-	imsi := r.resolveIMSI(e.DevID, "")
+	imsi := r.resolveIMSI(e.DevID, e.IMSI)
 	if imsi == "" {
 		return nil
 	}
@@ -101,8 +104,12 @@ func (r vowifiSMSHistoryRecorder) RecordSent(e eventhost.SMSSent) error {
 	return db.SaveSMSWithLocalPhone(imsi, localPhone, localPhone, strings.TrimSpace(e.TargetURI), e.Content, 2, 2, r.eventTime(e.Time))
 }
 
-func (r vowifiSMSHistoryRecorder) RecordSendFailure(devID, target, content string, at time.Time) error {
-	imsi := r.resolveIMSI(devID, "")
+func (r vowifiSMSHistoryRecorder) RecordSendFailure(devID, target, content string, at time.Time, subscription ...string) error {
+	fallback := ""
+	if len(subscription) > 0 {
+		fallback = subscription[0]
+	}
+	imsi := r.resolveIMSI(devID, fallback)
 	if imsi == "" {
 		return nil
 	}

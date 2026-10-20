@@ -29,6 +29,7 @@ import (
 	proxytraffic "github.com/iniwex5/vohive/internal/proxy/traffic"
 	vwebsheet "github.com/iniwex5/vohive/internal/websheet"
 	"github.com/iniwex5/vohive/pkg/smscodec"
+	"github.com/iniwex5/vowifi-go/runtimehost/messaging"
 	"github.com/iniwex5/vowifi-go/runtimehost/voicehost"
 
 	"github.com/iniwex5/vohive/pkg/logger"
@@ -1042,10 +1043,22 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 		}
 		messageID = strings.TrimSpace(outcome.MessageID)
 		if err != nil {
-			_ = device.RecordVoWiFiSMSSendFailure(s.pool, deviceID, req.Phone, req.Message, time.Now())
+			msg := "VoWiFi 短信发送失败: " + err.Error()
+			if messageID != "" && outcome.State != "failed" {
+				msg = "VoWiFi 短信发送流程未完成，请查询投递状态，避免重复发送: " + err.Error()
+				if errors.Is(err, messaging.ErrSendOutcomeUnknown) {
+					msg = "VoWiFi 短信发送结果未知，请查询投递状态，避免重复发送: " + err.Error()
+				}
+			} else {
+				failureIMSI := imsi
+				if saved, getErr := device.GetVoWiFiSMSDeliveryStatus(messageID); getErr == nil && saved.IMSI != "" {
+					failureIMSI = saved.IMSI
+				}
+				_ = device.RecordVoWiFiSMSSendFailure(s.pool, deviceID, req.Phone, req.Message, time.Now(), failureIMSI)
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"status":         "error",
-				"message":        "VoWiFi 短信发送失败: " + err.Error(),
+				"message":        msg,
 				"device":         deviceID,
 				"phone":          req.Phone,
 				"message_id":     messageID,
@@ -1092,23 +1105,16 @@ func (s *Server) handleSMSDelivery(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "message_id 不能为空"})
 		return
 	}
-	if s.pool == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "message": "服务未就绪"})
+	delivery, err := device.GetVoWiFiSMSDeliveryStatus(messageID)
+	if errors.Is(err, messaging.ErrDeliveryNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "未找到对应短信投递记录"})
 		return
 	}
-	services := s.pool.GetAllVoWiFiApps()
-	for _, svc := range services {
-		if svc == nil {
-			continue
-		}
-		status, err := svc.GetSMSDeliveryStatus(messageID)
-		if err != nil {
-			continue
-		}
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "delivery": status})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "查询短信投递记录失败"})
 		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "未找到对应短信投递记录"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "delivery": delivery})
 }
 
 // handleVoWiFiEnable 为指定设备启用 VoWiFi

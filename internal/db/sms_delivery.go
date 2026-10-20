@@ -25,57 +25,66 @@ const (
 
 // SMSDelivery 记录一条上行短信(message 级别)的发送追踪状态。
 type SMSDelivery struct {
-	MessageID  string    `gorm:"column:message_id;primaryKey" json:"message_id"`
-	IMSI       string    `gorm:"column:imsi;index" json:"imsi"`
-	ICCID      string    `gorm:"column:iccid;index" json:"iccid"`
-	DeviceID   string    `gorm:"column:device_id;index" json:"device_id"`
-	Peer       string    `gorm:"column:peer;index" json:"peer"`
-	Content    string    `gorm:"column:content" json:"content"`
-	PartsTotal int       `gorm:"column:parts_total" json:"parts_total"`
-	Acks       int       `gorm:"column:acks" json:"acks"`
-	State      string    `gorm:"column:state;index" json:"state"`
-	LastError  string    `gorm:"column:last_error" json:"last_error"`
-	CreatedAt  time.Time `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt  time.Time `gorm:"column:updated_at" json:"updated_at"`
+	DeliveryState string    `json:"delivery_state"`
+	Delivered     int       `json:"delivered"`
+	MessageID     string    `gorm:"column:message_id;primaryKey" json:"message_id"`
+	IMSI          string    `gorm:"column:imsi;index" json:"imsi"`
+	ICCID         string    `gorm:"column:iccid;index" json:"iccid"`
+	DeviceID      string    `gorm:"column:device_id;index" json:"device_id"`
+	Peer          string    `gorm:"column:peer;index" json:"peer"`
+	Content       string    `gorm:"column:content" json:"content"`
+	PartsTotal    int       `gorm:"column:parts_total" json:"parts_total"`
+	Acks          int       `gorm:"column:acks" json:"acks"`
+	State         string    `gorm:"column:state;index" json:"state"`
+	LastError     string    `gorm:"column:last_error" json:"last_error"`
+	CreatedAt     time.Time `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt     time.Time `gorm:"column:updated_at" json:"updated_at"`
 }
 
 func (SMSDelivery) TableName() string { return "sms_delivery" }
 
 // SMSDeliveryPart 记录一条上行短信分片(part 级别)的发送与回执状态。
 type SMSDeliveryPart struct {
-	ID        uint       `gorm:"primaryKey" json:"id"`
-	MessageID string     `gorm:"column:message_id;index:idx_sms_delivery_part_mid_no,priority:1;index" json:"message_id"`
-	PartNo    int        `gorm:"column:part_no;index:idx_sms_delivery_part_mid_no,priority:2" json:"part_no"`
-	CallID    string     `gorm:"column:call_id;index" json:"call_id"`
-	InReplyTo string     `gorm:"column:in_reply_to;index" json:"in_reply_to"`
-	RPMR      int        `gorm:"column:rp_mr;index" json:"rp_mr"`
-	State     string     `gorm:"column:state;index" json:"state"`
-	SIPCode   int        `gorm:"column:sip_code" json:"sip_code"`
-	RPCause   int        `gorm:"column:rp_cause" json:"rp_cause"`
-	ErrorText string     `gorm:"column:error_text" json:"error_text"`
-	SentAt    time.Time  `gorm:"column:sent_at;index" json:"sent_at"`
-	ReportAt  *time.Time `gorm:"column:report_at;index" json:"report_at,omitempty"`
-	CreatedAt time.Time  `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt time.Time  `gorm:"column:updated_at" json:"updated_at"`
+	TPMR              *int       `gorm:"column:tp_mr;index" json:"tp_mr,omitempty"`
+	TPState           string     `gorm:"column:tp_state" json:"tp_state,omitempty"`
+	TPStatus          *int       `gorm:"column:tp_status" json:"tp_status,omitempty"`
+	ServiceCentreTime *time.Time `gorm:"column:service_centre_time" json:"service_centre_time,omitempty"`
+	DischargeTime     *time.Time `gorm:"column:discharge_time" json:"discharge_time,omitempty"`
+	ID                uint       `gorm:"primaryKey" json:"id"`
+	MessageID         string     `gorm:"column:message_id;index:idx_sms_delivery_part_mid_no,priority:1;index" json:"message_id"`
+	PartNo            int        `gorm:"column:part_no;index:idx_sms_delivery_part_mid_no,priority:2" json:"part_no"`
+	CallID            string     `gorm:"column:call_id;index" json:"call_id"`
+	InReplyTo         string     `gorm:"column:in_reply_to;index" json:"in_reply_to"`
+	RPMR              int        `gorm:"column:rp_mr;index" json:"rp_mr"`
+	State             string     `gorm:"column:state;index" json:"state"`
+	SIPCode           int        `gorm:"column:sip_code" json:"sip_code"`
+	RPCause           int        `gorm:"column:rp_cause" json:"rp_cause"`
+	ErrorText         string     `gorm:"column:error_text" json:"error_text"`
+	SentAt            time.Time  `gorm:"column:sent_at;index" json:"sent_at"`
+	ReportAt          *time.Time `gorm:"column:report_at;index" json:"report_at,omitempty"`
+	CreatedAt         time.Time  `gorm:"column:created_at" json:"created_at"`
+	UpdatedAt         time.Time  `gorm:"column:updated_at" json:"updated_at"`
 }
 
 func (SMSDeliveryPart) TableName() string { return "sms_delivery_part" }
 
 // SMSDeliveryStatus 用于 API 返回 message 及其分片状态。
 type SMSDeliveryStatus struct {
-	MessageID  string            `json:"message_id"`
-	IMSI       string            `json:"imsi"`
-	ICCID      string            `json:"iccid"`
-	DeviceID   string            `json:"device_id"`
-	Peer       string            `json:"peer"`
-	Content    string            `json:"content"`
-	PartsTotal int               `json:"parts_total"`
-	Acks       int               `json:"acks"`
-	State      string            `json:"state"`
-	LastError  string            `json:"last_error"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
-	Parts      []SMSDeliveryPart `json:"parts"`
+	DeliveryState string            `json:"delivery_state"`
+	Delivered     int               `json:"delivered"`
+	MessageID     string            `json:"message_id"`
+	IMSI          string            `json:"imsi"`
+	ICCID         string            `json:"iccid"`
+	DeviceID      string            `json:"device_id"`
+	Peer          string            `json:"peer"`
+	Content       string            `json:"content"`
+	PartsTotal    int               `json:"parts_total"`
+	Acks          int               `json:"acks"`
+	State         string            `json:"state"`
+	LastError     string            `json:"last_error"`
+	CreatedAt     time.Time         `json:"created_at"`
+	UpdatedAt     time.Time         `json:"updated_at"`
+	Parts         []SMSDeliveryPart `json:"parts"`
 }
 
 func CreateSMSDelivery(messageID, imsi, deviceID, peer, content string, partsTotal int, at time.Time) error {
@@ -245,43 +254,7 @@ func RecomputeSMSDelivery(messageID string, at time.Time) error {
 		at = time.Now()
 	}
 
-	var delivery SMSDelivery
-	if err := DB.Select("parts_total").Where("message_id = ?", messageID).First(&delivery).Error; err != nil {
-		return err
-	}
-	// Rows arrive as multipart submissions are transmitted. A report for the
-	// first persisted part cannot acknowledge parts not yet sent/persisted.
-	expected := int64(delivery.PartsTotal)
-	var acked int64
-	if err := DB.Model(&SMSDeliveryPart{}).Where("message_id = ? AND state = ?", messageID, SMSDeliveryPartStateAcked).Count(&acked).Error; err != nil {
-		return err
-	}
-	var failedPart SMSDeliveryPart
-	failErr := DB.Model(&SMSDeliveryPart{}).
-		Where("message_id = ? AND state IN ?", messageID, []string{SMSDeliveryPartStateFailed, SMSDeliveryPartStateTimeout}).
-		Order("updated_at desc").
-		First(&failedPart).Error
-	state := SMSDeliveryStatePending
-	lastError := ""
-	if failErr == nil {
-		state = SMSDeliveryStateFailed
-		lastError = strings.TrimSpace(failedPart.ErrorText)
-	} else if errors.Is(failErr, gorm.ErrRecordNotFound) {
-		if expected > 0 && acked == expected {
-			state = SMSDeliveryStateAcked
-		} else if acked > 0 {
-			state = SMSDeliveryStatePartialAck
-		}
-	} else {
-		return failErr
-	}
-
-	return DB.Model(&SMSDelivery{}).Where("message_id = ?", messageID).Updates(map[string]any{
-		"acks":       int(acked),
-		"state":      state,
-		"last_error": lastError,
-		"updated_at": at,
-	}).Error
+	return DB.Transaction(func(tx *gorm.DB) error { return recomputeSMSDelivery(tx, messageID, at) })
 }
 
 func GetSMSDeliveryStatus(messageID string) (*SMSDeliveryStatus, error) {
@@ -301,19 +274,21 @@ func GetSMSDeliveryStatus(messageID string) (*SMSDeliveryStatus, error) {
 		return nil, err
 	}
 	out := &SMSDeliveryStatus{
-		MessageID:  delivery.MessageID,
-		IMSI:       delivery.IMSI,
-		ICCID:      delivery.ICCID,
-		DeviceID:   delivery.DeviceID,
-		Peer:       delivery.Peer,
-		Content:    delivery.Content,
-		PartsTotal: delivery.PartsTotal,
-		Acks:       delivery.Acks,
-		State:      delivery.State,
-		LastError:  delivery.LastError,
-		CreatedAt:  delivery.CreatedAt,
-		UpdatedAt:  delivery.UpdatedAt,
-		Parts:      parts,
+		DeliveryState: delivery.DeliveryState,
+		Delivered:     delivery.Delivered,
+		MessageID:     delivery.MessageID,
+		IMSI:          delivery.IMSI,
+		ICCID:         delivery.ICCID,
+		DeviceID:      delivery.DeviceID,
+		Peer:          delivery.Peer,
+		Content:       delivery.Content,
+		PartsTotal:    delivery.PartsTotal,
+		Acks:          delivery.Acks,
+		State:         delivery.State,
+		LastError:     delivery.LastError,
+		CreatedAt:     delivery.CreatedAt,
+		UpdatedAt:     delivery.UpdatedAt,
+		Parts:         parts,
 	}
 	return out, nil
 }
