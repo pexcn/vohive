@@ -32,6 +32,8 @@ func (a *startupFailureAdapter) HandleStartupError(req StartupErrorRequest) erro
 func TestStartupFailureRetainsRuntimeErrorClassAfterCleanup(t *testing.T) {
 	m := NewManager()
 	c := carrier.ResolveEffectiveCarrierConfig(carrier.EffectiveCarrierConfigInput{MCC: "530", MNC: "24"})
+	// GCM16/ECP is supported now; retain a deliberately unsupported suite.
+	c.Parameters.IKEProposals = []string{"aes128gcm8-prfsha256-modp2048"}
 	a := &startupFailureAdapter{prepared: PreparedStart{
 		Prepared: identity.PreparedSession{
 			Profile:          identity.Profile{IMSI: "530240000000001", MCC: "530", MNC: "24"},

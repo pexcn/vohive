@@ -11,6 +11,8 @@ import (
 )
 
 type Manager struct {
+	authMu        sync.Mutex
+	authContexts  map[string]authenticationContext
 	cleanupMu     sync.Mutex
 	failedCleanup map[string]*retainedCleanup
 	runtimeStore  RuntimeStore

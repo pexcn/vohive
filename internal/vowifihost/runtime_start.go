@@ -109,6 +109,8 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 		DeliveryStore: req.DeliveryStore,
 		Dispatch:      req.Dispatch,
 		BeforeStart:   req.BeforeStart,
+
+		AuthenticationContext: m.authenticationContext(deviceID, profile.IMSI),
 		ShouldRun: func() bool {
 			return ctx.Err() == nil && m.ShouldRun(deviceID, req.Epoch)
 		},

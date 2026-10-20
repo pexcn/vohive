@@ -72,6 +72,9 @@ func TestManagerStartRuntimeBuildsRequestAndClaimsInstance(t *testing.T) {
 	if captured.Mode != runtimehost.StartModeMain || captured.DeviceID != deviceID || captured.TraceID != "trace-1" {
 		t.Fatalf("captured request identity = mode %q device %q trace %q", captured.Mode, captured.DeviceID, captured.TraceID)
 	}
+	if captured.AuthenticationContext == nil {
+		t.Fatal("missing subscription authentication context")
+	}
 	if captured.SIM == nil || captured.Access == nil {
 		t.Fatal("captured request should include SIM and Access adapters")
 	}
