@@ -93,9 +93,7 @@ func (c *TransportRecoveryController) SetWorkerGeneration(deviceID string, gener
 		return
 	}
 	c.mu.Lock()
-	if c.workerGenerations[deviceID] != generation {
-		delete(c.rebuildTimes, deviceID)
-	}
+	// Rebuild budgets belong to the device and must survive worker replacement.
 	c.workerGenerations[deviceID] = generation
 	c.mu.Unlock()
 }

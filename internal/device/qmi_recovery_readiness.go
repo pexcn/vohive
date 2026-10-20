@@ -21,7 +21,7 @@ var convergeIdentityRefreshFn = func(p *Pool, w *Worker, reason string) error {
 var convergeEscalateFn func(*Pool, *Worker, string, error)
 
 func defaultConvergeEscalate(p *Pool, w *Worker, reason string, err error) {
-	p.handleTransportRecoveryExhausted(w, w.generation, HealthLayerQMI, reason, err)
+	p.maybeScheduleTransportRebuild(w, HealthLayerQMI, reason, err)
 }
 
 func qmiConvergenceShouldEscalate(transportFailureStreak, limit int) bool {
