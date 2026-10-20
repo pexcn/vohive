@@ -136,6 +136,8 @@ github.com/pexcn/vowifi-go v0.1.11 h1:G/k4BIzzCX+y+brP+iZe+IdrWcELoFLIqRO/NHMHoF
 github.com/pexcn/vowifi-go v0.1.11/go.mod h1:5HAZ9X9UpiAM1tXmc09gMQVGfsG3hkwVAJ22KKk57PA=
 github.com/pexcn/vowifi-go v0.1.12 h1:D8KRAGi4NBED9BQa0iy7bTbgSJkc1SNsKkG47hnCiQ8=
 github.com/pexcn/vowifi-go v0.1.12/go.mod h1:5HAZ9X9UpiAM1tXmc09gMQVGfsG3hkwVAJ22KKk57PA=
+github.com/pexcn/vowifi-go v0.1.14 h1:DHF8u1/KMVChwkROO0HkkuXAan1zxdX2DOgNDQfnHMg=
+github.com/pexcn/vowifi-go v0.1.14/go.mod h1:5HAZ9X9UpiAM1tXmc09gMQVGfsG3hkwVAJ22KKk57PA=
 github.com/pion/logging v0.2.4 h1:tTew+7cmQ+Mc1pTBLKH2puKsOvhm32dROumOZ655zB8=
 github.com/pion/logging v0.2.4/go.mod h1:DffhXTKYdNZU+KtJ5pyQDjvOAh/GsNSyv1lbkFbe3so=
 github.com/pion/randutil v0.1.0 h1:CFG1UdESneORglEsnimhUjf33Rwjubwj6xfiOXBa3mA=
