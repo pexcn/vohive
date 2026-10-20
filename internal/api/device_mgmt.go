@@ -620,30 +620,30 @@ func (s *Server) buildOverviewLiteItemFromWorkerWithModem(w *device.Worker, cfg 
 }
 
 type overviewStreamEmitVersion struct {
-	VoWiFiActive    bool
-	LifecyclePhase  string
-	LifecycleReason string
-	HasRuntime      bool
-	Phase           string
-	TunnelReady     bool
-	IMSReady        bool
-	SMSReady        bool
-	LastErrorClass  string
+	VoWiFiActive          bool
+	LifecyclePhase        string
+	LifecycleReason       string
+	ICCID                 string
+	IMSI                  string
+	ActiveESIMProfileName string
+	HasRuntime            bool
+	Runtime               voWiFiRuntimeDTO
 }
 
 func newOverviewStreamEmitVersion(item deviceMgmtOverviewLiteItem) overviewStreamEmitVersion {
 	v := overviewStreamEmitVersion{
-		VoWiFiActive:    item.VoWiFiActive,
-		LifecyclePhase:  item.LifecyclePhase,
-		LifecycleReason: item.LifecycleReason,
+		VoWiFiActive:          item.VoWiFiActive,
+		LifecyclePhase:        item.LifecyclePhase,
+		LifecycleReason:       item.LifecycleReason,
+		ICCID:                 item.Modem.ICCID,
+		IMSI:                  item.Modem.IMSI,
+		ActiveESIMProfileName: item.ActiveESIMProfileName,
 	}
 	if item.VoWiFiRuntime != nil {
 		v.HasRuntime = true
-		v.Phase = item.VoWiFiRuntime.Phase
-		v.TunnelReady = item.VoWiFiRuntime.TunnelReady
-		v.IMSReady = item.VoWiFiRuntime.IMSReady
-		v.SMSReady = item.VoWiFiRuntime.SMSReady
-		v.LastErrorClass = item.VoWiFiRuntime.LastErrorClass
+		v.Runtime = *item.VoWiFiRuntime
+		// Compare all displayed runtime fields, excluding timestamp-only churn.
+		v.Runtime.UpdatedAt = time.Time{}
 	}
 	return v
 }

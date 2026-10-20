@@ -85,6 +85,8 @@ func TestManagerStartRuntimeStopsStaleStartedInstance(t *testing.T) {
 	deviceID := "dev-stale"
 	claim := manager.BeginStart(deviceID)
 	manager.InvalidateRuntime(deviceID, "test")
+	newState := runtimehost.State{Phase: runtimehost.PhaseSIMReady, LastReason: "new_card_preparing", UpdatedAt: time.Now()}
+	manager.RecordStartupState(deviceID, newState)
 	manager.SetRuntimeStartForTest(func(ctx context.Context, req runtimehost.StartRequest) (*runtimehost.Instance, error) {
 		if req.ShouldRun() {
 			t.Fatal("StartRequest.ShouldRun() = true after invalidation, want false")
@@ -111,5 +113,71 @@ func TestManagerStartRuntimeStopsStaleStartedInstance(t *testing.T) {
 	}
 	if manager.Active(deviceID) {
 		t.Fatal("stale started instance should not become active")
+	}
+	if got, ok := manager.State(deviceID); !ok || got.LastReason != newState.LastReason {
+		t.Fatalf("stale startup cleared the new card's state: %+v", got)
+	}
+}
+
+func TestManagerLateStoppedEventCannotResurrectPreviousCardState(t *testing.T) {
+	m := NewManager()
+	deviceID := "dev-switch-state"
+	inst := &runtimehost.Instance{}
+	blocked, release, delivered := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	inst.AddObserver(runtimehost.ObserverFunc(func(_ context.Context, ev runtimehost.Event) {
+		if ev.State.Phase == runtimehost.PhaseStopped {
+			close(blocked)
+			<-release
+		}
+	}))
+	m.SetRuntimeStartForTest(func(context.Context, runtimehost.StartRequest) (*runtimehost.Instance, error) { return inst, nil })
+	claim := m.BeginStart(deviceID)
+	if _, err := m.StartRuntime(context.Background(), RuntimeStartRequest{
+		DeviceID: deviceID,
+		Epoch:    claim.Epoch,
+		Prepared: PreparedStart{Prepared: identity.PreparedSession{Profile: identity.Profile{IMSI: "001010000000001"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inst.AddObserver(runtimehost.ObserverFunc(func(_ context.Context, ev runtimehost.Event) {
+		if ev.State.Phase == runtimehost.PhaseStopped {
+			close(delivered)
+		}
+	}))
+	changes, unsub := m.SubscribeState(deviceID)
+	defer unsub()
+	if !m.TeardownForSwitch(context.Background(), deviceID) {
+		t.Fatal("old card runtime was not torn down")
+	}
+	select {
+	case <-changes:
+	case <-time.After(time.Second):
+		t.Fatal("teardown did not notify the overview stream")
+	}
+	select {
+	case <-blocked:
+	case <-time.After(time.Second):
+		t.Fatal("stopped notification was not queued")
+	}
+	close(release)
+	select {
+	case <-delivered:
+	case <-time.After(time.Second):
+		t.Fatal("stopped notification did not drain")
+	}
+	if state, ok := m.State(deviceID); ok {
+		t.Fatalf("old stopped event resurrected previous card state: %+v", state)
+	}
+	select {
+	case <-changes:
+		t.Fatal("old instance published an overview update after removal")
+	default:
 	}
 }

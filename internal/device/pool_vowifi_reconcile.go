@@ -212,6 +212,11 @@ func (p *Pool) markDesiredVoWiFiRecoverResult(deviceID string, err error) {
 	if deviceID == "" {
 		return
 	}
+	if p.IsESIMSwitching(deviceID) {
+		p.clearDesiredVoWiFiRecoverState(deviceID)
+		logger.Debug("VoWiFi 后台恢复结果交由切卡流程接管", "device", deviceID, "err", err)
+		return
+	}
 	if err == nil {
 		p.clearDesiredVoWiFiRecoverState(deviceID)
 		logger.Info("VoWiFi 目标态恢复成功", "event", "VOWIFI_DESIRED_RECOVER_SUCCESS", "device", deviceID)

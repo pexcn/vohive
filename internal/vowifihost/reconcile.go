@@ -27,6 +27,11 @@ func (m *Manager) DesiredRecoverable(deviceID string) bool {
 	if deviceID == "" {
 		return false
 	}
+	// SwitchEnd owns restoration until the switch coordinator finalizes.
+	// Policy projection may happen earlier and must not queue a second owner.
+	if adapter := m.hostAdapter(); adapter != nil && adapter.IsSwitching(deviceID) {
+		return false
+	}
 	store := m.RuntimeStore()
 	return !store.Active(deviceID) && !store.Starting(deviceID)
 }

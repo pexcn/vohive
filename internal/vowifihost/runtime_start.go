@@ -124,21 +124,20 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 		return RuntimeStartResult{}, err
 	}
 
-	inst.AddObserver(runtimehost.ObserverFunc(func(_ context.Context, ev runtimehost.Event) {
-		if m.IsCurrentInstance(deviceID, inst) {
-			m.BroadcastState(deviceID)
-			return
-		}
-		m.RecordStartupState(deviceID, ev.State)
-	}))
-
 	if !m.ClaimStarted(deviceID, req.Epoch, inst) {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		_ = inst.Stop(stopCtx)
 		cancel()
-		m.ClearStartupStateAndBroadcast(deviceID)
 		return RuntimeStartResult{Instance: inst, Stale: true}, nil
 	}
+
+	// State is read from the current instance. A removed instance may still
+	// drain queued notifications; those must never become startup snapshots.
+	inst.AddObserver(runtimehost.ObserverFunc(func(_ context.Context, _ runtimehost.Event) {
+		if m.IsCurrentInstance(deviceID, inst) {
+			m.BroadcastState(deviceID)
+		}
+	}))
 
 	return RuntimeStartResult{Instance: inst}, nil
 }

@@ -2,11 +2,19 @@ package vowifihost
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/iniwex5/vowifi-go/runtimehost"
 )
+
+type switchingRecoveryAdapter struct {
+	Adapter
+	switching atomic.Bool
+}
+
+func (a *switchingRecoveryAdapter) IsSwitching(string) bool { return a.switching.Load() }
 
 func TestManagerDesiredRecoverableIsFalseWhenRuntimeActiveOrStarting(t *testing.T) {
 	manager := NewManager()
@@ -88,5 +96,51 @@ func TestManagerScheduleDesiredRecoverSkipsRuntimeActivity(t *testing.T) {
 		},
 	}) {
 		t.Fatal("ScheduleDesiredRecover() = true for active runtime, want false")
+	}
+}
+
+func TestQueuedRecoverSkipsSwitchBeforeInvalidatingRuntime(t *testing.T) {
+	m := NewManager()
+	a := &switchingRecoveryAdapter{}
+	m.ConfigureAdapter(a)
+	deviceID := "dev-1"
+	state := runtimehost.State{Phase: runtimehost.PhaseSIMReady, SIMReady: true}
+	m.RecordStartupState(deviceID, state)
+	epoch := m.CurrentEpoch(deviceID)
+	entered, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	m.ConfigureLifecycle(LifecycleControllerOptions{Run: func(ctx context.Context, cmd LifecycleCommand) error {
+		close(entered)
+		<-release
+		return m.runLifecycleCommand(ctx, cmd)
+	}})
+	result := make(chan error, 1)
+	go func() { result <- m.Recover(context.Background(), LifecycleRecoverRequest{DeviceID: deviceID}) }()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("recover command did not enter the controller")
+	}
+	a.switching.Store(true)
+	close(release)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("switch-owned recovery was reported as a startup failure: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("switch-owned recovery did not exit")
+	}
+	if m.CurrentEpoch(deviceID) != epoch {
+		t.Fatal("queued recover invalidated the runtime during switching")
+	}
+	if got, ok := m.State(deviceID); !ok || got.Phase != state.Phase || !got.SIMReady {
+		t.Fatalf("queued recover cleared startup state during switching: %+v", got)
 	}
 }

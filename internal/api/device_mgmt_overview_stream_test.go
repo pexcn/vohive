@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/iniwex5/vohive/internal/modem"
 	proxytraffic "github.com/iniwex5/vohive/internal/proxy/traffic"
 )
 
@@ -75,6 +76,26 @@ func TestOverviewStreamEmitVersionTracksRuntimeBusinessState(t *testing.T) {
 			item: deviceMgmtOverviewLiteItem{VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true, LastErrorClass: "ims_register_failed"}},
 		},
 		{
+			name: "last reason changed",
+			item: deviceMgmtOverviewLiteItem{VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true, LastReason: "ims_registering"}},
+		},
+		{
+			name: "last error detail changed",
+			item: deviceMgmtOverviewLiteItem{VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true, LastError: "IKE_AUTH error notify 9001"}},
+		},
+		{
+			name: "SIM readiness changed",
+			item: deviceMgmtOverviewLiteItem{VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true, SIMReady: true}},
+		},
+		{
+			name: "access readiness changed",
+			item: deviceMgmtOverviewLiteItem{VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true, AccessReady: true}},
+		},
+		{
+			name: "runtime card changed",
+			item: deviceMgmtOverviewLiteItem{VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true, ICCID: "new-card"}},
+		},
+		{
 			name: "active changed",
 			item: deviceMgmtOverviewLiteItem{VoWiFiActive: false, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true}},
 		},
@@ -97,6 +118,30 @@ func TestOverviewStreamEmitVersionTracksRuntimeBusinessState(t *testing.T) {
 	appeared := newOverviewStreamEmitVersion(baseItem)
 	if shouldSkipOverviewStatePush(&empty, appeared) {
 		t.Fatal("state push was skipped when runtime state appeared")
+	}
+}
+
+func TestOverviewStreamEmitVersionTracksCardChangesWithoutRuntime(t *testing.T) {
+	before := deviceMgmtOverviewLiteItem{
+		Modem:                 modem.DeviceStatus{ICCID: "old-card", IMSI: "old-subscriber"},
+		ActiveESIMProfileName: "old-profile",
+	}
+	last := newOverviewStreamEmitVersion(before)
+	for _, change := range []string{"clear_identity", "new_identity", "profile_name"} {
+		t.Run(change, func(t *testing.T) {
+			after := before
+			switch change {
+			case "clear_identity":
+				after.Modem.ICCID, after.Modem.IMSI = "", ""
+			case "new_identity":
+				after.Modem.ICCID, after.Modem.IMSI = "new-card", "new-subscriber"
+			case "profile_name":
+				after.ActiveESIMProfileName = "O2 Online"
+			}
+			if shouldSkipOverviewStatePush(&last, newOverviewStreamEmitVersion(after)) {
+				t.Fatal("card transition was suppressed while no runtime was present")
+			}
+		})
 	}
 }
 

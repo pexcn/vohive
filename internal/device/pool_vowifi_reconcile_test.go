@@ -182,6 +182,73 @@ func TestScheduleDesiredVoWiFiRecoverSkipsWhenRuntimeHostInstanceActive(t *testi
 	}
 }
 
+func TestPolicyProjectionDuringESIMSwitchDefersDesiredRecover(t *testing.T) {
+	p := newDesiredVoWiFiTestPool(t, "dev-1", true, "001010000000001")
+	defer p.cancel()
+	w := p.GetWorker("dev-1")
+	p.switchMu.Lock()
+	p.switchingDevices = map[string]bool{w.ID: true}
+	p.switchMu.Unlock()
+	commands := make(chan vowifihost.LifecycleCommand, 1)
+	p.voWiFiHost().SetLifecycleRunForTest(func(_ context.Context, cmd vowifihost.LifecycleCommand) error {
+		commands <- cmd
+		return nil
+	})
+	epoch := p.voWiFiHost().CurrentEpoch(w.ID)
+	result := p.resolveAndApplyPolicy(w, "esim_switched")
+	if !result.Applied || !w.Config.VoWiFiEnabled || !w.Config.AirplaneEnabled {
+		t.Fatalf("new card policy was not projected: %+v", result)
+	}
+	assertNoRecoverCommand(t, commands)
+	if p.voWiFiHost().HasDesiredRecoverState(w.ID) || p.voWiFiHost().CurrentEpoch(w.ID) != epoch {
+		t.Fatal("switch-time policy projection created recovery state or invalidated the runtime")
+	}
+	p.clearESIMSwitch(w.ID)
+	if !p.scheduleDesiredVoWiFiRecover(w.ID, "post_switch_event_wakeup", time.Now()) {
+		t.Fatal("normal recovery remained blocked after switch finalization")
+	}
+	if cmd := waitForRecoverCommand(t, commands); cmd.Kind != vowifihost.LifecycleCommandRecover {
+		t.Fatalf("post-switch command = %s, want recover", cmd.Kind.String())
+	}
+}
+
+func TestDesiredVoWiFiSwitchPreemptionDoesNotBackOff(t *testing.T) {
+	p := newDesiredVoWiFiTestPool(t, "dev-1", true, "001010000000001")
+	defer p.cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	entered := make(chan struct{})
+	p.voWiFiHost().SetLifecycleRunForTest(func(runCtx context.Context, cmd vowifihost.LifecycleCommand) error {
+		if cmd.Kind == vowifihost.LifecycleCommandRecover {
+			close(entered)
+			select {
+			case <-runCtx.Done():
+				return runCtx.Err()
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		return nil
+	})
+	if !p.scheduleDesiredVoWiFiRecover("dev-1", "device_event", time.Now()) {
+		t.Fatal("initial recovery was not scheduled")
+	}
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("initial recovery did not start")
+	}
+	p.switchMu.Lock()
+	p.switchingDevices = map[string]bool{"dev-1": true}
+	p.switchMu.Unlock()
+	if err := p.voWiFiHost().SwitchBegin(ctx, "dev-1"); err != nil {
+		t.Fatalf("switch preemption failed: %v", err)
+	}
+	waitUntilDesiredVoWiFiTest(t, time.Second, func() bool {
+		return !p.voWiFiHost().HasDesiredRecoverState("dev-1")
+	})
+}
+
 func TestDesiredVoWiFiRecoverBacksOffAfterFailure(t *testing.T) {
 	p := newDesiredVoWiFiTestPool(t, "dev-1", true, "001010000000001")
 	commands := make(chan vowifihost.LifecycleCommand, 2)
