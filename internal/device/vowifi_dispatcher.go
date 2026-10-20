@@ -46,6 +46,9 @@ func (d poolVoWiFiRuntimeDispatcher) Dispatch(ctx context.Context, e eventhost.E
 	}
 
 	if sms, ok := e.(eventhost.SMSReceived); ok {
+		if sms.EventID != "" && sms.Persisted {
+			return
+		} // The transactional outbox owns durable notification delivery.
 		if smsnotify.ShouldSuppressReceivedSMS(sms.Content) {
 			logger.Info("VoWiFi 短信已过滤（运营商 OTA/无法解码二进制包），不进行通知推送", "device", sms.DevID, "sender", sms.Sender)
 			return

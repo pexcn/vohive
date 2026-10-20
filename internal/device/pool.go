@@ -158,6 +158,9 @@ type Worker struct {
 }
 
 type Pool struct {
+	smsOutboxMu   sync.Mutex
+	smsQueueAllow func() bool
+
 	workers    map[string]*Worker
 	rebuilding map[string]bool // 标记设备是否正在重载
 	// rebuildAttempt 记录每个设备最近一次 AddWorkerFromConfig 尝试的递增 token。
@@ -1304,6 +1307,7 @@ func (p *Pool) startPoolBackgroundServicesOnce() {
 		return
 	}
 	p.startOnce.Do(func() {
+		go p.smsDurabilityLoop()
 		go p.healthCheckLoop()
 		go p.overviewStreamLoop()
 		go p.startVoWiFiDesiredReconcileLoop()

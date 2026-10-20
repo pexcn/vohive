@@ -20,6 +20,7 @@ import (
 
 // webhookPayload 定义 Webhook 推送的 JSON 结构
 type webhookPayload struct {
+	EventID   string             `json:"event_id,omitempty"`
 	Event     string             `json:"event"`     // 事件类型
 	Timestamp string             `json:"timestamp"` // ISO 8601 时间戳
 	Text      string             `json:"text"`      // 通知文本内容
@@ -139,6 +140,7 @@ func (w *WebhookChannel) SendWithContextDetailed(ctx NotificationContext) (SendW
 
 	ts := ctx.Timestamp.Format(time.RFC3339)
 	payload := webhookPayload{
+		EventID:   ctx.EventID,
 		Event:     event,
 		Timestamp: ts,
 		Text:      textForPush,

@@ -209,6 +209,9 @@ func CommitInboundSMS(deviceID, imsi, id, sender, text string, at time.Time, sup
 			if err := tx.Create(&sms).Error; err != nil {
 				return err
 			}
+			if err := tx.Create(&SMSNotification{ID: id, DeviceID: deviceID, IMSI: imsi, Sender: sender, Content: text, At: at}).Error; err != nil {
+				return err
+			}
 			if sms.Peer != "" {
 				if err := upsertSMSContactFromSMS(tx, &sms); err != nil {
 					return err

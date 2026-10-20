@@ -2,11 +2,14 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iniwex5/vohive/internal/config"
+	"github.com/iniwex5/vohive/internal/db"
 	"github.com/iniwex5/vohive/internal/device"
 	"github.com/iniwex5/vohive/pkg/logger"
 )
@@ -14,12 +17,14 @@ import (
 // Manager 统一通知管理器
 // 持有多个 Channel 实例，向所有已启用渠道广播通知和命令
 type Manager struct {
+	channelsMu      sync.RWMutex
 	pool            *device.Pool
 	channels        []Channel // 所有已启用的通知渠道
 	superviseCancel context.CancelFunc
 }
 
 type NotificationContext struct {
+	EventID    string
 	Event      string
 	Text       string
 	DeviceID   string
@@ -62,6 +67,8 @@ func NewManager(cfg *config.Config, pool *device.Pool) (*Manager, error) {
 
 // initChannels 根据配置创建并启动所有通知渠道
 func (m *Manager) initChannels(cfg *config.Config) error {
+	m.channelsMu.Lock()
+	defer m.channelsMu.Unlock()
 	m.channels = nil
 
 	// Telegram 渠道
@@ -229,6 +236,8 @@ func (m *Manager) registerCommands() {
 
 // Close 关闭所有通知渠道
 func (m *Manager) Close() {
+	m.channelsMu.RLock()
+	defer m.channelsMu.RUnlock()
 	if m.superviseCancel != nil {
 		m.superviseCancel()
 	}
@@ -241,7 +250,6 @@ func (m *Manager) Close() {
 func (m *Manager) UpdateConfig(cfg *config.Config) error {
 	// 关闭现有渠道
 	m.Close()
-	m.channels = nil
 
 	// 重新初始化所有渠道
 	return m.initChannels(cfg)
@@ -264,7 +272,7 @@ func (m *Manager) NotifySMSWithSource(deviceID, sender, content, source string, 
 		"event", "sms_received",
 		"sms_device", deviceID,
 		"source", source,
-		"channel_count", len(m.channels))
+		"channel_count", len(m.channelSnapshot()))
 
 	m.broadcastWithContext(NotificationContext{
 		Event:      "sms_received",
@@ -345,7 +353,7 @@ func (m *Manager) broadcastWithContext(ctx NotificationContext) {
 		ctx.Event = "notification"
 	}
 
-	for _, ch := range m.channels {
+	for _, ch := range m.channelSnapshot() {
 		ch := ch // capture variable
 		go func() {
 			if withCtx, ok := ch.(contextualChannel); ok {
@@ -364,8 +372,45 @@ func (m *Manager) broadcastWithContext(ctx NotificationContext) {
 // GetChannelNames 返回所有已启用渠道的名称列表
 func (m *Manager) GetChannelNames() []string {
 	names := make([]string, 0, len(m.channels))
-	for _, ch := range m.channels {
+	for _, ch := range m.channelSnapshot() {
 		names = append(names, ch.Name())
 	}
 	return names
+}
+
+func (m *Manager) channelSnapshot() []Channel {
+	m.channelsMu.RLock()
+	defer m.channelsMu.RUnlock()
+	return append([]Channel(nil), m.channels...)
+}
+
+// NotifySMSWithID waits for actual channel results before the host acknowledges
+// the outbox. Receipts skip successful channels on retry; webhooks receive the
+// same event_id so a downstream consumer can make consumption idempotent.
+func (m *Manager) NotifySMSWithID(ctx context.Context, id, device, sender, text string, at time.Time) error {
+	message := fmt.Sprintf("收到新短信 / VoWiFi\n设备  %s\n号码  %s\n时间  %s\n内容  %s", device, sender, at.Format("2006-01-02 15:04:05"), text)
+	notification := NotificationContext{EventID: id, Event: "sms_received", Text: message, DeviceID: device, DeviceName: m.resolveDeviceName(device), Timestamp: at}
+	var failures error
+	for _, channel := range m.channelSnapshot() {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(failures, err)
+		}
+		done, err := db.SMSNotificationConsumerDone(id, channel.Name())
+		if err != nil {
+			return errors.Join(failures, err)
+		}
+		if done {
+			continue
+		}
+		if contextual, ok := channel.(contextualChannel); ok {
+			err = contextual.SendWithContext(notification)
+		} else {
+			err = channel.Send(message)
+		}
+		if err == nil {
+			err = db.RecordSMSNotificationReceipt(id, channel.Name())
+		}
+		failures = errors.Join(failures, err)
+	}
+	return failures
 }

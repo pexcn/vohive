@@ -123,6 +123,9 @@ func New(cfg *config.Config, pool *device.Pool, fs http.FileSystem, proxyMgr *se
 		shutdownCh:    make(chan struct{}),
 	}
 
+	if pool != nil {
+		pool.SetSMSQueueLimiter(func() bool { return s.smsRateLimiter().Allow().Allowed })
+	}
 	return s
 }
 
@@ -264,6 +267,8 @@ func (s *Server) newRouter() *gin.Engine {
 		api.GET("/traffic/analysis", s.handleTrafficAnalysis)       // 流量分析统计
 
 		// ===== 短信 =====
+		api.POST("/sms/queue", s.handleQueueSMS)
+		api.GET("/sms/queue/:queue_id", s.handleSMSQueueStatus)
 		api.POST("/sms/send", s.handleSendSMS)                    // 发送短信（自动选择 AT 或 VoWiFi）
 		api.GET("/sms/delivery/:message_id", s.handleSMSDelivery) // 查询发送投递状态
 		api.GET("/sms/contacts", s.handleGetSMSContacts)          // 获取短信联系人列表

@@ -84,6 +84,27 @@ func TestSMSInboundRestartIsolationConflictAndAtomicCommit(t *testing.T) {
 	if len(sms) != 1 || sms[0].IMSI != "sim-old" || sms[0].Content != "long" {
 		t.Fatalf("history %+v", sms)
 	}
+	var notices []SMSNotification
+	if err := DB.Find(&notices).Error; err != nil || len(notices) != 1 || notices[0].ID != a.ID || notices[0].IMSI != "sim-old" {
+		t.Fatalf("transactional notification: %+v %v", notices, err)
+	}
+	now := time.Now()
+	if ok, err := ClaimSMSNotification(a.ID, now); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if ok, _ := ClaimSMSNotification(a.ID, now); ok {
+		t.Fatal("notification double claim")
+	}
+	if err := AcknowledgeSMSNotification(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := AcknowledgeSMSNotification(a.ID); err != nil {
+		t.Fatal("non-idempotent notification receipt", err)
+	}
+	pending, err := PendingSMSNotifications(now.Add(time.Hour))
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("acknowledged notification replayed: %+v %v", pending, err)
+	}
 	// Same reference on another subscription is independent.
 	otherAssembly, err := SaveInboundSMSFragment("dev", "sim-new", f)
 	if err != nil || otherAssembly.ID == a.ID {
