@@ -97,7 +97,15 @@ func (p *Pool) startQMICoreRetryLoop(worker *Worker) {
 			case <-time.After(delay):
 			}
 
-			if err := runQMIStartCoreRetryAttempt(p.ctx, worker.QMICore.StartCoreContext, qmiCoreRetryAttemptBudget); err == nil {
+			startCore := func(ctx context.Context) error {
+				release, err := acquireQMIControl(ctx, worker.Config.ControlDevice)
+				if err != nil {
+					return err
+				}
+				defer release()
+				return worker.QMICore.StartCoreContext(ctx)
+			}
+			if err := runQMIStartCoreRetryAttempt(p.ctx, startCore, qmiCoreRetryAttemptBudget); err == nil {
 				logger.Info(fmt.Sprintf("[%s] QMI Core 已恢复启动", worker.ID))
 				cleanupWorkerStartupSIMAuthLogicalChannels(worker)
 				if _, resetErr := p.resetExistingQMIDataConnectionBeforePreference(worker, "qmi_core_recovered"); resetErr != nil {

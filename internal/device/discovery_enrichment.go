@@ -9,7 +9,7 @@ import (
 )
 
 var discoverQMIDevicesFn = DiscoverQMIDevices
-var probeIMEIViaQMIFn = ProbeIMEIViaQMIWithOptions
+var probeIMEIViaQMIFn = probeIMEIViaQMIWithOptions
 
 type QMIDeviceEnrichOptions struct {
 	EnableATProbe      bool
@@ -39,7 +39,7 @@ func EnrichDiscoveredQMIDevice(dev QMIDevice, opts QMIDeviceEnrichOptions) (QMID
 	}
 
 	if imei == "" && opts.EnableQMIIMEIProbe && strings.TrimSpace(dev.ControlPath) != "" {
-		if qmiIMEI, err := probeIMEIViaQMIFn(dev.ControlPath, opts.QMIClientOptions); err == nil && qmiIMEI != "" {
+		if qmiIMEI, err := ProbeIMEIViaQMIWithOptions(dev.ControlPath, opts.QMIClientOptions); err == nil && qmiIMEI != "" {
 			imei = qmiIMEI
 		}
 	}
@@ -63,7 +63,7 @@ func EnrichDiscoveredCompatibleModem(dev CompatibleModem, opts CompatibleModemEn
 	}
 
 	if imei == "" && opts.EnableQMIIMEIProbe && strings.TrimSpace(dev.ControlPath) != "" {
-		if qmiIMEI, err := probeIMEIViaQMIFn(dev.ControlPath, opts.QMIClientOptions); err == nil && qmiIMEI != "" {
+		if qmiIMEI, err := ProbeIMEIViaQMIWithOptions(dev.ControlPath, opts.QMIClientOptions); err == nil && qmiIMEI != "" {
 			imei = qmiIMEI
 			dev.IMEI = qmiIMEI
 		}

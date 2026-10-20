@@ -93,13 +93,7 @@ func requiresMBIMCore(cfg config.DeviceConfig) bool {
 }
 
 func resolveDiscoveredQMIDevice(dev QMIDevice, timeout time.Duration, allowQMIIMEIProbe bool) (QMIDevice, string) {
-	qmiClientOptions, allowQMIProbe := qmicore.DiscoveryClientOptionsForControlDevice(dev.ControlPath)
-	return EnrichDiscoveredQMIDevice(dev, QMIDeviceEnrichOptions{
-		EnableATProbe:      false,
-		ATProbeTimeout:     timeout,
-		EnableQMIIMEIProbe: allowQMIIMEIProbe && allowQMIProbe,
-		QMIClientOptions:   qmiClientOptions,
-	})
+	return resolveDiscoveredQMIDeviceWithConfig(dev, timeout, allowQMIIMEIProbe, config.DeviceConfig{})
 }
 
 var resolveDiscoveredQMIDeviceFn = resolveDiscoveredQMIDevice
@@ -109,7 +103,7 @@ func resolveDiscoveredQMIDeviceWithConfig(dev QMIDevice, timeout time.Duration, 
 		EnableATProbe:      false,
 		ATProbeTimeout:     timeout,
 		EnableQMIIMEIProbe: allowQMIIMEIProbe,
-		QMIClientOptions:   qmicore.ClientOptionsFromDeviceConfig(cfg),
+		QMIClientOptions:   qmicore.DiscoveryClientOptionsFromDeviceConfig(cfg),
 	})
 }
 
@@ -348,6 +342,22 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 	}
 	if matched != nil {
 		devCfg = applyQMIManagedAttachment(devCfg, *matched)
+	}
+	if needsQMICore && strings.TrimSpace(devCfg.ControlDevice) != "" {
+		ctx, cancel := context.WithTimeout(p.ctx, qmiWorkerBootstrapDeadline)
+		release, err := acquireQMIControl(ctx, devCfg.ControlDevice)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("等待 QMI 控制口启动锁失败: %w", err)
+		}
+		defer release()
+		// Discovery may have raced another worker before we acquired the port.
+		if owner, ok := BuildWorkerDiscoveryIndex(p.GetAllWorkers(), false).Lookup(devCfg.ControlDevice, devCfg.USBPath, devCfg.Interface); ok {
+			return nil, fmt.Errorf("QMI 控制口 %s 已由设备 %s 接管", devCfg.ControlDevice, owner.ID)
+		}
+		if !p.isRebuildAttemptCurrent(devCfg.ID, attempt) {
+			return nil, fmt.Errorf("设备 %s 启动流程已过期", devCfg.ID)
+		}
 	}
 
 	m, err := modem.New(devCfg)

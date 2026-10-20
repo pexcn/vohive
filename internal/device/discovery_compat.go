@@ -33,6 +33,7 @@ type CompatibleModem struct {
 }
 
 var discoverFallbackModemsFn = discoverFallbackModems
+var qmiDiscoveryClientOptionsFn = qmicore.DiscoveryClientOptionsForControlDevice
 
 // DiscoveryKey 用于去重 (USBPath + ATPort)。
 func (m CompatibleModem) DiscoveryKey() string {
@@ -386,11 +387,7 @@ func readHexFile16(path string) uint16 {
 // ProbeIMEIViaQMI 通过 QMI DMS.GetDeviceSerialNumbers 探测设备 IMEI
 // 用于纯 QMI 设备（无 AT 端口）的设备发现
 func ProbeIMEIViaQMI(controlPath string) (string, error) {
-	clientOptions, ok := qmicore.DiscoveryClientOptionsForControlDevice(controlPath)
-	if !ok {
-		return "", fmt.Errorf("QMI control path %s is already held by a non-proxy process", strings.TrimSpace(controlPath))
-	}
-	return ProbeIMEIViaQMIWithOptions(controlPath, clientOptions)
+	return ProbeIMEIViaQMIWithOptions(controlPath, qmi.DefaultClientOptions())
 }
 
 func ProbeIMEIViaQMIWithOptions(controlPath string, clientOptions qmi.ClientOptions) (string, error) {
@@ -398,7 +395,25 @@ func ProbeIMEIViaQMIWithOptions(controlPath string, clientOptions qmi.ClientOpti
 	if controlPath == "" {
 		return "", fmt.Errorf("QMI control path is empty")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	release, err := acquireQMIControl(ctx, controlPath)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	// A worker may have taken this candidate since the discovery snapshot.
+	// Recheck under the same lock used by bootstrap before opening any client.
+	discoveryOptions, ok := qmiDiscoveryClientOptionsFn(controlPath)
+	if !ok {
+		return "", fmt.Errorf("QMI control path %s is already held by a non-proxy process", controlPath)
+	}
+	clientOptions.UseProxy = clientOptions.UseProxy || discoveryOptions.UseProxy
+	clientOptions.ProxyFallbackToRaw = false
+	return probeIMEIViaQMIFn(controlPath, clientOptions)
+}
 
+func probeIMEIViaQMIWithOptions(controlPath string, clientOptions qmi.ClientOptions) (string, error) {
 	openCtx, openCancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer openCancel()
 

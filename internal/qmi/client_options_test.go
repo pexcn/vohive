@@ -68,6 +68,27 @@ func TestClientOptionsFromDeviceConfigDefaultsQMIBackendToDirectWhenControlDevic
 	}
 }
 
+func TestDiscoveryClientOptionsFromDeviceConfigDefersOccupancyCheck(t *testing.T) {
+	original := detectQMIControlDeviceHolders
+	t.Cleanup(func() { detectQMIControlDeviceHolders = original })
+	detectQMIControlDeviceHolders = func(string) (qmiControlDeviceHolders, error) {
+		t.Fatal("discovery inspected configuration path before locking the actual candidate")
+		return qmiControlDeviceHolders{}, nil
+	}
+	for _, useProxy := range []bool{false, true} {
+		opts := DiscoveryClientOptionsFromDeviceConfig(config.DeviceConfig{
+			DeviceBackend:      "qmi",
+			ControlDevice:      "/stale/configuration/path",
+			QMIUseProxy:        useProxy,
+			QMIProxyPath:       "custom-proxy",
+			QMIProxyExecutable: "/opt/bin/qmi-proxy",
+		})
+		if opts.UseProxy != useProxy || opts.ProxyFallbackToRaw || opts.ProxyPath != "custom-proxy" || opts.ProxyExecutable != "/opt/bin/qmi-proxy" {
+			t.Fatalf("explicit proxy settings changed: %+v", opts)
+		}
+	}
+}
+
 func TestClientOptionsFromDeviceConfigUsesProxyForQMIBackendWhenControlDeviceHasHolders(t *testing.T) {
 	proxyExecutable := filepath.Join(t.TempDir(), "qmi-proxy")
 	writeExecutableForTest(t, proxyExecutable)

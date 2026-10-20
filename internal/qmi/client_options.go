@@ -13,17 +13,27 @@ func ClientOptionsFromDeviceConfig(cfg config.DeviceConfig) qmiq.ClientOptions {
 }
 
 func clientOptionsFromDeviceConfig(cfg config.DeviceConfig) (qmiq.ClientOptions, qmiTransportDecision) {
-	opts := qmiq.DefaultClientOptions()
+	opts := DiscoveryClientOptionsFromDeviceConfig(cfg)
 	backend := strings.ToLower(strings.TrimSpace(cfg.DeviceBackend))
+	decision := decideQMITransport(cfg, backend)
+	applyQMITransportDecision(&opts, decision)
+	return opts, decision
+}
+
+// DiscoveryClientOptionsFromDeviceConfig keeps explicit proxy settings without
+// inspecting occupancy. Discovery must check the actual candidate control port
+// after acquiring its startup lock, rather than reuse an earlier transport choice.
+func DiscoveryClientOptionsFromDeviceConfig(cfg config.DeviceConfig) qmiq.ClientOptions {
+	opts := qmiq.DefaultClientOptions()
+	opts.UseProxy = cfg.QMIUseProxy
+	opts.ProxyFallbackToRaw = false
 	if proxyPath := strings.TrimSpace(cfg.QMIProxyPath); proxyPath != "" {
 		opts.ProxyPath = proxyPath
 	}
 	if proxyExecutable := strings.TrimSpace(cfg.QMIProxyExecutable); proxyExecutable != "" {
 		opts.ProxyExecutable = proxyExecutable
 	}
-	decision := decideQMITransport(cfg, backend)
-	applyQMITransportDecision(&opts, decision)
-	return opts, decision
+	return opts
 }
 
 func DiscoveryClientOptionsForControlDevice(controlDevice string) (qmiq.ClientOptions, bool) {
