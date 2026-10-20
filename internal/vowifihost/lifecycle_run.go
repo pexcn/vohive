@@ -122,6 +122,13 @@ func (m *Manager) enableRuntime(ctx context.Context, req runtimeEnableRequest) (
 		if !ok {
 			state = initialState
 		}
+		// Startup observers are attached only after success. The failed
+		// instance retains its error class even after resource cleanup.
+		if result.Instance != nil {
+			if failed := result.Instance.State(); failed.LastErrorClass != "" {
+				state.LastErrorClass = failed.LastErrorClass
+			}
+		}
 		return adapter.HandleStartupError(StartupErrorRequest{
 			TraceID:             traceID,
 			DeviceID:            deviceID,
