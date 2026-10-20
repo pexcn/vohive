@@ -133,6 +133,10 @@ type Worker struct {
 	registrationNextID      uint64
 	registrationRuns        map[uint64]cellularRegistrationRun
 
+	networkPolicyICCID      string // protected by registrationMu
+	networkDesired          atomic.Bool
+	networkReconnectRunning atomic.Bool
+
 	operatorScanMu      sync.Mutex
 	operatorScanCurrent OperatorScanResult
 	operatorScanCancel  context.CancelFunc
@@ -280,7 +284,6 @@ func (p *Pool) assignWorkerGeneration(worker *Worker) uint64 {
 	}
 	return generation
 }
-
 
 func (p *Pool) registerWorkerStarting(worker *Worker) error {
 	if p == nil || worker == nil || strings.TrimSpace(worker.ID) == "" {
@@ -735,6 +738,9 @@ func (p *Pool) bindQMIHealthIndications(worker *Worker) {
 		p.maybeScheduleTransportRebuild(worker, HealthLayerQMI, reason, err)
 	})
 	worker.QMICore.OnHealthEvent(func(event qmicore.HealthEvent) {
+		if event.Event.Type == qmimanager.EventDisconnected || event.Event.Type == qmimanager.EventDialFailed {
+			worker.scheduleNetworkReconnect()
+		}
 		switch event.State {
 		case qmicore.HealthEventHealthy:
 			worker.RecordWatchdogEvent(WatchdogEvent{
@@ -1172,6 +1178,7 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 		return nil
 	}
 	if worker.cellularRegistrationBlocked() {
+		worker.networkDesired.Store(false)
 		worker.cancelCellularRegistration()
 		if nc.IsConnected() {
 			return worker.StopNetwork()
@@ -1180,15 +1187,7 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 		return nil
 	}
 
-	if worker.Config.NetworkEnabled {
-		if !worker.autoConnectDataAllowed() {
-			if worker.MBIMCore != nil {
-				worker.StartMBIMRegistrationReconcile(p.ctx, "manual_data_only")
-			} else if worker.QMICore != nil {
-				worker.StartQMIRegistrationReconcile(p.ctx, "manual_data_only")
-			}
-			return nil
-		}
+	if worker.autoConnectDataAllowed() {
 		if worker.MBIMCore != nil {
 			if err := worker.EnsureMBIMRegistration(p.ctx, true); err != nil {
 				return err
@@ -1202,6 +1201,7 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 			logger.Info("设备当前处于 VoWiFi 模式，跳过自动连接数据网络", "device", worker.ID)
 			return nil
 		}
+		worker.networkDesired.Store(true)
 		if nc.IsConnected() {
 			p.refreshIPs(worker, true)
 			return nil
@@ -1213,6 +1213,7 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 		return nil
 	}
 
+	worker.networkDesired.Store(false)
 	if worker.MBIMCore != nil {
 		worker.StartMBIMRegistrationReconcile(p.ctx, "network_disabled_preference")
 	} else {
@@ -1835,12 +1836,13 @@ func (p *Pool) MarkLifecycleRecovery(deviceID string, phase LifecyclePhase, reas
 // SetWorkerNetworkPolicy 在锁内同步 worker 运行时的网络策略字段（供热切换显示同步），
 // 不触发任何应用动作；返回该 worker（不存在返回 nil）。ipVersion 为空时不改。
 func (p *Pool) SetWorkerNetworkPolicy(deviceID string, networkEnabled bool, ipVersion, apn string) *Worker {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	w := p.workers[deviceID]
+	w := p.GetWorker(deviceID)
 	if w == nil {
 		return nil
 	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
+	w.networkPolicyICCID = w.CurrentICCID()
 	w.Config.NetworkEnabled = networkEnabled
 	if networkEnabled {
 		// 开网络与 VoWiFi/飞行互斥（与后端落库互斥保持一致），否则概览仍显示旧模式面板。
@@ -1859,12 +1861,12 @@ func (p *Pool) SetWorkerNetworkPolicy(deviceID string, networkEnabled bool, ipVe
 // 关 VoWiFi 仅清 vowifi，不在此清 airplane——airplane 反映用户的纯飞行意图，
 // 由随后的 resolveAndApplyPolicy 按当前卡策略重投影回退（之前飞行回飞行，否则回在线）。
 func (p *Pool) SetWorkerVoWiFiPolicy(deviceID string, vowifiEnabled bool) *Worker {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	w := p.workers[deviceID]
+	w := p.GetWorker(deviceID)
 	if w == nil {
 		return nil
 	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
 	w.Config.VoWiFiEnabled = vowifiEnabled
 	if vowifiEnabled {
 		w.Config.AirplaneEnabled = true
@@ -1876,12 +1878,12 @@ func (p *Pool) SetWorkerVoWiFiPolicy(deviceID string, vowifiEnabled bool) *Worke
 // SetWorkerAirplanePolicy 同步 worker 运行时的飞行(airplane)策略字段。
 // 开飞行 ⇒ vowifi=false、network=false（纯飞行互斥）；关飞行仅清 airplane。
 func (p *Pool) SetWorkerAirplanePolicy(deviceID string, airplaneEnabled bool) *Worker {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	w := p.workers[deviceID]
+	w := p.GetWorker(deviceID)
 	if w == nil {
 		return nil
 	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
 	w.Config.AirplaneEnabled = airplaneEnabled
 	if airplaneEnabled {
 		w.Config.VoWiFiEnabled = false
@@ -2036,11 +2038,11 @@ func (w *Worker) autoConnectDataAllowed() bool {
 	}
 	w.registrationMu.Lock()
 	defer w.registrationMu.Unlock()
-	return w.Config.AutoConnectData
+	return w.Config.NetworkEnabled && !w.Config.VoWiFiEnabled && !w.Config.AirplaneEnabled &&
+		(w.networkPolicyICCID == "" || db.CanonicalICCID(w.networkPolicyICCID) == db.CanonicalICCID(w.CurrentICCID()))
 }
 
-// startNetwork is for background policy/recovery; only StartNetwork authorizes
-// a manual connection without the explicit background-data opt-in.
+// startNetwork applies the active card policy to background data activation.
 func (w *Worker) startNetwork(ctx context.Context) error {
 	if !w.autoConnectDataAllowed() {
 		return nil
@@ -2070,10 +2072,18 @@ func (w *Worker) connectNetwork(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return nc.Connect()
+	w.networkDesired.Store(true)
+	err = nc.Connect()
+	if err != nil {
+		w.scheduleNetworkReconnect()
+	}
+	return err
 }
 
 func (w *Worker) StopNetwork() error {
+	if w != nil {
+		w.networkDesired.Store(false)
+	}
 	nc := w.NetworkController()
 	if w == nil || nc == nil {
 		return fmt.Errorf("network_not_available")

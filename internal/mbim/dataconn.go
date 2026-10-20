@@ -353,14 +353,27 @@ func (m *Manager) applyIPConfig(nc netConfigurator, iface string, ipc mbim.IPCon
 	return nil
 }
 
+// OnDataDisconnected delegates data recovery to the host's active card policy.
+func (m *Manager) OnDataDisconnected(handler func()) {
+	m.mu.Lock()
+	m.dataDisconnected = handler
+	m.mu.Unlock()
+}
+
 func (m *Manager) handleConnectIndication(st mbim.ConnectState) {
 	if st.ActivationState != mbim.ActivationStateDeactivated && st.ActivationState != mbim.ActivationStateDeactivating {
 		return
 	}
 	m.mu.Lock()
 	desired := m.desiredConnection && m.dataCfg.AutoReconnect
+	handler := m.dataDisconnected
+	wantData := m.desiredConnection
 	m.connected = false
 	m.mu.Unlock()
+	if wantData && handler != nil {
+		handler()
+		return
+	}
 	if !desired {
 		return
 	}

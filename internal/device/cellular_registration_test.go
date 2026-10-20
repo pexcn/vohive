@@ -209,7 +209,7 @@ func TestCellularSwitchSnapshotRestoreDoesNotUnblockBackgroundWork(t *testing.T)
 	if err := w.StartNetwork(); !errors.Is(err, errQMIRegistrationSkipped) {
 		t.Fatalf("ordinary network request bypassed switching gate: %v", err)
 	}
-	w.Config.AutoConnectData = true
+	applyPolicyToWorker(w, cardpolicy.Policy{NetworkEnabled: true})
 	snapshot := esimSwitchContext{NetworkEnabledBefore: true}
 	if err := p.applyNetworkPreferenceForSwitchSnapshot(w, snapshot); err != nil {
 		t.Fatalf("coordinator could not restore its online/data snapshot: %v", err)

@@ -17,6 +17,7 @@ func applyPolicyToWorker(w *Worker, p cardpolicy.Policy) {
 	}
 	w.registrationMu.Lock()
 	defer w.registrationMu.Unlock()
+	w.networkPolicyICCID = strings.TrimSpace(p.ICCID)
 	w.Config.NetworkEnabled = p.NetworkEnabled
 	w.Config.VoWiFiEnabled = p.VoWiFiEnabled
 	w.Config.AirplaneEnabled = p.AirplaneEnabled

@@ -120,7 +120,6 @@ func deviceConfigFromDTOWithBase(d deviceConfigDTO, base *config.DeviceConfig) c
 		Interface:             strings.TrimSpace(d.Interface),
 		ControlDevice:         strings.TrimSpace(d.ControlDevice),
 		QMIUseProxy:           qmiUseProxy,
-		AutoConnectData:       base != nil && base.AutoConnectData,
 		QMIProxyPath:          qmiProxyPath,
 		QMIProxyExecutable:    qmiProxyExecutable,
 		ESIMTransport:         config.NormalizeESIMTransport(d.ESIMTransport),

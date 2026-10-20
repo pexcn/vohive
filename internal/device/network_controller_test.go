@@ -154,29 +154,29 @@ func TestWorkerStartNetworkEnsuresMBIMRegistrationBeforeConnect(t *testing.T) {
 	}
 }
 
-func TestNetworkPreferenceRequiresBackgroundDataOptIn(t *testing.T) {
+func TestNetworkPreferenceFollowsCardPolicy(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		p := NewPool(&config.Config{})
 		controller := &fakeController{}
-		w := &Worker{ID: "manual-data", Pool: p, netOverride: controller,
-			Config: config.DeviceConfig{NetworkEnabled: true, AutoConnectData: enabled}}
+		w := &Worker{ID: "card-data", Pool: p, netOverride: controller,
+			Config: config.DeviceConfig{NetworkEnabled: enabled}}
 		if err := p.applyNetworkPreference(w); err != nil {
 			t.Fatal(err)
 		}
 		if controller.connected != enabled {
-			t.Fatalf("opt-in %v: connected=%v", enabled, controller.connected)
+			t.Fatalf("network policy %v: connected=%v", enabled, controller.connected)
 		}
 		p.cancel()
 	}
 }
 
-func TestSwitchSnapshotDoesNotAuthorizeBackgroundData(t *testing.T) {
+func TestSwitchSnapshotUsesCurrentNetworkPolicy(t *testing.T) {
 	p := NewPool(&config.Config{})
 	defer p.cancel()
 	controller := &fakeController{}
-	w := &Worker{ID: "manual-data", Pool: p, netOverride: controller,
-		Config: config.DeviceConfig{NetworkEnabled: true}}
-	if err := p.applyNetworkPreferenceForSwitchSnapshot(w, esimSwitchContext{QMIConnectedBefore: true, NetworkEnabledBefore: true}); err != nil {
+	w := &Worker{ID: "card-data", Pool: p, netOverride: controller}
+	snapshot := esimSwitchContext{QMIConnectedBefore: true, NetworkEnabledBefore: true}
+	if err := p.applyNetworkPreferenceForSwitchSnapshot(w, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if controller.connected {
@@ -186,18 +186,67 @@ func TestSwitchSnapshotDoesNotAuthorizeBackgroundData(t *testing.T) {
 		t.Fatal(err)
 	}
 	if controller.connected {
-		t.Fatal("background recovery activated data")
+		t.Fatal("background recovery ignored the disabled network policy")
 	}
-	if err := w.StartNetwork(); err != nil {
+	w.Config.NetworkEnabled = true
+	if err := p.applyNetworkPreferenceForSwitchSnapshot(w, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if !controller.connected {
-		t.Fatal("explicit manual connection was blocked")
+		t.Fatal("enabled network policy did not restore data")
 	}
+	w.Config.NetworkEnabled = false
 	if err := p.applyNetworkPreference(w); err != nil {
 		t.Fatal(err)
 	}
-	if !controller.connected {
-		t.Fatal("policy disconnected an explicitly started connection")
+	if controller.connected {
+		t.Fatal("disabled network policy did not disconnect data")
+	}
+}
+
+func TestNetworkReconnectChecksCurrentPolicyAndOwnership(t *testing.T) {
+	for _, name := range []string{"enabled", "padded-iccid", "disabled", "vowifi", "airplane", "switching", "stopped", "replaced", "new-sim", "unresolved-policy", "manual-stop"} {
+		t.Run(name, func(t *testing.T) {
+			p := NewPool(&config.Config{})
+			defer p.cancel()
+			controller := &fakeController{}
+			w := &Worker{ID: "card-data", Pool: p, netOverride: controller, stop: make(chan struct{}),
+				Config: config.DeviceConfig{NetworkEnabled: true}}
+			p.workers[w.ID] = w
+			w.networkDesired.Store(true)
+			generation := w.dataIdentityGeneration()
+			switch name {
+			case "disabled":
+				w.Config.NetworkEnabled = false
+			case "vowifi":
+				w.Config.VoWiFiEnabled = true
+			case "airplane":
+				w.Config.AirplaneEnabled = true
+			case "switching":
+				p.switchingDevices = map[string]bool{w.ID: true}
+			case "stopped":
+				close(w.stop)
+			case "replaced":
+				p.workers[w.ID] = &Worker{ID: w.ID}
+			case "new-sim":
+				w.BeginSIMIdentityTransition("new-card", "test-switch")
+			case "padded-iccid":
+				w.networkPolicyICCID = "890123"
+				w.state.Identity.ICCID = "890123F"
+			case "unresolved-policy":
+				w.networkPolicyICCID = "old-card"
+				w.state.Identity.ICCID = "new-card"
+			case "manual-stop":
+				if err := w.StopNetwork(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if done, err := w.retryNetwork(p.ctx, generation); !done || err != nil {
+				t.Fatalf("retry: %v %v", done, err)
+			}
+			if controller.connected != (name == "enabled" || name == "padded-iccid") {
+				t.Fatalf("unexpected connection: %v", controller.connected)
+			}
+		})
 	}
 }

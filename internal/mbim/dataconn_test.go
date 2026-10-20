@@ -445,7 +445,7 @@ func TestConnectFailsWhenNotRegistered(t *testing.T) {
 	}
 }
 
-func TestUnexpectedDeactivationDoesNotReconnectWithoutOptIn(t *testing.T) {
+func TestUnexpectedDeactivationDelegatesRecoveryToHost(t *testing.T) {
 	tr := mbim.NewFakeTransport(mbim.TestAnswerConnectAndIPv4Config)
 	m := New("/dev/cdc-wdm0", "auto")
 	m.netcfg = &fakeNetcfg{}
@@ -457,10 +457,15 @@ func TestUnexpectedDeactivationDoesNotReconnectWithoutOptIn(t *testing.T) {
 	if err := m.Connect(); err != nil {
 		t.Fatal(err)
 	}
+	notified := 0
+	m.OnDataDisconnected(func() { notified++ })
 	m.handleConnectIndication(mbim.ConnectState{ActivationState: mbim.ActivationStateDeactivated})
 	// Also exercise the retry entry point directly: disabled automatic data
 	// must not activate even if an earlier connection was desired.
 	m.reconnectWithBackoff()
+	if notified != 1 {
+		t.Fatalf("disconnect notifications=%d, want 1", notified)
+	}
 	if m.IsConnected() {
 		t.Fatal("unexpected automatic data reconnection")
 	}

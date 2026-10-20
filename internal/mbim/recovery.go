@@ -95,13 +95,17 @@ func (m *Manager) runRecovery(reason string) {
 func (m *Manager) doReopen(ctx context.Context) error {
 	m.mu.Lock()
 	wantData := m.desiredConnection && m.dataCfg.AutoReconnect
+	handler := m.dataDisconnected
+	notifyHost := m.desiredConnection && handler != nil
 	m.mu.Unlock()
 
 	_ = m.Close()
 	if err := m.Open(ctx); err != nil {
 		return err
 	}
-	if wantData {
+	if notifyHost {
+		handler()
+	} else if wantData {
 		if err := m.Connect(); err != nil {
 			return err
 		}

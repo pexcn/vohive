@@ -112,16 +112,3 @@ func TestDeviceConfigFromDTOWithBaseAppliesExplicitQMIProxyFields(t *testing.T) 
 		t.Fatalf("QMIProxyExecutable=%q, want empty", cfg.QMIProxyExecutable)
 	}
 }
-
-func TestDeviceConfigEditPreservesBackgroundDataPolicy(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		base := config.DeviceConfig{ID: "manual-data", AutoConnectData: enabled}
-		got := deviceConfigFromDTOWithBase(deviceConfigDTO{ID: base.ID, Name: "renamed"}, &base)
-		if got.AutoConnectData != enabled {
-			t.Fatal("unrelated device edit changed background data policy")
-		}
-	}
-	if deviceConfigFromDTO(deviceConfigDTO{ID: "new-device"}).AutoConnectData {
-		t.Fatal("new device opted into automatic data")
-	}
-}

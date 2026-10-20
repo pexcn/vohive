@@ -37,11 +37,6 @@ func UpdateDeviceInFile(path string, deviceID string, newDevice DeviceConfig) er
 			deleteMapKey(n, "modem_imei")
 		}
 		setMapScalar(n, "device_backend", newDevice.DeviceBackend)
-		if newDevice.AutoConnectData {
-			setMapBool(n, "auto_connect_data", true)
-		} else {
-			deleteMapKey(n, "auto_connect_data")
-		}
 		if newDevice.QMIUseProxy {
 			setMapBool(n, "qmi_use_proxy", true)
 		} else {
@@ -179,9 +174,6 @@ func deviceConfigToNode(d DeviceConfig) *yaml.Node {
 	}
 	if d.QMIUseProxy {
 		appendMapBool(m, "qmi_use_proxy", true)
-	}
-	if d.AutoConnectData {
-		appendMapBool(m, "auto_connect_data", true)
 	}
 	if d.QMIProxyPath != "" {
 		appendMapScalar(m, "qmi_proxy_path", d.QMIProxyPath)

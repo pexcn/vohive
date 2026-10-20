@@ -136,3 +136,45 @@ func TestTriggerReopenIsSingleFlight(t *testing.T) {
 		t.Fatalf("max concurrent recoveries = %d, want 1", maxObserved.Load())
 	}
 }
+
+func TestReopenDelegatesDesiredDataToHost(t *testing.T) {
+	for _, stopped := range []bool{false, true} {
+		old := mbim.NewFakeTransport(mbim.TestAnswerConnectAndIPv4Config)
+		fresh := mbim.NewFakeTransport(mbim.TestAnswerConnectAndIPv4Config)
+		dial, _ := sequenceDial(fresh)
+		m := New("/dev/cdc-wdm0", "direct")
+		m.dial = dial
+		m.netcfg = &fakeNetcfg{}
+		m.healthProbeInterval = time.Hour
+		m.SetDataConfig(DataConfig{APN: "internet", Interface: "wwan0", IPVersion: "v4"})
+		if err := m.openWithTransport(context.Background(), old); err != nil {
+			t.Fatal(err)
+		}
+		if err := m.Connect(); err != nil {
+			t.Fatal(err)
+		}
+		notified := 0
+		m.OnDataDisconnected(func() { notified++ })
+		if stopped {
+			if err := m.Disconnect(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := m.doReopen(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if m.IsConnected() {
+			t.Fatal("reopen activated data without consulting host policy")
+		}
+		want := 1
+		if stopped {
+			want = 0
+		}
+		if notified != want {
+			t.Fatalf("stopped=%v: notifications=%d, want %d", stopped, notified, want)
+		}
+		if err := m.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
