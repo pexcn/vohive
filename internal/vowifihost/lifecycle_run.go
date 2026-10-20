@@ -128,11 +128,11 @@ func (m *Manager) enableRuntime(ctx context.Context, req runtimeEnableRequest) (
 		if !ok {
 			state = initialState
 		}
-		// Startup observers are attached only after success. The failed
-		// instance retains its error class even after resource cleanup.
+		// Queued startup progress may lag the failure. The instance retains
+		// the authoritative failure state even after resource cleanup.
 		if result.Instance != nil {
 			if failed := result.Instance.State(); failed.LastErrorClass != "" {
-				state.LastErrorClass = failed.LastErrorClass
+				state = failed
 			}
 		}
 		return adapter.HandleStartupError(StartupErrorRequest{

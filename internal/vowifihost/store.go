@@ -13,6 +13,7 @@ type RuntimeStore interface {
 	ClaimStarted(deviceID string, epoch uint64, inst *runtimehost.Instance) bool
 	FailStart(deviceID string, epoch uint64, state runtimehost.State, err error)
 	RecordStartupState(deviceID string, state runtimehost.State) bool
+	RecordStartupStateForEpoch(deviceID string, epoch uint64, state runtimehost.State) bool
 	ClearStartupState(deviceID string) bool
 	Invalidate(deviceID string) (uint64, bool)
 	CurrentEpoch(deviceID string) uint64
@@ -78,6 +79,7 @@ func (s *Store) BeginStart(deviceID string) StartClaim {
 		return StartClaim{Epoch: slot.epoch, Starting: true}
 	}
 	slot.starting = true
+	slot.epoch++
 	slot.lastErr = ""
 	slot.updatedAt = time.Now()
 	return StartClaim{Epoch: slot.epoch, Accepted: true}
@@ -128,6 +130,14 @@ func (s *Store) FailStart(deviceID string, epoch uint64, state runtimehost.State
 }
 
 func (s *Store) RecordStartupState(deviceID string, state runtimehost.State) bool {
+	return s.recordStartupState(deviceID, nil, state)
+}
+
+func (s *Store) RecordStartupStateForEpoch(deviceID string, epoch uint64, state runtimehost.State) bool {
+	return s.recordStartupState(deviceID, &epoch, state)
+}
+
+func (s *Store) recordStartupState(deviceID string, epoch *uint64, state runtimehost.State) bool {
 	deviceID = strings.TrimSpace(deviceID)
 	if s == nil || deviceID == "" {
 		return false
@@ -138,6 +148,9 @@ func (s *Store) RecordStartupState(deviceID string, state runtimehost.State) boo
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	slot := s.ensureSlotLocked(deviceID)
+	if epoch != nil && (slot.epoch != *epoch || !slot.starting) {
+		return false
+	}
 	if slot.instance != nil {
 		return false
 	}

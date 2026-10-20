@@ -2,12 +2,86 @@ package vowifihost
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/iniwex5/vowifi-go/runtimehost"
 	"github.com/iniwex5/vowifi-go/runtimehost/identity"
 )
+
+func TestManagerStartRuntimePublishesProgressBeforeReturn(t *testing.T) {
+	m := NewManager()
+	claim := m.BeginStart("dev-1")
+	changes, unsub := m.SubscribeState("dev-1")
+	defer unsub()
+	m.SetRuntimeStartForTest(func(ctx context.Context, req runtimehost.StartRequest) (*runtimehost.Instance, error) {
+		if req.Observer == nil {
+			t.Fatal("missing observer during startup")
+		}
+		for _, state := range []runtimehost.State{
+			{Phase: runtimehost.PhaseTunnelConnecting, SIMReady: true, AccessReady: true},
+			{Phase: runtimehost.PhaseIMSRegistering, SIMReady: true, AccessReady: true, TunnelReady: true},
+			{Phase: runtimehost.PhaseIMSReady, SIMReady: true, AccessReady: true, TunnelReady: true, IMSReady: true},
+		} {
+			state.DeviceID, state.UpdatedAt = req.DeviceID, time.Now()
+			req.Observer.OnRuntimeEvent(ctx, runtimehost.Event{State: state})
+			select {
+			case <-changes:
+			default:
+				t.Fatalf("%s did not notify SSE subscribers", state.Phase)
+			}
+			if got, ok := m.State(req.DeviceID); !ok || got != state {
+				t.Fatalf("progress unavailable before Start returns: %+v", got)
+			}
+			if m.Active(req.DeviceID) || !m.Starting(req.DeviceID) {
+				t.Fatal("progress incorrectly claimed a running instance")
+			}
+		}
+		return &runtimehost.Instance{}, nil
+	})
+	_, err := m.StartRuntime(context.Background(), RuntimeStartRequest{DeviceID: "dev-1", Epoch: claim.Epoch})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManagerStartupObserverCannotOverwriteNewAttempt(t *testing.T) {
+	m := NewManager()
+	claim := m.BeginStart("dev-1")
+	var old runtimehost.Observer
+	wantErr := errors.New("startup failed")
+	m.SetRuntimeStartForTest(func(_ context.Context, req runtimehost.StartRequest) (*runtimehost.Instance, error) {
+		old = req.Observer
+		return nil, wantErr
+	})
+	if _, err := m.StartRuntime(context.Background(), RuntimeStartRequest{DeviceID: "dev-1", Epoch: claim.Epoch}); !errors.Is(err, wantErr) {
+		t.Fatal(err)
+	}
+	m.FailStart("dev-1", claim.Epoch, runtimehost.State{}, wantErr)
+	// A retry need not go through explicit invalidation. Its startup events must
+	// still be isolated from an earlier attempt's delayed notification queue.
+	newClaim := m.BeginStart("dev-1")
+	newState := runtimehost.State{Phase: runtimehost.PhaseSIMReady, LastReason: "new_attempt", UpdatedAt: time.Now()}
+	m.RecordStartupState("dev-1", newState)
+	changes, unsub := m.SubscribeState("dev-1")
+	defer unsub()
+	old.OnRuntimeEvent(context.Background(), runtimehost.Event{State: runtimehost.State{
+		Phase: runtimehost.PhaseReady, SMSReady: true, UpdatedAt: time.Now().Add(time.Second),
+	}})
+	if state, ok := m.State("dev-1"); !ok || state != newState {
+		t.Fatalf("late startup event overwrote new attempt: %+v", state)
+	}
+	select {
+	case <-changes:
+		t.Fatal("late startup event notified subscribers")
+	default:
+	}
+	m.InvalidateRuntime("dev-1", "switch")
+	if m.RuntimeStore().RecordStartupStateForEpoch("dev-1", newClaim.Epoch, newState) {
+		t.Fatal("invalidated attempt published startup progress")
+	}
+}
 
 type runtimeStartTestModem struct{}
 

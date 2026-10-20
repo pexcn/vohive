@@ -109,6 +109,11 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 		DeliveryStore: req.DeliveryStore,
 		Dispatch:      req.Dispatch,
 		BeforeStart:   req.BeforeStart,
+		Observer: runtimehost.ObserverFunc(func(_ context.Context, ev runtimehost.Event) {
+			if m.RuntimeStore().RecordStartupStateForEpoch(deviceID, req.Epoch, ev.State) {
+				m.BroadcastState(deviceID)
+			}
+		}),
 
 		AuthenticationContext: m.authenticationContext(deviceID, profile.IMSI),
 		ShouldRun: func() bool {
