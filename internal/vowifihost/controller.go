@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/iniwex5/vohive/pkg/logger"
 )
@@ -171,6 +172,23 @@ func (c *LifecycleController) submitPreempting(ctx context.Context, lifecycle *d
 		cmd.Generation = c.nextGeneration(lifecycle)
 	}
 	c.cancelActiveRun(lifecycle)
+	if cmd.Kind == LifecycleCommandSwitchBegin {
+		// Cancellation alone does not mean an in-flight AKA/startup has closed
+		// its channels. Drain that run before the eSIM manager opens ISD-R.
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for !lifecycle.runMu.TryLock() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+			}
+		}
+		defer lifecycle.runMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
 	runCtx, clearRun := c.bindRunContext(ctx, lifecycle)
 	defer clearRun()
 	return c.runCommand(runCtx, cmd)

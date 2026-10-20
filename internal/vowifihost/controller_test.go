@@ -36,12 +36,15 @@ func TestLifecycleControllerSwitchBeginPreemptsInFlightEnable(t *testing.T) {
 	c := NewLifecycleController()
 
 	enableRelease := make(chan struct{})
+	enableCancelled := make(chan struct{})
 	started := make(chan LifecycleCommand, 2)
 	done := make(chan error, 2)
 
 	c.TestRun = func(ctx context.Context, cmd LifecycleCommand) error {
 		started <- cmd
 		if cmd.Kind == LifecycleCommandEnable {
+			<-ctx.Done()
+			close(enableCancelled)
 			<-enableRelease
 		}
 		return nil
@@ -65,6 +68,18 @@ func TestLifecycleControllerSwitchBeginPreemptsInFlightEnable(t *testing.T) {
 		done <- c.Submit(context.Background(), LifecycleCommand{DeviceID: "dev-1", Kind: LifecycleCommandSwitchBegin})
 	}()
 
+	select {
+	case <-enableCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("switch did not cancel in-flight startup")
+	}
+	select {
+	case <-started:
+		t.Fatal("switch began before startup cleanup completed")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(enableRelease)
+
 	var switchCmd LifecycleCommand
 	select {
 	case switchCmd = <-started:
@@ -72,14 +87,13 @@ func TestLifecycleControllerSwitchBeginPreemptsInFlightEnable(t *testing.T) {
 			t.Fatalf("preempting command = %s, want switch_begin", switchCmd.Kind.String())
 		}
 	case <-time.After(150 * time.Millisecond):
-		t.Fatal("switch_begin did not preempt in-flight enable")
+		t.Fatal("switch_begin did not resume after startup cleanup")
 	}
 
 	if switchCmd.Generation <= enableCmd.Generation {
 		t.Fatalf("switch_begin generation = %d, want > in-flight enable generation %d", switchCmd.Generation, enableCmd.Generation)
 	}
 
-	close(enableRelease)
 	for i := 0; i < 2; i++ {
 		select {
 		case err := <-done:

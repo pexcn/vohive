@@ -293,7 +293,7 @@ type Manager struct {
 	discoveredEUICCs            []EUICCInfo
 	sf                          *singleflight.Group
 
-	onBeforeSwitch       func(SwitchOperation, string) uint64              // 切卡前执行的回调，返回本次 switch token
+	onBeforeSwitch       func(SwitchOperation, string) (uint64, error)     // 切卡前执行的回调，返回本次 switch token 和准备错误
 	onAfterSwitch        func(SwitchOperation, uint64)                     // 切卡后网络就绪后执行的回调
 	onSwitchFailed       func(SwitchOperation, uint64, error)              // 切卡失败后执行的回调
 	onSwitchDegraded     func(SwitchOperation, uint64, SwitchPhase, error) // 切卡已接受但后处理降级回调
@@ -315,6 +315,9 @@ type Manager struct {
 // 读操作（GetProfiles / GetEsimOverview）在检测到此情况时立即降级，不进入 SIM 卡通道
 var ErrOperationInProgress = fmt.Errorf("eSIM 操作进行中，请稍后重试")
 
+// ErrProfileCommandNotSent identifies failures before any profile write APDU.
+var ErrProfileCommandNotSent = errors.New("eSIM profile command was not sent")
+
 type ManagerOptions struct {
 	DeviceID             string
 	Transport            string
@@ -322,7 +325,7 @@ type ManagerOptions struct {
 	Backend              backendpkg.DeviceBackend
 	QMITransport         QMIAPDUTransport
 	IMEIProvider         func(ctx context.Context) (string, error)
-	OnBeforeSwitch       func(SwitchOperation, string) uint64
+	OnBeforeSwitch       func(SwitchOperation, string) (uint64, error)
 	OnAfterSwitch        func(SwitchOperation, uint64)
 	OnSwitchFailed       func(SwitchOperation, uint64, error)
 	OnSwitchDegraded     func(SwitchOperation, uint64, SwitchPhase, error)
@@ -1885,7 +1888,7 @@ func (m *Manager) findAIDForICCID(targetICCID string) ([]byte, error) {
 	return nil, NewDeleteProfileError(
 		DeleteProfileErrorProfileNotFound,
 		msg,
-		nil,
+		lastErr,
 	)
 }
 
@@ -2038,15 +2041,18 @@ func (m *Manager) SwitchProfile(ctx context.Context, targetICCID string, aidHex 
 	return err
 }
 
-func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID string, aidHex string) (SwitchProfileResult, error) {
+func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID string, aidHex string) (result SwitchProfileResult, retErr error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	const operation = SwitchOperationEnableProfile
-	result := SwitchProfileResult{TargetICCID: targetICCID}
+	result = SwitchProfileResult{TargetICCID: targetICCID}
 	m.opMu.Lock()
 	writeStarted := time.Now()
 	switchSucceeded := false
 	switchStarted := false
 	var switchToken uint64
-	var switchFailureErr error
+	commandSent := false
 	defer func() {
 		if !switchSucceeded {
 			m.emitSwitchPhase(operation, switchToken, SwitchPhaseFailed)
@@ -2055,7 +2061,11 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 		m.opMu.Unlock()
 		m.notifyWriteDone()
 		if !switchSucceeded && switchStarted && m.onSwitchFailed != nil {
-			m.onSwitchFailed(operation, switchToken, switchFailureErr)
+			failureErr := retErr
+			if !commandSent {
+				failureErr = errors.Join(ErrProfileCommandNotSent, failureErr)
+			}
+			m.onSwitchFailed(operation, switchToken, failureErr)
 		}
 	}()
 
@@ -2065,49 +2075,26 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	}
 	m.drainSwitchSignals()
 
-	// 1. 查找 ICCID 所属的 eUICC
+	// Validate caller input before stopping the old session.
 	var targetAID []byte
 	if aidHex != "" {
-		// 前端已知 AID，直接 decode
 		targetAID, err = hex.DecodeString(aidHex)
 		if err != nil {
 			return result, fmt.Errorf("无效的 AID hex %q: %w", aidHex, err)
 		}
-		logger.Info("使用前端传入的 AID", "device", m.deviceID, "AID", aidHex)
-	} else {
-		// 回退：遍历查找
-		targetAID, err = m.findAIDForICCID(targetICCID)
-		if err != nil {
-			return result, err
-		}
 	}
-
-	// 2. 用对应 AID 创建 LPA client
-	client, err := m.createLPAWithAID(targetAID)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	clientClosed := false
-	defer func() {
-		if !clientClosed {
-			_ = m.closeLPAClientForOperation("switch_profile_deferred", client)
-		}
-	}()
-
-	logger.Info("开始切换 eSIM profile",
-		"device", m.deviceID,
-		"target", targetICCID,
-		"AID", fmt.Sprintf("%X", targetAID))
-
-	// 触发切卡前的回调（通常用于主动断开 VoWiFi 防冲突）
+	// Preparation must finish before discovery or LPA opens any channel.
 	if m.onBeforeSwitch != nil {
-		switchToken = m.onBeforeSwitch(operation, targetICCID)
 		switchStarted = true
+		switchToken, err = m.onBeforeSwitch(operation, targetICCID)
+		result.SwitchToken = switchToken
+		if err != nil {
+			return result, fmt.Errorf("切卡准备失败: %w", err)
+		}
 	}
-	result.SwitchToken = switchToken
-	result.Phase = SwitchPhaseAPDUSwitching
-	m.emitSwitchPhase(operation, switchToken, SwitchPhaseAPDUSwitching)
-
 	switchBarrier, err := m.beginSwitchAPDUBarrier(ctx)
 	barrierReleased := false
 	releaseSwitchBarrier := func(nextPhase SwitchPhase) {
@@ -2122,9 +2109,31 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	}
 	defer releaseSwitchBarrier("")
 	if err != nil {
-		switchFailureErr = err
 		return result, fmt.Errorf("等待切卡 APDU barrier 失败: %w", err)
 	}
+	if aidHex == "" {
+		targetAID, err = m.findAIDForICCID(targetICCID)
+		if err != nil {
+			return result, err
+		}
+	}
+	client, err := m.createLPAWithAID(targetAID)
+	if err != nil {
+		return result, err
+	}
+	clientClosed := false
+	defer func() {
+		if !clientClosed {
+			_ = m.closeLPAClientForOperation("switch_profile_deferred", client)
+		}
+	}()
+	logger.Info("开始切换 eSIM profile",
+		"device", m.deviceID, "target", targetICCID, "AID", fmt.Sprintf("%X", targetAID))
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	result.Phase = SwitchPhaseAPDUSwitching
+	m.emitSwitchPhase(operation, switchToken, SwitchPhaseAPDUSwitching)
 
 	// refresh flag 由配置控制；refresh=true 可能立即触发 UIM refresh/slot indication，
 	// 必须在发 APDU 前抑制自动 overview reload。
@@ -2135,6 +2144,7 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	// 是预期信号，后续 finalize 已处理，见 isExpectedCardResetSignal。
 	// CatBusy (result=5) 是瞬态错误：飞行模式切换等操作会导致卡片 CAT 忙碌，
 	// 等待短暂间隔后重试即可恢复。最多重试 3 次，间隔 800ms。
+	commandSent = true
 	var enableErr error
 	const maxCatBusyRetries = 3
 	for attempt := 0; attempt <= maxCatBusyRetries; attempt++ {
@@ -2161,7 +2171,6 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	releaseSwitchBarrier(SwitchPhaseCardResetSettling)
 
 	if enableErr != nil && !isExpectedCardResetSignal(enableErr) {
-		switchFailureErr = enableErr
 		if err := m.finalizeEnableProfileResult(targetICCID, enableErr); err != nil {
 			return result, err
 		}
@@ -2185,14 +2194,17 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 
 // DisableProfile 禁用指定 ICCID 的 profile。
 // aidHex 可选，前端已知时直接传入可跳过全量 AID 遍历。
-func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex string) error {
+func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex string) (retErr error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	const operation = SwitchOperationDisableProfile
 	m.opMu.Lock()
 	writeStarted := time.Now()
 	disableSucceeded := false
 	disableStarted := false
 	var switchToken uint64
-	var switchFailureErr error
+	commandSent := false
 	defer func() {
 		if !disableSucceeded {
 			m.emitSwitchPhase(operation, switchToken, SwitchPhaseFailed)
@@ -2201,7 +2213,11 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 		m.opMu.Unlock()
 		m.notifyWriteDone()
 		if !disableSucceeded && disableStarted && m.onSwitchFailed != nil {
-			m.onSwitchFailed(operation, switchToken, switchFailureErr)
+			failureErr := retErr
+			if !commandSent {
+				failureErr = errors.Join(ErrProfileCommandNotSent, failureErr)
+			}
+			m.onSwitchFailed(operation, switchToken, failureErr)
 		}
 	}()
 
@@ -2216,35 +2232,17 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 		if err != nil {
 			return fmt.Errorf("无效的 AID hex %q: %w", aidHex, err)
 		}
-	} else {
-		targetAID, err = m.findAIDForICCID(targetICCID)
-		if err != nil {
-			return err
-		}
 	}
-
-	client, err := m.createLPAWithAID(targetAID)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	clientClosed := false
-	defer func() {
-		if !clientClosed {
-			_ = m.closeLPAClientForOperation("disable_profile_deferred", client)
-		}
-	}()
-
-	logger.Info("开始禁用 eSIM profile",
-		"device", m.deviceID,
-		"ICCID", targetICCID,
-		"AID", fmt.Sprintf("%X", targetAID))
-
 	if m.onBeforeSwitch != nil {
-		switchToken = m.onBeforeSwitch(operation, "")
 		disableStarted = true
+		switchToken, err = m.onBeforeSwitch(operation, "")
+		if err != nil {
+			return fmt.Errorf("禁用 profile 准备失败: %w", err)
+		}
 	}
-	m.emitSwitchPhase(operation, switchToken, SwitchPhaseAPDUSwitching)
-
 	switchBarrier, err := m.beginSwitchAPDUBarrier(ctx)
 	barrierReleased := false
 	releaseSwitchBarrier := func(nextPhase SwitchPhase) {
@@ -2258,10 +2256,31 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 	}
 	defer releaseSwitchBarrier("")
 	if err != nil {
-		switchFailureErr = err
 		return fmt.Errorf("等待禁用 profile APDU barrier 失败: %w", err)
 	}
-
+	if aidHex == "" {
+		targetAID, err = m.findAIDForICCID(targetICCID)
+		if err != nil {
+			return err
+		}
+	}
+	client, err := m.createLPAWithAID(targetAID)
+	if err != nil {
+		return err
+	}
+	clientClosed := false
+	defer func() {
+		if !clientClosed {
+			_ = m.closeLPAClientForOperation("disable_profile_deferred", client)
+		}
+	}()
+	logger.Info("开始禁用 eSIM profile",
+		"device", m.deviceID, "ICCID", targetICCID, "AID", fmt.Sprintf("%X", targetAID))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.emitSwitchPhase(operation, switchToken, SwitchPhaseAPDUSwitching)
+	commandSent = true
 	disableErr := client.DisableProfile(iccid, true)
 	if err := m.closeLPAClientForOperation("disable_profile_pre_refresh", client); err == nil {
 		clientClosed = true
@@ -2276,7 +2295,6 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 				"device", m.deviceID,
 				"target", targetICCID)
 		} else {
-			switchFailureErr = disableErr
 			return fmt.Errorf("禁用 profile %s 失败: %w", targetICCID, disableErr)
 		}
 	}

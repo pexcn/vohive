@@ -1011,6 +1011,88 @@ func TestHandleESIMSwitchAfterRestoresOnlineWhenVoWiFiSwitchOff(t *testing.T) {
 	}
 }
 
+func TestHandleESIMSwitchAfterRestoresCurrentCardPolicy(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		before      config.DeviceConfig
+		snapshot    esimSwitchContext
+		wantFlight  bool
+		wantNetwork bool
+		radioCycle  bool
+	}{
+		{
+			name:        "VoWiFi to cellular",
+			before:      config.DeviceConfig{VoWiFiEnabled: true, AirplaneEnabled: true},
+			snapshot:    esimSwitchContext{FlightModeBefore: true},
+			wantNetwork: true,
+		},
+		{
+			name:        "manual flight with radio cycle to cellular",
+			snapshot:    esimSwitchContext{FlightModeBefore: true},
+			wantNetwork: true,
+			radioCycle:  true,
+		},
+		{
+			name:     "cellular to standby",
+			before:   config.DeviceConfig{NetworkEnabled: true},
+			snapshot: esimSwitchContext{NetworkEnabledBefore: true, QMIConnectedBefore: true},
+		},
+		{
+			name:       "cellular to flight",
+			before:     config.DeviceConfig{NetworkEnabled: true},
+			snapshot:   esimSwitchContext{NetworkEnabledBefore: true, QMIConnectedBefore: true},
+			wantFlight: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewPool(&config.Config{})
+			defer p.cancel()
+			const iccid = "new-profile-iccid"
+			p.SetPolicyResolver(&stubPolicyResolver{pol: cardpolicy.Policy{
+				ICCID: iccid, NetworkEnabled: tt.wantNetwork,
+				AirplaneEnabled: tt.wantFlight, IPVersion: "v4", APN: "new.apn",
+			}})
+			be := &esimSwitchRestoreBackendStub{
+				mode: backend.BackendQMI, getMode: backend.ModeOnline,
+				liveICCID: iccid, liveIMSI: "001010000000001",
+			}
+			if tt.snapshot.FlightModeBefore {
+				be.getMode = backend.ModeRFOff
+			}
+			be.setModeHook = func(mode backend.OperatingMode) { be.getMode = mode }
+			controller := &fakeController{connected: tt.snapshot.QMIConnectedBefore}
+			w := &Worker{
+				ID: "dev-1", Pool: p, Backend: be, Config: tt.before,
+				netOverride: controller,
+			}
+			w.Config.ESIMSwitch.RadioCycle = tt.radioCycle
+			p.workers[w.ID] = w
+			snapshot := tt.snapshot
+			snapshot.ICCIDBefore = "old-profile-iccid"
+			snapshot.TargetICCID = iccid
+			withSwitchSnapshot(p, w.ID, snapshot)
+
+			p.handleESIMSwitchAfter(w.ID, 0)
+
+			if isFlightOperatingMode(be.getMode) != tt.wantFlight {
+				t.Fatalf("radio mode=%v, want flight=%v; writes=%v", be.getMode, tt.wantFlight, be.setCalls)
+			}
+			if controller.connected != tt.wantNetwork {
+				t.Fatalf("data connected=%v, want %v", controller.connected, tt.wantNetwork)
+			}
+			if w.Config.VoWiFiEnabled || w.Config.AirplaneEnabled != tt.wantFlight || w.Config.NetworkEnabled != tt.wantNetwork {
+				t.Fatalf("new card policy not projected: %+v", w.Config)
+			}
+			if w.Config.APN != "new.apn" || w.CurrentICCID() != iccid {
+				t.Fatal("restoration used the old profile identity or APN")
+			}
+			if p.IsESIMSwitching(w.ID) {
+				t.Fatal("switching flag remains after restoration")
+			}
+		})
+	}
+}
+
 func readLogFields(t *testing.T, entry logger.LogEntry) map[string]any {
 	t.Helper()
 	if strings.TrimSpace(entry.Fields) == "" {

@@ -42,7 +42,13 @@ func (m *Manager) runLifecycleCommand(ctx context.Context, cmd LifecycleCommand)
 		return m.recoverRuntime(ctx, cmd.DeviceID, cmd.Reason, cmd.Generation, cmd.OverrideEPDG)
 	case LifecycleCommandSwitchBegin:
 		m.TeardownForSwitch(ctx, cmd.DeviceID)
-		return nil
+		if err := m.retryCleanup(ctx, cmd.DeviceID); err != nil {
+			return fmt.Errorf("VoWiFi switch cleanup remains incomplete: %w", err)
+		}
+		if m.RuntimeStore().Instance(cmd.DeviceID) != nil {
+			return fmt.Errorf("VoWiFi runtime still active during switch preparation")
+		}
+		return ctx.Err()
 	case LifecycleCommandSwitchEnd:
 		if cmd.RestoreRadio {
 			return m.enableRuntime(ctx, runtimeEnableRequest{
