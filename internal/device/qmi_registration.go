@@ -77,7 +77,7 @@ func normalizeQMIRegistrationOptions(opts qmiRegistrationOptions) qmiRegistratio
 	return opts
 }
 
-func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.DeviceConfig, sim qmiSIMStatusSource, ctrl qmiRegistrationController, opts qmiRegistrationOptions) error {
+func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.DeviceConfig, sim qmiSIMStatusSource, ctrl qmiRegistrationController, opts qmiRegistrationOptions) (resultErr error) {
 	if sim == nil {
 		return fmt.Errorf("qmi sim source unavailable")
 	}
@@ -86,11 +86,35 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 	}
 	opts = normalizeQMIRegistrationOptions(opts)
 	startedAt := time.Now()
+	stage, stageStartedAt := "radio_mode_read", startedAt
+	markStage := func(next string) { stage, stageStartedAt = next, time.Now() }
+	lastMode, lastRegStatus, lastAttempt := -1, -1, 0
+	lastPSAttached := false
+	registerIssued, attachIssued := false, false
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		fields := []any{"device", deviceID, "stage", stage,
+			"stage_elapsed_ms", time.Since(stageStartedAt).Milliseconds(),
+			"elapsed_ms", time.Since(startedAt).Milliseconds(), "attempt", lastAttempt,
+			"register_command_completed", registerIssued, "attach_command_completed", attachIssued,
+			"err", resultErr}
+		if lastMode >= 0 {
+			fields = append(fields, "last_radio_mode", lastMode)
+		}
+		if lastRegStatus >= 0 {
+			fields = append(fields, "last_reg_status", lastRegStatus, "last_ps_attached", lastPSAttached)
+		}
+		logger.Debug("QMI 驻网协调中断", fields...)
+	}()
+	logger.Debug("QMI 驻网关键阶段", "device", deviceID, "stage", stage)
 
 	mode, err := ctrl.GetOperatingMode(ctx)
 	if err != nil {
 		return fmt.Errorf("读取 QMI radio mode 失败: %w", err)
 	}
+	lastMode = int(mode)
 	logger.Debug("QMI radio mode 初始检查", "device", deviceID, "mode", int(mode))
 	if err := ctx.Err(); err != nil {
 		return err
@@ -98,17 +122,21 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 	radioRestoredOnline := false
 	if isFlightOperatingMode(mode) {
 		logger.Info("QMI radio 初始处于飞行/低功耗，恢复 Online 后再驻网", "device", deviceID, "mode", int(mode))
+		markStage("radio_online")
 		if err := ctrl.SetOperatingMode(ctx, backend.ModeOnline); err != nil {
 			return fmt.Errorf("QMI radio mode 恢复 Online 失败: %w", err)
 		}
 		radioRestoredOnline = true
+		markStage("radio_online_settle")
 		if err := sleepQMIRegistrationPoll(ctx, opts.PollInterval); err != nil {
 			return err
 		}
+		markStage("radio_mode_recheck")
 		mode, err = ctrl.GetOperatingMode(ctx)
 		if err != nil {
 			return fmt.Errorf("恢复 Online 后读取 QMI radio mode 失败: %w", err)
 		}
+		lastMode = int(mode)
 		logger.Debug("QMI radio mode 恢复后复查", "device", deviceID, "mode", int(mode))
 		if isFlightOperatingMode(mode) {
 			return fmt.Errorf("QMI radio mode 仍处于飞行/低功耗，无法驻网: mode=%d", int(mode))
@@ -116,17 +144,22 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 	}
 
 	if ensurer, ok := sim.(qmiProvisioningEnsurer); ok {
+		markStage("sim_provisioning")
+		logger.Debug("QMI 驻网关键阶段", "device", deviceID, "stage", stage, "elapsed_ms", time.Since(startedAt).Milliseconds())
 		if _, perr := ensurer.EnsureSIMProvisioned(ctx, qmimanager.EnsureSIMProvisionedOptions{}); perr != nil {
-			logger.Debug("QMI provisioning 收敛 best-effort 失败，继续等待 SIM ready", "device", deviceID, "err", perr)
+			logger.Debug("QMI provisioning 收敛 best-effort 失败，继续等待 SIM ready", "device", deviceID, "stage_elapsed_ms", time.Since(stageStartedAt).Milliseconds(), "err", perr)
 		}
 	}
 
+	logger.Debug("QMI 驻网关键阶段", "device", deviceID, "stage", "sim_ready",
+		"previous_stage", stage, "previous_stage_elapsed_ms", time.Since(stageStartedAt).Milliseconds(),
+		"elapsed_ms", time.Since(startedAt).Milliseconds())
+	markStage("sim_ready")
 	if err := waitQMISIMReady(ctx, deviceID, sim, opts); err != nil {
 		return err
 	}
 
-	registerIssued := false
-	attachIssued := false
+	logger.Debug("QMI SIM 已就绪，开始驻网检查", "device", deviceID, "stage_elapsed_ms", time.Since(stageStartedAt).Milliseconds(), "elapsed_ms", time.Since(startedAt).Milliseconds())
 	forceNetworkSearchIssued := false
 	forceNetworkSearchUnsupported := false
 	radioCycleIssued := false
@@ -134,6 +167,8 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		lastAttempt = attempt
+		markStage("serving_system_read")
 		ss, err := ctrl.GetServingSystem(ctx)
 		if err != nil {
 			return fmt.Errorf("读取 QMI serving system 失败: %w", err)
@@ -144,6 +179,12 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if ss.RegStatus != lastRegStatus || ss.PSAttached != lastPSAttached {
+			logger.Debug("QMI 驻网状态变化", "device", deviceID,
+				"reg_status", ss.RegStatus, "ps_attached", ss.PSAttached,
+				"attempt", attempt, "elapsed_ms", time.Since(startedAt).Milliseconds())
+			lastRegStatus, lastPSAttached = ss.RegStatus, ss.PSAttached
+		}
 
 		switch ss.RegStatus {
 		case 1, 5:
@@ -153,6 +194,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 			}
 			if !attachIssued {
 				logger.Info("QMI 已驻网但未 PS attach，发起 NAS attach", "device", deviceID, "reg_status", ss.RegStatus)
+				markStage("nas_attach")
 				if err := ctrl.NASAttachDetach(ctx, true); err != nil {
 					return fmt.Errorf("QMI PS attach 失败: %w", err)
 				}
@@ -161,6 +203,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 		case 2:
 			if !registerIssued {
 				logger.Info("QMI 正在搜网，发起 NAS 注册唤醒", "device", deviceID, "attempt", attempt)
+				markStage("nas_register")
 				if err := initiateQMIRegistration(ctx, deviceID, cfg, ctrl); err != nil {
 					return fmt.Errorf("QMI NAS 注册失败: %w", err)
 				}
@@ -170,6 +213,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 			if shouldForceNetworkSearchForQMIRegistration(attempt, registerIssued, forceNetworkSearchIssued, forceNetworkSearchUnsupported) {
 				forceNetworkSearchIssued = true
 				logger.Info("QMI 搜网持续未恢复，执行 NAS force network search", "device", deviceID, "attempt", attempt)
+				markStage("force_network_search")
 				if err := ctrl.NASForceNetworkSearch(ctx); err != nil {
 					if isUnsupportedQMIForceNetworkSearchError(err) {
 						forceNetworkSearchUnsupported = true
@@ -184,6 +228,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 					logger.Info("QMI 驻网恢复暂缓 radio cycle：运营商扫描进行中", "device", deviceID, "attempt", attempt)
 				} else {
 					radioCycleIssued = true
+					markStage("radio_cycle")
 					if err := radioCycleQMIForRegistration(ctx, deviceID, ctrl, opts.PollInterval); err != nil {
 						logger.Warn("QMI 驻网恢复 radio cycle 失败，继续等待模组自主驻网", "device", deviceID, "err", err)
 					} else {
@@ -197,6 +242,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 		default:
 			if !registerIssued {
 				logger.Info("QMI 未驻网，发起 NAS 注册", "device", deviceID, "reg_status", ss.RegStatus)
+				markStage("nas_register")
 				if err := initiateQMIRegistration(ctx, deviceID, cfg, ctrl); err != nil {
 					return fmt.Errorf("QMI NAS 注册失败: %w", err)
 				}
@@ -204,6 +250,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 			}
 		}
 
+		markStage("wait_registration")
 		if err := sleepQMIRegistrationPoll(ctx, opts.PollInterval); err != nil {
 			return err
 		}
