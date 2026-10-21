@@ -33,6 +33,7 @@ const shell = computed(() =>
 
 <style>
 .app-root {
+  position: relative;
   height: 100dvh;
   width: 100%;
   overflow: hidden;
