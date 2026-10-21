@@ -72,7 +72,7 @@ func (m *Manager) ScheduleDesiredRecover(ctx context.Context, req DesiredRecover
 		ctx = context.Background()
 	}
 
-	logger.Warn("VoWiFi 目标态恢复开始", "event", "VOWIFI_DESIRED_RECOVER", "device", deviceID, "reason", reason)
+	logger.Info("VoWiFi 目标态恢复开始", "event", "VOWIFI_DESIRED_RECOVER", "device", deviceID, "reason", reason)
 	go func() {
 		err := m.Recover(ctx, LifecycleRecoverRequest{
 			DeviceID:     deviceID,
