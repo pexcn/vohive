@@ -78,6 +78,10 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 			p.clearDesiredVoWiFiRecoverState(worker.ID)
 			return policyApplyResult{ICCID: iccid, Reason: "radio_off_failed"}
 		}
+	case p.IsESIMSwitching(worker.ID):
+		// Only the switch coordinator may restore RF/data after confirming
+		// the new identity. Protected policies above still turn RF off now.
+		logger.Debug("切卡中，在线策略由切卡收尾统一应用", "device", worker.ID, "reason", reason)
 	default:
 		// 在线(待机或连网)：若当前在飞行先退出飞行，再按 network 偏好。
 		p.exitAirplaneModeIfNeeded(worker, reason)

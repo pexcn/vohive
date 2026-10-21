@@ -104,10 +104,17 @@ func TestResolveAndApplyPolicy_EmptyICCID(t *testing.T) {
 
 func TestResolveAndApplyPolicy_ResolvesAndProjects(t *testing.T) {
 	for _, tt := range []struct {
-		name   string
-		vowifi bool
-		err    error
-	}{{name: "flight"}, {name: "vowifi", vowifi: true}, {name: "resolver_failure", err: errors.New("database unavailable")}} {
+		name      string
+		vowifi    bool
+		switching bool
+		err       error
+	}{
+		{name: "flight"}, {name: "vowifi", vowifi: true},
+		{name: "resolver_failure", err: errors.New("database unavailable")},
+		{name: "flight_during_switch", switching: true},
+		{name: "vowifi_during_switch", vowifi: true, switching: true},
+		{name: "resolver_failure_during_switch", switching: true, err: errors.New("database unavailable")},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewPool(nil)
 			defer p.cancel()
@@ -117,12 +124,47 @@ func TestResolveAndApplyPolicy_ResolvesAndProjects(t *testing.T) {
 			stub := &workerStatusBackendStub{opMode: backend.ModeOnline}
 			w := &Worker{ID: "wwan0", Backend: stub, radioPolicyPending: true}
 			w.state.Identity.ICCID = "123"
+			if tt.switching {
+				p.switchingDevices[w.ID] = true
+			}
 			res := p.resolveAndApplyPolicy(w, "test")
 			if res.Applied != (tt.err == nil) || !w.radioMustStayOff() || stub.opMode != backend.ModeRFOff {
 				t.Fatalf("policy did not hold RF off: %+v, mode=%v", res, stub.opMode)
 			}
 			if tt.err == nil && (!w.Config.AirplaneEnabled || w.Config.VoWiFiEnabled != tt.vowifi) {
 				t.Fatal("policy fields were not projected")
+			}
+		})
+	}
+}
+
+func TestResolveAndApplyPolicyDefersOnlineUntilSwitchRestore(t *testing.T) {
+	for _, network := range []bool{false, true} {
+		t.Run(map[bool]string{false: "standby", true: "data"}[network], func(t *testing.T) {
+			p := NewPool(nil)
+			defer p.cancel()
+			p.SetPolicyResolver(&stubPolicyResolver{pol: cardpolicy.Policy{ICCID: "new", NetworkEnabled: network}})
+			b := &workerStatusBackendStub{opMode: backend.ModeRFOff}
+			connects := 0
+			ctrl := &fakeController{connectHook: func() { connects++ }}
+			w := &Worker{ID: "dev", Pool: p, Backend: b, netOverride: ctrl, radioPolicyPending: true,
+				Config: config.DeviceConfig{VoWiFiEnabled: true, AirplaneEnabled: true}}
+			w.state.Identity.ICCID = "new"
+			p.switchingDevices[w.ID] = true
+			res := p.resolveAndApplyPolicy(w, "post_switch_finalize")
+			if !res.Applied || w.radioMustStayOff() || w.Config.NetworkEnabled != network {
+				t.Fatalf("confirmed new policy was not projected: %+v", res)
+			}
+			if len(b.setOpModeCalls) != 0 || connects != 0 {
+				t.Fatalf("ordinary policy attempted RF/data activation during switch: %v, connects=%d", b.setOpModeCalls, connects)
+			}
+			if release, err := w.BeginRadioOnline(p.ctx); err == nil {
+				release()
+				t.Fatal("ordinary Online bypassed the switching guard")
+			}
+			p.restoreRadioDataForSwitchSnapshot(w.ID, w, esimSwitchContext{NetworkEnabledBefore: network}, "post_switch_finalize", false)
+			if len(b.setOpModeCalls) != 1 || b.opMode != backend.ModeOnline || ctrl.connected != network {
+				t.Fatalf("coordinator did not restore the confirmed policy: %v, connected=%v", b.setOpModeCalls, ctrl.connected)
 			}
 		})
 	}
