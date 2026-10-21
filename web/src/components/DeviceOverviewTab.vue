@@ -367,9 +367,6 @@ const networkPanelMessage = computed(() => {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 16px;
 }
-.runtime-panel {
-  grid-column: 1 / -1;
-}
 .runtime-status {
   display: flex;
   align-items: center;
