@@ -1300,6 +1300,7 @@ func (p *Pool) StartAll() error {
 	p.startPoolBackgroundServicesOnce()
 
 	devices := append([]config.DeviceConfig(nil), p.cfg.Devices...)
+	identityCache := &qmiBootstrapIdentityCache{}
 	for i := range devices {
 		devCfg := devices[i]
 		if !FreeDeviceLimitAllowsConfiguredDevice(devices, devCfg.ID) {
@@ -1308,7 +1309,7 @@ func (p *Pool) StartAll() error {
 				"limit", DefaultFreeDeviceLimit)
 			continue
 		}
-		go p.startConfiguredDeviceBootstrap(devCfg, "start_all")
+		go p.startConfiguredDeviceBootstrap(devCfg, "start_all", identityCache)
 	}
 	return nil
 }
@@ -1329,7 +1330,7 @@ func (p *Pool) startPoolBackgroundServicesOnce() {
 	})
 }
 
-func (p *Pool) startConfiguredDeviceBootstrap(devCfg config.DeviceConfig, reason string) {
+func (p *Pool) startConfiguredDeviceBootstrap(devCfg config.DeviceConfig, reason string, identityCache *qmiBootstrapIdentityCache) {
 	if p == nil {
 		return
 	}
@@ -1338,7 +1339,7 @@ func (p *Pool) startConfiguredDeviceBootstrap(devCfg config.DeviceConfig, reason
 		return
 	default:
 	}
-	if _, err := p.AddWorkerFromConfig(devCfg); err != nil {
+	if _, err := p.addWorkerFromConfig(devCfg, identityCache); err != nil {
 		logger.Warn("配置设备异步启动失败，等待健康检查或重扫恢复",
 			"device", devCfg.ID,
 			"reason", reason,
@@ -1433,6 +1434,10 @@ func (p *Pool) RescanAndReconnect() error {
 }
 
 func (p *Pool) collectRescanHardware(discovered []QMIDevice, liveWorkerIndex WorkerDiscoveryIndex) []CompatibleModem {
+	return p.collectRescanHardwareWithQMIResolver(discovered, liveWorkerIndex, resolveDiscoveredQMIDeviceFn)
+}
+
+func (p *Pool) collectRescanHardwareWithQMIResolver(discovered []QMIDevice, liveWorkerIndex WorkerDiscoveryIndex, resolve qmiDeviceResolver) []CompatibleModem {
 	var hardware []CompatibleModem
 	for i := range discovered {
 		raw := discovered[i]
@@ -1445,10 +1450,10 @@ func (p *Pool) collectRescanHardware(discovered []QMIDevice, liveWorkerIndex Wor
 				imei = liveInfo.IMEI
 				logger.Debug("扫描到设备", "imei", liveInfo.IMEI, "interface", raw.NetInterface, "at", raw.ATPort)
 			} else {
-				raw, imei = resolveDiscoveredQMIDeviceFn(raw, 1600*time.Millisecond, true)
+				raw, imei = resolve(raw, 1600*time.Millisecond, true)
 			}
 		} else {
-			raw, imei = resolveDiscoveredQMIDeviceFn(raw, 1600*time.Millisecond, true)
+			raw, imei = resolve(raw, 1600*time.Millisecond, true)
 		}
 		hardware = append(hardware, CompatibleModem{
 			IMEI:          imei,

@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -139,6 +141,16 @@ type qmiBootstrapDiscoveryCache struct {
 	err    error
 }
 
+type qmiBootstrapIdentityCache struct {
+	identities sync.Map
+}
+
+type qmiBootstrapIdentity struct {
+	gate chan struct{}
+	node os.FileInfo
+	imei string
+}
+
 func (c *qmiBootstrapDiscoveryCache) Get() ([]QMIDevice, error) {
 	if c == nil {
 		return discoverQMIDevicesFn()
@@ -149,6 +161,47 @@ func (c *qmiBootstrapDiscoveryCache) Get() ([]QMIDevice, error) {
 	c.loaded = true
 	c.list, c.err = discoverQMIDevicesFn()
 	return c.list, c.err
+}
+
+type qmiDeviceResolver func(QMIDevice, time.Duration, bool) (QMIDevice, string)
+
+// Share successful modem identity probes only within one StartAll batch.
+// Failures remain retryable, and replacing a control node invalidates its IMEI.
+// Different ports retain independent locks; SIM identity is never cached here.
+func (c *qmiBootstrapIdentityCache) wrapResolver(ctx context.Context, resolve qmiDeviceResolver) qmiDeviceResolver {
+	return func(dev QMIDevice, timeout time.Duration, allowProbe bool) (QMIDevice, string) {
+		if c == nil || !allowProbe || strings.TrimSpace(dev.ControlPath) == "" {
+			return resolve(dev, timeout, allowProbe)
+		}
+		path := filepath.Clean(strings.TrimSpace(dev.ControlPath))
+		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+			path = resolved
+		}
+		value, _ := c.identities.LoadOrStore(path, &qmiBootstrapIdentity{gate: make(chan struct{}, 1)})
+		identity := value.(*qmiBootstrapIdentity)
+		waitCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		select {
+		case identity.gate <- struct{}{}:
+			defer func() { <-identity.gate }()
+			if waitCtx.Err() != nil {
+				return dev, ""
+			}
+		case <-waitCtx.Done():
+			return dev, ""
+		}
+		node, statErr := os.Stat(path)
+		if statErr == nil && identity.node != nil && os.SameFile(node, identity.node) {
+			return dev, identity.imei
+		}
+		resolved, imei := resolve(dev, timeout, allowProbe)
+		if statErr == nil && imei != "" {
+			if current, err := os.Stat(path); err == nil && os.SameFile(node, current) {
+				identity.node, identity.imei = current, imei
+			}
+		}
+		return resolved, imei
+	}
 }
 
 func buildESIMQMITransport(cfg config.DeviceConfig, qmiCore *qmicore.Manager) (esim.QMIAPDUTransport, esim.QMIAPDUTransportLifecycle, error) {
@@ -190,6 +243,10 @@ type apduArbiterAwareTransport interface {
 }
 
 func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) {
+	return p.addWorkerFromConfig(devCfg, nil)
+}
+
+func (p *Pool) addWorkerFromConfig(devCfg config.DeviceConfig, identityCache *qmiBootstrapIdentityCache) (*Worker, error) {
 	p.mu.Lock()
 	if _, exists := p.workers[devCfg.ID]; exists {
 		p.mu.Unlock()
@@ -246,6 +303,9 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 
 	var matched *QMIDevice
 	discoveryCache := &qmiBootstrapDiscoveryCache{}
+	resolveQMI := identityCache.wrapResolver(p.ctx, func(dev QMIDevice, timeout time.Duration, allowProbe bool) (QMIDevice, string) {
+		return resolveDiscoveredQMIDeviceWithConfig(dev, timeout, allowProbe, devCfg)
+	})
 	liveWorkerIndex := BuildWorkerDiscoveryIndex(p.GetAllWorkers(), false)
 	configuredIndex := BuildConfiguredDeviceIndex(config.ListDevices())
 	if !needsQMICore {
@@ -292,7 +352,7 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 			if qmiErr != nil {
 				logger.Debug("QMI 静态路径启动前发现失败", "device", devCfg.ID, "err", qmiErr)
 			} else {
-				hardware := p.collectRescanHardware(qmiList, liveWorkerIndex)
+				hardware := p.collectRescanHardwareWithQMIResolver(qmiList, liveWorkerIndex, identityCache.wrapResolver(p.ctx, resolveDiscoveredQMIDeviceFn))
 				resolved := ResolveDeviceIdentities(hardware, []config.DeviceConfig{devCfg})
 				if len(resolved.Matched) > 0 {
 					hw := resolved.Matched[0].Hardware
@@ -320,7 +380,7 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 					continue
 				}
 				allowQMIIMEIProbe := configuredID == ""
-				d, got := resolveDiscoveredQMIDeviceWithConfig(list[i], 1600*time.Millisecond, allowQMIIMEIProbe, devCfg)
+				d, got := resolveQMI(list[i], 1600*time.Millisecond, allowQMIIMEIProbe)
 				if got == "" || !config.IMEIMatches(got, imei) {
 					continue
 				}
@@ -374,7 +434,7 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 		if matched == nil {
 			if list, err := discoveryCache.Get(); err == nil {
 				for i := range list {
-					d, _ := resolveDiscoveredQMIDeviceWithConfig(list[i], 1600*time.Millisecond, false, devCfg)
+					d, _ := resolveQMI(list[i], 1600*time.Millisecond, false)
 					list[i] = d
 				}
 				if found, ok := BuildStaticQMIDeviceIndex(list).Lookup(devCfg.ControlDevice, devCfg.USBPath, devCfg.Interface); ok {

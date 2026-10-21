@@ -410,6 +410,19 @@ func ProbeIMEIViaQMIWithOptions(controlPath string, clientOptions qmi.ClientOpti
 	}
 	clientOptions.UseProxy = clientOptions.UseProxy || discoveryOptions.UseProxy
 	clientOptions.ProxyFallbackToRaw = false
+	if clientOptions.Logf == nil {
+		clientOptions.Logf = func(level qmi.ClientLogLevel, format string, args ...any) {
+			fields := []any{"control_path", controlPath, "stage", "imei_probe"}
+			switch level {
+			case qmi.ClientLogLevelWarn:
+				logger.Warn(fmt.Sprintf(format, args...), fields...)
+			case qmi.ClientLogLevelError:
+				logger.Error(fmt.Sprintf(format, args...), fields...)
+			default:
+				logger.Debug(fmt.Sprintf(format, args...), fields...)
+			}
+		}
+	}
 	return probeIMEIViaQMIFn(controlPath, clientOptions)
 }
 
