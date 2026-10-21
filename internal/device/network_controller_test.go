@@ -15,6 +15,7 @@ type fakeController struct {
 	connErr     error
 	rotated     int
 	connectHook func()
+	rotateHook  func() error
 }
 
 func (f *fakeController) Connect() error {
@@ -29,6 +30,9 @@ func (f *fakeController) Disconnect() error { f.connected = false; return nil }
 func (f *fakeController) IsConnected() bool { return f.connected }
 func (f *fakeController) RotateIP() error {
 	f.rotated++
+	if f.rotateHook != nil {
+		return f.rotateHook()
+	}
 	return nil
 }
 func (f *fakeController) GetPrivateIP() string                        { return "10.1.2.3" }

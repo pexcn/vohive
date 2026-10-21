@@ -310,7 +310,9 @@ func TestManagerGetUIMReadinessKeepsReadinessWhenSlotQueryUnavailable(t *testing
 	}
 }
 
-func TestManagerUIMPowerOffSIMUsesQMIWhenAvailable(t *testing.T) {
+func newSIMPowerTestManager(t *testing.T, qmiAvailable, failPower bool) (*Manager, *int) {
+	t.Helper()
+	radioCalls := 0
 	ft := mbim.NewFakeTransport(func(w []byte) ([]byte, bool) {
 		h := testMBIMHeader(w)
 		if h.typ == mbim.MessageTypeOpen {
@@ -319,104 +321,74 @@ func TestManagerUIMPowerOffSIMUsesQMIWhenAvailable(t *testing.T) {
 		if h.typ != mbim.MessageTypeCommand {
 			return nil, false
 		}
-		svc := testMBIMService(w)
-		cid := testLe.Uint32(w[36:])
+		svc, cid := testMBIMService(w), testLe.Uint32(w[36:])
 		switch {
+		case svc.Equal(mbim.UUIDBasicConnect) && cid == mbim.CIDBasicConnectRadioState:
+			radioCalls++
+			return testCommandDone(h.tx, svc, cid, nil), true
 		case svc.Equal(mbim.UUIDBasicConnect) && cid == mbim.CIDBasicConnectDeviceServices:
-			info := mbim.TestDeviceServicesInfo([]struct {
+			services := []struct {
 				Svc  mbim.UUID
 				CIDs []uint32
 			}{
-				{Svc: mbim.UUIDBasicConnect, CIDs: []uint32{mbim.CIDBasicConnectDeviceServiceSubscribeList}},
+				{Svc: mbim.UUIDBasicConnect, CIDs: []uint32{mbim.CIDBasicConnectRadioState, mbim.CIDBasicConnectDeviceServiceSubscribeList}},
 				{Svc: mbim.UUIDQMI, CIDs: []uint32{mbim.CIDQMIMsg}},
-			})
-			return testCommandDone(h.tx, svc, cid, info), true
-		case svc.Equal(mbim.UUIDBasicConnect) && cid == mbim.CIDBasicConnectDeviceServiceSubscribeList:
-			return testCommandDone(h.tx, svc, cid, nil), true
+			}
+			if !qmiAvailable {
+				services = services[:1]
+			}
+			return testCommandDone(h.tx, svc, cid, mbim.TestDeviceServicesInfo(services)), true
 		case svc.Equal(mbim.UUIDQMI) && cid == mbim.CIDQMIMsg:
 			payload := w[48:]
-			if len(payload) >= 10 && payload[4] == 0x00 && mbim.ReadU16ForTest(payload[8:10]) == 0x0022 {
-				return testCommandDone(h.tx, svc, cid, mbim.TestQMIAllocateUIMClientResp(0x21)), true
+			if len(payload) >= 10 && payload[4] == 0x00 {
+				switch mbim.ReadU16ForTest(payload[8:10]) {
+				case 0x0022:
+					return testCommandDone(h.tx, svc, cid, mbim.TestQMIAllocateUIMClientResp(0x21)), true
+				case 0x0023:
+					return testCommandDone(h.tx, svc, cid, mbim.TestQMIRelClientResp()), true
+				}
 			}
-			if len(payload) >= 10 && payload[4] == 0x00 && mbim.ReadU16ForTest(payload[8:10]) == 0x0023 {
-				return testCommandDone(h.tx, svc, cid, mbim.TestQMIRelClientResp()), true
+			if len(payload) >= 11 && payload[4] == 0x0B {
+				msg := mbim.ReadU16ForTest(payload[9:11])
+				if msg == 0x0030 || msg == 0x0031 {
+					if failPower {
+						return testCommandDone(h.tx, svc, cid, mbim.TestQMIReadErrorResp(msg, 0x0001)), true
+					}
+					return testCommandDone(h.tx, svc, cid, mbim.TestQMIResultSuccessResp(0x0B, 0x21, 2, msg, nil)), true
+				}
 			}
-			if len(payload) >= 11 && payload[4] == 0x0B && mbim.ReadU16ForTest(payload[9:11]) == 0x0030 {
-				return testCommandDone(h.tx, svc, cid, mbim.TestQMIResultSuccessResp(0x0B, 0x21, 2, 0x0030, nil)), true
-			}
-			t.Fatalf("unexpected QMI payload: % X", payload)
-			return nil, false
-		default:
-			return testCommandDone(h.tx, svc, cid, nil), true
+			t.Errorf("unexpected QMI payload: % X", payload)
 		}
+		return testCommandDone(h.tx, svc, cid, nil), true
 	})
-	m := New("/dev/cdc-wdm0", "direct")
-	if err := m.openWithTransport(context.Background(), ft); err != nil {
-		t.Fatalf("open: %v", err)
+	m := New("/dev/test", "direct")
+	if err := m.openWithTransport(t.Context(), ft); err != nil {
+		t.Fatal(err)
 	}
-	defer m.Close()
-
-	if err := m.UIMPowerOffSIM(context.Background(), 1); err != nil {
-		t.Fatalf("UIMPowerOffSIM: %v", err)
-	}
+	t.Cleanup(func() { _ = m.Close() })
+	return m, &radioCalls
 }
 
-func TestManagerUIMPowerOnSIMFallsBackToRadioOnAfterQMIFailure(t *testing.T) {
-	ft := mbim.NewFakeTransport(func(w []byte) ([]byte, bool) {
-		h := testMBIMHeader(w)
-		if h.typ == mbim.MessageTypeOpen {
-			return testOpenDone(h.tx), true
-		}
-		if h.typ != mbim.MessageTypeCommand {
-			return nil, false
-		}
-		svc := testMBIMService(w)
-		cid := testLe.Uint32(w[36:])
-		switch {
-		case svc.Equal(mbim.UUIDBasicConnect) && cid == mbim.CIDBasicConnectDeviceServices:
-			info := mbim.TestDeviceServicesInfo([]struct {
-				Svc  mbim.UUID
-				CIDs []uint32
-			}{
-				{Svc: mbim.UUIDBasicConnect, CIDs: []uint32{mbim.CIDBasicConnectDeviceServiceSubscribeList}},
-				{Svc: mbim.UUIDQMI, CIDs: []uint32{mbim.CIDQMIMsg}},
-			})
-			return testCommandDone(h.tx, svc, cid, info), true
-		case svc.Equal(mbim.UUIDBasicConnect) && cid == mbim.CIDBasicConnectDeviceServiceSubscribeList:
-			return testCommandDone(h.tx, svc, cid, nil), true
-		case svc.Equal(mbim.UUIDQMI) && cid == mbim.CIDQMIMsg:
-			payload := w[48:]
-			if len(payload) >= 10 && payload[4] == 0x00 && mbim.ReadU16ForTest(payload[8:10]) == 0x0022 {
-				return testCommandDone(h.tx, svc, cid, mbim.TestQMIAllocateUIMClientResp(0x21)), true
+func TestManagerSIMPowerNeverEnablesRadio(t *testing.T) {
+	for _, tt := range []struct {
+		name               string
+		qmi, powerOn, fail bool
+	}{
+		{name: "off", qmi: true}, {name: "on", qmi: true, powerOn: true},
+		{name: "failed_on", qmi: true, powerOn: true, fail: true},
+		{name: "unsupported_off"}, {name: "unsupported_on", powerOn: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m, radioCalls := newSIMPowerTestManager(t, tt.qmi, tt.fail)
+			var err error
+			if tt.powerOn {
+				err = m.UIMPowerOnSIM(t.Context(), 1)
+			} else {
+				err = m.UIMPowerOffSIM(t.Context(), 1)
 			}
-			if len(payload) >= 10 && payload[4] == 0x00 && mbim.ReadU16ForTest(payload[8:10]) == 0x0023 {
-				return testCommandDone(h.tx, svc, cid, mbim.TestQMIRelClientResp()), true
+			if (err != nil) != (!tt.qmi || tt.fail) || *radioCalls != 0 {
+				t.Fatalf("SIM power result: err=%v, radio commands=%d", err, *radioCalls)
 			}
-			if len(payload) >= 11 && payload[4] == 0x0B && mbim.ReadU16ForTest(payload[9:11]) == 0x0031 {
-				return testCommandDone(h.tx, svc, cid, mbim.TestQMIReadErrorResp(0x0031, 0x0001)), true
-			}
-			t.Fatalf("unexpected QMI payload: % X", payload)
-			return nil, false
-		default:
-			return testCommandDone(h.tx, svc, cid, nil), true
-		}
-	})
-	m := New("/dev/cdc-wdm0", "direct")
-	var radioCalls []mbim.RadioSwitch
-	m.setRadioStateHook = func(ctx context.Context, sw mbim.RadioSwitch) (mbim.RadioState, error) {
-		radioCalls = append(radioCalls, sw)
-		return mbim.RadioState{Software: sw}, nil
-	}
-	if err := m.openWithTransport(context.Background(), ft); err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	defer m.Close()
-
-	err := m.UIMPowerOnSIM(context.Background(), 1)
-	if err == nil {
-		t.Fatal("expected UIMPowerOnSIM error")
-	}
-	if len(radioCalls) != 1 || radioCalls[0] != mbim.RadioOn {
-		t.Fatalf("radioCalls=%v want [RadioOn]", radioCalls)
+		})
 	}
 }

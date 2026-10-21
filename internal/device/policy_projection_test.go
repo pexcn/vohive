@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 func TestApplyPolicyProjectsFields(t *testing.T) {
 	w := &Worker{ID: "wwan0"}
+	w.state.Identity.ICCID = "x"
 	applyPolicyToWorker(w, cardpolicy.Policy{
 		ICCID: "x", NetworkEnabled: true, VoWiFiEnabled: true,
 		AirplaneEnabled: true, IPVersion: "v4v6", APN: "ims",
@@ -101,23 +103,28 @@ func TestResolveAndApplyPolicy_EmptyICCID(t *testing.T) {
 }
 
 func TestResolveAndApplyPolicy_ResolvesAndProjects(t *testing.T) {
-	p := &Pool{ctx: context.Background()}
-	p.SetPolicyResolver(&stubPolicyResolver{
-		pol: cardpolicy.Policy{ICCID: "123", AirplaneEnabled: true},
-	})
-	stub := &workerStatusBackendStub{opMode: backend.ModeOnline}
-	w := &Worker{ID: "wwan0", Backend: stub}
-	w.state.Identity.ICCID = "123"
-
-	res := p.resolveAndApplyPolicy(w, "test")
-	if !res.Applied {
-		t.Fatalf("应成功应用: %+v", res)
-	}
-	if !w.Config.AirplaneEnabled {
-		t.Fatal("策略投影失败")
-	}
-	if len(stub.setOpModeCalls) != 1 || stub.setOpModeCalls[0] != backend.ModeRFOff {
-		t.Fatalf("应切入飞行模式: %+v", stub.setOpModeCalls)
+	for _, tt := range []struct {
+		name   string
+		vowifi bool
+		err    error
+	}{{name: "flight"}, {name: "vowifi", vowifi: true}, {name: "resolver_failure", err: errors.New("database unavailable")}} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := NewPool(nil)
+			defer p.cancel()
+			p.SetPolicyResolver(&stubPolicyResolver{pol: cardpolicy.Policy{
+				ICCID: "123", VoWiFiEnabled: tt.vowifi, AirplaneEnabled: !tt.vowifi,
+			}, err: tt.err})
+			stub := &workerStatusBackendStub{opMode: backend.ModeOnline}
+			w := &Worker{ID: "wwan0", Backend: stub, radioPolicyPending: true}
+			w.state.Identity.ICCID = "123"
+			res := p.resolveAndApplyPolicy(w, "test")
+			if res.Applied != (tt.err == nil) || !w.radioMustStayOff() || stub.opMode != backend.ModeRFOff {
+				t.Fatalf("policy did not hold RF off: %+v, mode=%v", res, stub.opMode)
+			}
+			if tt.err == nil && (!w.Config.AirplaneEnabled || w.Config.VoWiFiEnabled != tt.vowifi) {
+				t.Fatal("policy fields were not projected")
+			}
+		})
 	}
 }
 

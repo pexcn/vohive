@@ -49,7 +49,8 @@ func TestESIMPreparationFailureRestoresOldIdentityWithoutReleasingRadio(t *testi
 func TestESIMFailureAfterWriteDoesNotRestoreOldIdentity(t *testing.T) {
 	p := NewPool(&config.Config{})
 	defer p.cancel()
-	w := &Worker{ID: "dev", Config: config.DeviceConfig{ID: "dev"}}
+	w := &Worker{ID: "dev", Config: config.DeviceConfig{ID: "dev"},
+		Backend: &workerStatusBackendStub{opMode: backend.ModeRFOff}}
 	w.state.Identity.ICCID = "old-iccid"
 	w.state.Identity.IMSI = "old-imsi"
 	w.state.Identity.Ready = true

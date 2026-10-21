@@ -24,6 +24,10 @@ func mbimResetCapableForTest() *mbim.Capabilities {
 func TestMBIMRebootIssuesDeviceReset(t *testing.T) {
 	src := &fakeMBIMSource{capability: mbimResetCapableForTest()}
 	b := NewMBIMBackend("", src)
+	b.SetRadioOnlineGuard(func(context.Context) (func(), error) {
+		t.Fatal("explicit reboot consulted the Online policy")
+		return nil, nil
+	})
 	if err := b.Reboot(context.Background()); err != nil {
 		t.Fatalf("Reboot() error = %v", err)
 	}

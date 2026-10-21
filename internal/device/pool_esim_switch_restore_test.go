@@ -216,6 +216,7 @@ func (s *esimSwitchRestoreBackendStub) ListSMS(ctx context.Context) ([]backend.S
 func (s *esimSwitchRestoreBackendStub) DeleteAllSMS(ctx context.Context) error { return nil }
 func (s *esimSwitchRestoreBackendStub) SetOperatingMode(ctx context.Context, mode backend.OperatingMode) error {
 	s.setCalls = append(s.setCalls, mode)
+	s.getMode = mode
 	if s.setModeHook != nil {
 		s.setModeHook(mode)
 	}
@@ -461,7 +462,7 @@ func TestHandleESIMSwitchBeforeRadioCycleReleasesRadioAfterSwitchBegin(t *testin
 
 	p.handleESIMSwitchBefore("dev-1", "")
 
-	want := []string{"switch_begin:dev-1", fmt.Sprintf("set_mode:%d", backend.ModeLowPower)}
+	want := []string{"switch_begin:dev-1", fmt.Sprintf("set_mode:%d", backend.ModeRFOff)}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("operations=%v want %v", got, want)
 	}
@@ -471,7 +472,7 @@ func TestHandleESIMSwitchAfterSubmitsSwitchEndThroughLifecycleController(t *test
 	p := NewPool(&config.Config{})
 	be := &esimSwitchRestoreBackendStub{
 		mode:               backend.BackendQMI,
-		getMode:            backend.ModeOnline,
+		getMode:            backend.ModeRFOff,
 		liveICCID:          "460001234567890",
 		liveIMSI:           "460001234567890",
 		resolvedSIMAuthAID: "A0000000871002FFFFFFFF8903020000",
@@ -479,7 +480,7 @@ func TestHandleESIMSwitchAfterSubmitsSwitchEndThroughLifecycleController(t *test
 	}
 	w := &Worker{
 		ID:      "dev-1",
-		Config:  config.DeviceConfig{ID: "dev-1", VoWiFiEnabled: true},
+		Config:  config.DeviceConfig{ID: "dev-1", VoWiFiEnabled: true, ESIMSwitch: config.ESIMSwitchConfig{RadioCycle: true}},
 		Backend: be,
 	}
 	p.workers["dev-1"] = w
@@ -493,6 +494,9 @@ func TestHandleESIMSwitchAfterSubmitsSwitchEndThroughLifecycleController(t *test
 	}
 
 	p.handleESIMSwitchAfter("dev-1", 0)
+	if len(be.setCalls) != 0 {
+		t.Fatalf("VoWiFi switch cycled an already disabled radio: %v", be.setCalls)
+	}
 
 	want := []string{"switch_end:dev-1"}
 	if !reflect.DeepEqual(got, want) {
@@ -503,7 +507,7 @@ func TestHandleESIMSwitchAfterSubmitsSwitchEndThroughLifecycleController(t *test
 	}
 }
 
-func TestHandleESIMSwitchAfterRadioCycleOnlineThenSnapshotRestore(t *testing.T) {
+func TestHandleESIMSwitchAfterRadioCycleKeepsFlightSnapshot(t *testing.T) {
 	p := NewPool(&config.Config{})
 	be := &esimSwitchRestoreBackendStub{
 		mode:      backend.BackendQMI,
@@ -530,7 +534,7 @@ func TestHandleESIMSwitchAfterRadioCycleOnlineThenSnapshotRestore(t *testing.T) 
 
 	p.handleESIMSwitchAfter("dev-1", 0)
 
-	want := []backend.OperatingMode{backend.ModeOnline, backend.ModeRFOff}
+	want := []backend.OperatingMode{backend.ModeRFOff}
 	if !reflect.DeepEqual(be.setCalls, want) {
 		t.Fatalf("setCalls=%v want %v", be.setCalls, want)
 	}
@@ -820,8 +824,8 @@ func TestHandleESIMSwitchAfterBlocksVoWiFiWhenSIMAuthStillNotReady(t *testing.T)
 	if len(got) != 0 {
 		t.Fatalf("unexpected lifecycle commands when SIMAuth is not ready: %v", got)
 	}
-	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeOnline {
-		t.Fatalf("setCalls=%v want [%v]", be.setCalls, backend.ModeOnline)
+	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeRFOff {
+		t.Fatalf("setCalls=%v want [%v]", be.setCalls, backend.ModeRFOff)
 	}
 	if len(be.resolveSIMAuthApps) != 3 {
 		t.Fatalf("resolveSIMAuthApps len=%d want 3", len(be.resolveSIMAuthApps))
@@ -966,8 +970,8 @@ func TestHandleESIMSwitchAfterVoWiFiUsesCurrentSwitch(t *testing.T) {
 
 	p.handleESIMSwitchAfter("dev-1", 0)
 
-	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeOnline {
-		t.Fatalf("expected data/radio fallback restore when VoWiFi identity gate blocks restore, got %v", be.setCalls)
+	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeRFOff {
+		t.Fatalf("expected RF off when VoWiFi identity gate blocks restore, got %v", be.setCalls)
 	}
 }
 
@@ -993,6 +997,8 @@ func TestHandleESIMSwitchAfterKeepsFlightWhenVoWiFiSwitchOff(t *testing.T) {
 
 func TestHandleESIMSwitchAfterRestoresOnlineWhenVoWiFiSwitchOff(t *testing.T) {
 	p := NewPool(&config.Config{})
+	defer p.cancel()
+	p.SetPolicyResolver(&stubPolicyResolver{pol: cardpolicy.Policy{ICCID: "460001234567890"}})
 	be := &esimSwitchRestoreBackendStub{mode: backend.BackendQMI, getMode: backend.ModeOnline, liveICCID: "460001234567890", liveIMSI: "460001234567890"}
 	w := &Worker{
 		ID:      "dev-1",
@@ -1189,8 +1195,8 @@ func TestHandleESIMSwitchAfterStrictICCIDGateBlocksVoWiFiRestore(t *testing.T) {
 
 	p.handleESIMSwitchAfter("dev-1", 0)
 
-	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeOnline {
-		t.Fatalf("expected data/radio fallback restore when identity gate blocks VoWiFi, got %v", be.setCalls)
+	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeRFOff {
+		t.Fatalf("expected RF off when identity gate blocks VoWiFi, got %v", be.setCalls)
 	}
 }
 
@@ -1240,8 +1246,8 @@ func TestHandleESIMSwitchAfterStrictICCIDGateIgnoresStaleCachedICCID(t *testing.
 
 	p.handleESIMSwitchAfter("dev-1", 0)
 
-	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeOnline {
-		t.Fatalf("expected data/radio fallback restore when identity gate blocks VoWiFi, got %v", be.setCalls)
+	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeRFOff {
+		t.Fatalf("expected RF off when identity gate blocks VoWiFi, got %v", be.setCalls)
 	}
 }
 
@@ -1506,6 +1512,9 @@ func TestHandleESIMSwitchAfterMarksDegradedWhenTargetICCIDStaysOld(t *testing.T)
 	defer logger.GlobalBroadcaster.Unsubscribe(ch)
 
 	p.handleESIMSwitchAfter("dev-1", 0)
+	if !isFlightOperatingMode(be.getMode) {
+		t.Fatalf("unconfirmed profile restored RF: %v", be.setCalls)
+	}
 
 	degradedEntry := waitLogEntry(t, ch, func(entry logger.LogEntry) bool {
 		if entry.Message != "[dev-1] eSIM 切卡阶段更新" {
@@ -1673,7 +1682,7 @@ func TestHandleESIMSwitchAfterKeepsSwitchingFlagUntilFinalizeEnd(t *testing.T) {
 	}
 }
 
-func TestHandleESIMSwitchFailedClearsSwitchingAndRestoresRadioData(t *testing.T) {
+func TestHandleESIMSwitchFailedClearsSwitchingAndKeepsProtectedRadioOff(t *testing.T) {
 	p := NewPool(&config.Config{})
 	defer p.cancel()
 	be := &esimSwitchRestoreBackendStub{mode: backend.BackendQMI, getMode: backend.ModeRFOff}
@@ -1698,8 +1707,8 @@ func TestHandleESIMSwitchFailedClearsSwitchingAndRestoresRadioData(t *testing.T)
 	if p.IsESIMSwitching("dev-1") {
 		t.Fatal("expected switching flag cleared after switch failure")
 	}
-	if len(be.setCalls) != 1 || be.setCalls[0] != backend.ModeOnline {
-		t.Fatalf("setCalls=%v want [%v]", be.setCalls, backend.ModeOnline)
+	if len(be.setCalls) != 0 || !isFlightOperatingMode(be.getMode) {
+		t.Fatalf("protected radio was reopened: %v", be.setCalls)
 	}
 }
 
