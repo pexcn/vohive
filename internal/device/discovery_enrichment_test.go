@@ -156,6 +156,9 @@ func TestResolveDiscoveredQMIDevicePassesDefaultQMIClientOptions(t *testing.T) {
 	if !gotOpts.SyncOnOpen {
 		t.Fatal("SyncOnOpen=false, want default QMI client options")
 	}
+	if gotOpts.Logf == nil {
+		t.Fatal("probe client must preserve log levels and identify its control port")
+	}
 	if gotOpts.DefaultRequestTimeout != 30*time.Second {
 		t.Fatalf("DefaultRequestTimeout=%s, want 30s", gotOpts.DefaultRequestTimeout)
 	}
@@ -176,12 +179,16 @@ func TestEnrichDiscoveredQMIDevicePassesQMIClientOptions(t *testing.T) {
 	}
 
 	dev := QMIDevice{ControlPath: "/dev/cdc-wdm9"}
+	logCalls := 0
 	_, imei := EnrichDiscoveredQMIDevice(dev, QMIDeviceEnrichOptions{
 		EnableQMIIMEIProbe: true,
 		QMIClientOptions: qmiq.ClientOptions{
 			UseProxy:        true,
 			ProxyPath:       "custom-qmi-proxy",
 			ProxyExecutable: "/opt/vohive/bin/qmi-proxy",
+			Logf: func(qmiq.ClientLogLevel, string, ...any) {
+				logCalls++
+			},
 		},
 	})
 
@@ -199,6 +206,10 @@ func TestEnrichDiscoveredQMIDevicePassesQMIClientOptions(t *testing.T) {
 	}
 	if gotOpts.ProxyExecutable != "/opt/vohive/bin/qmi-proxy" {
 		t.Fatalf("ProxyExecutable=%q, want /opt/vohive/bin/qmi-proxy", gotOpts.ProxyExecutable)
+	}
+	gotOpts.Logf(qmiq.ClientLogLevelDebug, "probe")
+	if logCalls != 1 {
+		t.Fatal("probe replaced the caller's logging callback")
 	}
 }
 
