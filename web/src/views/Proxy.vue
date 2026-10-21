@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../components/PageHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
@@ -15,21 +14,74 @@ import {
   upstreamProxyAddressWarning,
   upstreamProxyIPv6AddressHint
 } from '../utils/upstreamProxyAddress'
-import Add24Regular from '@vicons/fluent/es/Add24Regular'
-import Play24Regular from '@vicons/fluent/es/Play24Regular'
-import Stop24Regular from '@vicons/fluent/es/Stop24Regular'
-import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
-import Edit24Regular from '@vicons/fluent/es/Edit24Regular'
-import Delete24Regular from '@vicons/fluent/es/Delete24Regular'
-import Router24Regular from '@vicons/fluent/es/Router24Regular'
-import Link24Regular from '@vicons/fluent/es/Link24Regular'
-import Earth24Regular from '@vicons/fluent/es/Earth24Regular'
+import SvgIcon from '../components/SvgIcon.vue'
+import RefreshButton from '../components/RefreshButton.vue'
+import MaterialSnackbar from '../components/MaterialSnackbar.vue'
+import StatusLight from '../components/StatusLight.vue'
+import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
+import addIcon from '@material-symbols/svg-400/outlined/add.svg?raw'
+import playIcon from '@material-symbols/svg-400/outlined/play_arrow.svg?raw'
+import stopIcon from '@material-symbols/svg-400/outlined/stop.svg?raw'
+import refreshIcon from '@material-symbols/svg-400/outlined/refresh.svg?raw'
+import editIcon from '@material-symbols/svg-400/outlined/edit.svg?raw'
+import deleteIcon from '@material-symbols/svg-400/outlined/delete.svg?raw'
+import routerIcon from '@material-symbols/svg-400/outlined/router.svg?raw'
+import linkIcon from '@material-symbols/svg-400/outlined/link.svg?raw'
+import earthIcon from '@material-symbols/svg-400/outlined/language.svg?raw'
+import visibilityIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
+import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
+
+const notice = ref('')
+const formError = ref('')
+function showError(message: string) {
+  formError.value = message
+  notice.value = message
+}
+function notify(message: string) {
+  notice.value = message
+}
+function fieldValue(event: Event) {
+  return (event.target as HTMLInputElement).value
+}
+function fieldSelected(event: Event) {
+  return (event.target as HTMLElement & { selected: boolean }).selected
+}
+function guardClose(event: Event, busy: boolean) {
+  if (busy) event.preventDefault()
+}
+function changeTab(event: Event) {
+  const tab = (event.target as HTMLElement & { activeTab?: HTMLElement }).activeTab?.dataset.tab
+  if (tab === 'upstream' || tab === 'outbound') activeTab.value = tab
+}
+function refreshActive() {
+  if (activeTab.value === 'upstream') void fetchUpstream()
+  else void fetchOverview()
+}
+const confirmation = ref<{ title: string; message: string; run: () => Promise<boolean> } | null>(null)
+const confirmBusy = ref(false)
+async function runConfirmation() {
+  if (!confirmation.value || confirmBusy.value) return
+  confirmBusy.value = true
+  formError.value = ''
+  try {
+    if (await confirmation.value.run()) confirmation.value = null
+  } finally {
+    confirmBusy.value = false
+  }
+}
+const instanceAction = ref('')
+const instanceLoading = ref(false)
+let instanceEditGeneration = 0
+const upstreamSaving = ref(false)
+const countryQuery = ref('')
+const showInstancePassword = ref(false)
+const showUpstreamPassword = ref(false)
 
 // ── Tab 控制 ──
 const activeTab = ref('upstream') // 默认展示前置代理
 
 // ══════════════════════════════════════════════════════
-// 出站代理（原有逻辑，不动）
+// 本地出站代理
 // ══════════════════════════════════════════════════════
 const proxyStore = useProxyStore()
 const { statusMap } = storeToRefs(proxyStore)
@@ -111,54 +163,69 @@ async function fetchOverview(opts: { silent?: boolean; initial?: boolean } = {})
   }
 }
 
-async function saveConfig() {
+async function saveConfig(nextInstances: ProxyInstance[] = instances.value) {
+  if (saving.value) return false
   saving.value = true
   try {
-    const result = await proxyStore.saveConfig(instances.value)
+    const result = await proxyStore.saveConfig(nextInstances)
     if (!result.ok) throw new Error(result.error.message || '保存失败')
-    ElMessage.success('配置已保存')
+    notify('配置已保存')
     await fetchOverview()
+    return true
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '保存失败')
+    showError(err.message || '保存失败')
+    return false
   } finally {
     saving.value = false
   }
 }
 
 async function startInstance(id: string) {
+  if (instanceAction.value || saving.value) return
+  instanceAction.value = id
   try {
     const result = await proxyStore.startInstance(id)
     if (!result.ok) throw new Error(result.error.message || '启动失败')
-    ElMessage.success('已启动')
+    notify('已启动')
     await fetchOverview()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '启动失败')
+    showError(err.message || '启动失败')
+  } finally {
+    instanceAction.value = ''
   }
 }
 
 async function stopInstance(id: string) {
+  if (instanceAction.value || saving.value) return
+  instanceAction.value = id
   try {
     const result = await proxyStore.stopInstance(id)
     if (!result.ok) throw new Error(result.error.message || '停止失败')
-    ElMessage.success('已停止')
+    notify('已停止')
     await fetchOverview()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '停止失败')
+    showError(err.message || '停止失败')
+  } finally {
+    instanceAction.value = ''
   }
 }
 
 async function restartInstance(id: string) {
+  if (instanceAction.value || saving.value) return
+  instanceAction.value = id
   try {
     const result = await proxyStore.restartInstance(id)
     if (!result.ok) throw new Error(result.error.message || '重启失败')
-    ElMessage.success('已重启')
+    notify('已重启')
     await fetchOverview()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '重启失败')
+    showError(err.message || '重启失败')
+  } finally {
+    instanceAction.value = ''
   }
 }
 
@@ -178,6 +245,10 @@ function resetForm() {
 }
 
 async function openDrawer(inst?: ProxyInstance) {
+  showInstancePassword.value = false
+  formError.value = ''
+  const generation = ++instanceEditGeneration
+  instanceLoading.value = false
   if (!inst) {
     editingInstance.value = null
     resetForm()
@@ -191,33 +262,40 @@ async function openDrawer(inst?: ProxyInstance) {
   instanceForm.value = { ...inst, mode: inst.mode || 'socks5' }
   drawerOpen.value = true
 
+  instanceLoading.value = true
   try {
     const result = await proxyStore.fetchInstance(inst.id)
+    if (generation !== instanceEditGeneration || !drawerOpen.value) return
     if (result.ok) {
       instanceForm.value = { ...result.data, mode: result.data.mode || 'socks5' }
     }
   } catch {
-    ElMessage.warning('读取完整实例配置失败，已使用概览数据')
+    if (generation === instanceEditGeneration && drawerOpen.value)
+      showError('读取完整实例配置失败，已使用概览数据')
+  } finally {
+    if (generation === instanceEditGeneration) instanceLoading.value = false
   }
 }
 
-function saveForm() {
+async function saveForm() {
+  formError.value = ''
+  if (saving.value || instanceLoading.value) return
   const form = { ...instanceForm.value }
 
   if (!form.id) {
-    ElMessage.warning('实例 ID 不能为空')
+    showError('实例 ID 不能为空')
     return
   }
   if (!form.device_id) {
-    ElMessage.warning('必须绑定设备')
+    showError('必须绑定设备')
     return
   }
   if (form.mode !== 'socks5' && form.mode !== 'http') {
-    ElMessage.warning('代理模式仅支持 SOCKS5 或 HTTP')
+    showError('代理模式仅支持 SOCKS5 或 HTTP')
     return
   }
-  if (form.listen_port <= 0 || form.listen_port > 65535) {
-    ElMessage.warning('监听端口无效')
+  if (!Number.isInteger(form.listen_port) || form.listen_port <= 0 || form.listen_port > 65535) {
+    showError('监听端口无效')
     return
   }
   if (!form.listen_addr) {
@@ -228,7 +306,7 @@ function saveForm() {
     form.username = (form.username || '').trim()
     form.password = (form.password || '').trim()
     if (!form.username || !form.password) {
-      ElMessage.warning('启用认证时必须填写用户名和密码')
+      showError('启用认证时必须填写用户名和密码')
       return
     }
   } else {
@@ -236,33 +314,27 @@ function saveForm() {
     form.password = ''
   }
 
+  const next = instances.value.slice()
   if (editingInstance.value) {
-    const idx = instances.value.findIndex((i) => i.id === editingInstance.value!.id)
-    if (idx >= 0) {
-      instances.value[idx] = form
-    }
+    const index = next.findIndex((instance) => instance.id === editingInstance.value!.id)
+    if (index >= 0) next[index] = form
   } else {
-    if (instances.value.some((i) => i.id === form.id)) {
-      ElMessage.warning('实例 ID 已存在')
+    if (next.some((instance) => instance.id === form.id)) {
+      showError('实例 ID 已存在')
       return
     }
-    instances.value.push(form)
+    next.push(form)
   }
-
-  drawerOpen.value = false
-  saveConfig()
+  if (await saveConfig(next)) drawerOpen.value = false
 }
 
-async function deleteInstance(id: string) {
-  const confirmed = await ElMessageBox.confirm(
-    `确定删除实例 ${id}？`,
-    '确认删除',
-    { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
-  ).then(() => true).catch(() => false)
-
-  if (!confirmed) return
-  instances.value = instances.value.filter((i) => i.id !== id)
-  saveConfig()
+function deleteInstance(id: string) {
+  formError.value = ''
+  confirmation.value = {
+    title: '删除代理实例',
+    message: `确定删除实例 ${id}？`,
+    run: () => saveConfig(instances.value.filter((instance) => instance.id !== id))
+  }
 }
 
 function formatModeLabel(mode: string | undefined) {
@@ -278,7 +350,7 @@ usePollingScheduler(() => fetchOverview({ silent: true }), 5000, {
 
 
 // ══════════════════════════════════════════════════════
-// 前置代理（新增逻辑）
+// 漫游前置代理
 // ══════════════════════════════════════════════════════
 const upstreamStore = useUpstreamProxyStore()
 
@@ -353,6 +425,8 @@ async function fetchUpstream(opts: { silent?: boolean; initial?: boolean } = {})
 }
 
 function openUpstreamDrawer(proxy?: UpstreamProxy) {
+  showUpstreamPassword.value = false
+  formError.value = ''
   if (!proxy) {
     editingUpstream.value = null
     upstreamForm.value = {
@@ -375,103 +449,134 @@ function openUpstreamDrawer(proxy?: UpstreamProxy) {
 }
 
 async function saveUpstreamForm() {
+  formError.value = ''
+  if (upstreamSaving.value) return
   const form = { ...upstreamForm.value }
   form.id = (form.id || '').trim()
   form.name = (form.name || '').trim()
   form.addr = (form.addr || '').trim()
 
   if (!form.id) {
-    ElMessage.warning('ID 不能为空')
+    showError('ID 不能为空')
     return
   }
   if (!form.addr) {
-    ElMessage.warning('Socks5 地址不能为空')
+    showError('Socks5 地址不能为空')
     return
   }
   const addrWarning = upstreamProxyAddressWarning(form.addr)
   if (addrWarning) {
-    ElMessage.warning(addrWarning)
+    showError(addrWarning)
     return
   }
 
+  upstreamSaving.value = true
   try {
     if (editingUpstream.value) {
       // 更新
       const result = await upstreamStore.updateProxy(form.id, form)
       if (!result.ok) throw new Error(result.error.message || '更新失败')
-      ElMessage.success('前置代理已更新，并通过连通性探测')
+      notify('前置代理已更新，并通过连通性探测')
     } else {
       // 新增
       const result = await upstreamStore.createProxy(form)
       if (!result.ok) throw new Error(result.error.message || '创建失败')
-      ElMessage.success('前置代理已创建，并通过连通性探测')
+      notify('前置代理已创建，并通过连通性探测')
     }
     upstreamDrawerOpen.value = false
     await fetchUpstream()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '保存失败')
+    showError(err.message || '保存失败')
+  } finally {
+    upstreamSaving.value = false
   }
 }
 
-async function deleteUpstream(proxy: UpstreamProxy) {
-  const confirmed = await ElMessageBox.confirm(
-    `确定删除前置代理「${proxy.name || proxy.id}」？\n绑定到该代理的国家规则将自动删除，相关国家会恢复直连。`,
-    '确认删除',
-    { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
-  ).then(() => true).catch(() => false)
-
-  if (!confirmed) return
-
-  try {
-    const result = await upstreamStore.deleteProxy(proxy.id)
-    if (!result.ok) throw new Error(result.error.message || '删除失败')
-    ElMessage.success('前置代理已删除')
-    await fetchUpstream()
-  } catch (e: unknown) {
-    const err = toAppError(e)
-    ElMessage.error(err.message || '删除失败')
+function deleteUpstream(proxy: UpstreamProxy) {
+  formError.value = ''
+  confirmation.value = {
+    title: '删除前置代理',
+    message: `确定删除「${proxy.name || proxy.id}」？\n绑定的国家规则将一并删除，相关国家会恢复直连。`,
+    run: async () => {
+      upstreamSaving.value = true
+      try {
+        const result = await upstreamStore.deleteProxy(proxy.id)
+        if (!result.ok) throw new Error(result.error.message || '删除失败')
+        notify('前置代理已删除')
+        await fetchUpstream()
+        return true
+      } catch (error) {
+        showError(toAppError(error).message || '删除失败')
+        return false
+      } finally {
+        upstreamSaving.value = false
+      }
+    }
   }
 }
 
 function openCountryRuleDrawer(proxy: UpstreamProxy) {
+  formError.value = ''
   countryRuleTargetProxy.value = proxy
   selectedCountryCode.value = ''
+  countryQuery.value = ''
   countryRuleDrawerOpen.value = true
 }
 
 async function doUpsertCountryRule() {
+  formError.value = ''
+  if (upstreamSaving.value) return
   if (!countryRuleTargetProxy.value || !selectedCountryCode.value) {
-    ElMessage.warning('请选择国家')
+    showError('请选择国家')
     return
   }
 
+  upstreamSaving.value = true
   try {
     const result = await upstreamStore.upsertCountryRule(selectedCountryCode.value, {
       upstream_proxy_id: countryRuleTargetProxy.value.id,
       enabled: true
     })
     if (!result.ok) throw new Error(result.error.message || '保存规则失败')
-    ElMessage.success('国家规则已保存')
+    notify('国家规则已保存')
     selectedCountryCode.value = ''
     await fetchUpstream()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '保存规则失败')
+    showError(err.message || '保存规则失败')
+  } finally {
+    upstreamSaving.value = false
   }
 }
 
-async function doDeleteCountryRule(countryCode: string) {
-  try {
-    const result = await upstreamStore.deleteCountryRule(countryCode)
-    if (!result.ok) throw new Error(result.error.message || '删除规则失败')
-    ElMessage.success('国家规则已删除，该国家将默认直连')
-    await fetchUpstream()
-  } catch (e: unknown) {
-    const err = toAppError(e)
-    ElMessage.error(err.message || '删除规则失败')
+function doDeleteCountryRule(countryCode: string) {
+  formError.value = ''
+  confirmation.value = {
+    title: '删除国家规则',
+    message: `删除 ${countryCode} 规则后，该国家将默认直连。重启 VoWiFi 后生效。`,
+    run: async () => {
+      upstreamSaving.value = true
+      try {
+        const result = await upstreamStore.deleteCountryRule(countryCode)
+        if (!result.ok) throw new Error(result.error.message || '删除规则失败')
+        notify('国家规则已删除，该国家将默认直连')
+        await fetchUpstream()
+        return true
+      } catch (error) {
+        showError(toAppError(error).message || '删除规则失败')
+        return false
+      } finally {
+        upstreamSaving.value = false
+      }
+    }
   }
 }
+
+const filteredCountries = computed(() => {
+  const query = countryQuery.value.trim().toLowerCase()
+  return availableCountries.value.filter(country => formatCountryLabel(country).toLowerCase().includes(query))
+})
 
 function formatCountryLabel(country: UpstreamProxyCountry): string {
   const name = country.country_name || country.country_code
@@ -495,460 +600,716 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto">
-    <PageHeader title="代理管理" subtitle="管理本地出站代理和 VoWiFi 漫游前置代理" />
-
-    <!-- Tab 切换 -->
-    <el-tabs v-model="activeTab" class="proxy-tabs mb-4">
-      <el-tab-pane name="upstream">
-        <template #label>
-          <div class="flex items-center gap-1.5">
-            <el-icon size="16"><Earth24Regular /></el-icon>
-            <span class="font-medium">漫游前置代理</span>
-            <span v-if="upstreamStore.proxies.length > 0" class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white bg-indigo-500 rounded-full shadow-sm ml-0.5">
-              {{ upstreamStore.proxies.length }}
-            </span>
-          </div>
-        </template>
-      </el-tab-pane>
-      <el-tab-pane name="outbound">
-        <template #label>
-          <div class="flex items-center gap-1.5">
-            <el-icon size="16"><Router24Regular /></el-icon>
-            <span class="font-medium">本地出站代理</span>
-            <span v-if="instances.length > 0" class="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-bold leading-none text-white bg-indigo-500 rounded-full shadow-sm ml-0.5">
-              {{ instances.length }}
-            </span>
-          </div>
-        </template>
-      </el-tab-pane>
-    </el-tabs>
-
-    <!-- ═══════════ 前置代理 Tab ═══════════ -->
-    <div v-show="activeTab === 'upstream'">
+  <div class="m3-page proxy-page">
+    <PageHeader title="代理管理" subtitle="管理 VoWiFi 漫游前置代理与本地出站实例">
+      <template #actions>
+        <RefreshButton
+          :loading="
+            activeTab === 'upstream'
+              ? upstreamLoading || upstreamRefreshing
+              : initialLoading || refreshing
+          "
+          :disabled="saving || upstreamSaving"
+          @click="refreshActive"
+        />
+        <md-filled-button
+          type="button"
+          :disabled="saving || upstreamSaving"
+          @click="activeTab === 'upstream' ? openUpstreamDrawer() : openDrawer()"
+        >
+          <SvgIcon slot="icon" :svg="addIcon" />
+          {{ activeTab === 'upstream' ? '新增代理' : '新增实例' }}
+        </md-filled-button>
+      </template>
+    </PageHeader>
+    <md-tabs aria-label="代理类型" @change="changeTab">
+      <md-primary-tab
+        id="proxy-tab-upstream"
+        aria-controls="proxy-upstream"
+        :active="activeTab === 'upstream'"
+        data-tab="upstream"
+      >
+        <SvgIcon slot="icon" :svg="earthIcon" />
+        漫游前置代理
+      </md-primary-tab>
+      <md-primary-tab
+        id="proxy-tab-outbound"
+        aria-controls="proxy-outbound"
+        :active="activeTab === 'outbound'"
+        data-tab="outbound"
+      >
+        <SvgIcon slot="icon" :svg="routerIcon" />
+        本地出站代理
+      </md-primary-tab>
+    </md-tabs>
+    <section
+      v-show="activeTab === 'upstream'"
+      id="proxy-upstream"
+      role="tabpanel"
+      aria-labelledby="proxy-tab-upstream"
+      class="proxy-section"
+    >
+      <div class="section-heading">
+        <h2 class="m3-title">
+          漫游前置代理
+          <span class="m3-badge">{{ upstreamStore.proxies.length }}</span>
+        </h2>
+        <p class="m3-muted">通过 SOCKS5 连接海外运营商，代理端须支持 UDP Associate。</p>
+      </div>
       <ErrorState
         v-if="upstreamError"
-        class="mb-6"
         title="加载前置代理失败"
         :message="upstreamError.message"
         :status-code="upstreamError.status"
-        retry-text="重试"
         @retry="fetchUpstream"
       />
-
-      <div class="ui-card p-6">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5b5bd6] to-[#4a4ac2] text-white flex items-center justify-center shadow-lg shadow-indigo-500/25">
-              <el-icon size="20"><Earth24Regular /></el-icon>
-            </div>
+      <ListSkeleton v-if="upstreamLoading && !upstreamStore.proxies.length" :rows="2" />
+      <EmptyState
+        v-else-if="!upstreamStore.proxies.length"
+        title="暂无前置代理"
+        subtitle="新增 SOCKS5 代理，再为 SIM 归属国家配置规则；未配置的国家默认直连"
+      />
+      <div v-else class="proxy-list">
+        <article
+          v-for="proxy in upstreamProxiesWithRuleCount"
+          :key="proxy.id"
+          class="m3-card proxy-item"
+          :aria-label="proxy.name || proxy.id"
+        >
+          <div class="proxy-identity">
+            <span class="proxy-avatar"><SvgIcon :svg="earthIcon" /></span>
             <div>
-              <div class="text-lg font-bold text-gray-900 dark:text-white">VoWiFi 漫游前置代理</div>
-              <div class="text-xs text-gray-500">VoWiFi 通过 Socks5 代理穿透连接海外运营商。注意 Socks5 端必须支持 UDP Associate</div>
+              <h3>{{ proxy.name || proxy.id }}</h3>
+              <p class="proxy-address">{{ proxy.addr }}</p>
+              <p class="m3-muted">
+                {{ proxy.username ? `鉴权：${proxy.username}` : '无需账号认证' }}
+              </p>
             </div>
           </div>
-          <el-button type="primary" @click="openUpstreamDrawer()" class="!border-0">
-            <el-icon class="mr-1.5"><Add24Regular /></el-icon>
-            <span>新增代理</span>
-          </el-button>
-        </div>
-
-        <ListSkeleton v-if="upstreamLoading && upstreamStore.proxies.length === 0" :rows="2" />
-
-        <EmptyState
-          v-else-if="upstreamStore.proxies.length === 0"
-          title="暂无前置代理"
-          subtitle="点击「新增代理」创建 Socks5 前置代理，再按国家配置 VoWiFi 分流规则；未配置国家默认直连"
-        />
-
-        <div v-else class="space-y-3">
-          <div
-            v-for="proxy in upstreamProxiesWithRuleCount"
-            :key="proxy.id"
-            class="ui-panel-muted p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"
-          >
-            <div class="flex items-center gap-3 min-w-0">
-              <span class="w-2.5 h-2.5 rounded-full shrink-0" :class="proxy.enabled ? 'bg-green-500' : 'bg-gray-300'" />
-              <div class="min-w-0">
-                <div class="font-bold text-gray-900 dark:text-white truncate">{{ proxy.name || proxy.id }}</div>
-                <div class="text-xs text-gray-500 mt-0.5 truncate">
-                  Socks5 · <span class="font-mono">{{ proxy.addr }}</span>
-                  <span v-if="proxy.username"> · 鉴权: {{ proxy.username }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-2 shrink-0 flex-wrap">
-              <el-tag size="small" :type="proxy.enabled ? 'success' : 'info'">
-                {{ proxy.enabled ? '已启用' : '已禁用' }}
-              </el-tag>
-              
-              <div class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-indigo-50 text-indigo-600 border border-indigo-200/60 dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800/40">
-                <el-icon size="14"><Link24Regular /></el-icon>
-                <span>{{ proxy.ruleCount }} 个国家规则</span>
-              </div>
-
-              <div class="w-px h-3.5 bg-gray-200 dark:bg-gray-700 mx-0.5 hidden sm:block"></div>
-
-              <el-button size="small" @click="openCountryRuleDrawer(proxy)">
-                <div class="flex items-center gap-1 -my-0.5">
-                  <el-icon size="14"><Link24Regular /></el-icon>
-                  <span>国家规则</span>
-                </div>
-              </el-button>
-              
-              <el-button-group>
-                <el-button size="small" @click="openUpstreamDrawer(proxy)">
-                  <el-icon><Edit24Regular /></el-icon>
-                </el-button>
-                <el-button size="small" type="danger" @click="deleteUpstream(proxy)">
-                  <el-icon><Delete24Regular /></el-icon>
-                </el-button>
-              </el-button-group>
-            </div>
+          <div class="proxy-item-footer">
+            <span class="proxy-state">
+              <StatusLight :tone="proxy.enabled ? 'success' : 'neutral'" :animated="false" />
+              {{ proxy.enabled ? '已启用' : '已禁用' }}
+            </span>
+            <span class="m3-badge">{{ proxy.ruleCount }} 个国家规则</span>
           </div>
-        </div>
+          <div class="m3-actions proxy-actions">
+            <md-text-button
+              type="button"
+              :disabled="upstreamSaving"
+              @click="openCountryRuleDrawer(proxy)"
+            >
+              <SvgIcon slot="icon" :svg="linkIcon" />
+              国家规则
+            </md-text-button>
+            <md-icon-button
+              :aria-label="`编辑 ${proxy.name || proxy.id}`"
+              :disabled="upstreamSaving"
+              @click="openUpstreamDrawer(proxy)"
+            >
+              <SvgIcon :svg="editIcon" />
+            </md-icon-button>
+            <md-icon-button
+              class="danger"
+              :aria-label="`删除 ${proxy.name || proxy.id}`"
+              :disabled="upstreamSaving"
+              @click="deleteUpstream(proxy)"
+            >
+              <SvgIcon :svg="deleteIcon" />
+            </md-icon-button>
+          </div>
+        </article>
       </div>
-    </div>
-
-    <!-- ═══════════ 出站代理 Tab ═══════════ -->
-    <div v-show="activeTab === 'outbound'">
+    </section>
+    <section
+      v-show="activeTab === 'outbound'"
+      id="proxy-outbound"
+      role="tabpanel"
+      aria-labelledby="proxy-tab-outbound"
+      class="proxy-section"
+    >
+      <div class="section-heading">
+        <h2 class="m3-title">
+          本地出站实例
+          <span class="m3-badge">{{ instances.length }}</span>
+        </h2>
+        <p class="m3-muted">每个实例绑定一个设备，通过该设备的网络接口提供出口。</p>
+      </div>
       <ErrorState
         v-if="loadError"
-        class="mb-6"
         title="加载代理配置失败"
         :message="loadError.message"
         :status-code="loadError.status"
-        retry-text="重试"
         @retry="fetchOverview"
       />
-
-      <div class="ui-card p-6">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-[#5b5bd6] to-[#4a4ac2] text-white flex items-center justify-center shadow-lg shadow-indigo-500/25">
-              <el-icon size="20"><Router24Regular /></el-icon>
-            </div>
+      <ListSkeleton v-if="initialLoading && !instances.length" :rows="3" />
+      <EmptyState
+        v-else-if="!instances.length"
+        title="暂无代理实例"
+        subtitle="新增实例并选择出口设备"
+      />
+      <div v-else class="proxy-list">
+        <article
+          v-for="inst in instancesWithStatus"
+          :key="inst.id"
+          class="m3-card proxy-item"
+          :aria-label="inst.name || inst.id"
+        >
+          <div class="proxy-identity">
+            <span class="proxy-avatar"><SvgIcon :svg="routerIcon" /></span>
             <div>
-              <div class="text-lg font-bold text-gray-900 dark:text-white">本地出站实例</div>
-              <div class="text-xs text-gray-500">每个实例必须绑定一个物理网络接口提供出口通道，通常用于特定分流和IP池场景</div>
+              <h3>{{ inst.name || inst.id }}</h3>
+              <p class="proxy-address">
+                {{ formatModeLabel(inst.mode) }} · {{ inst.listen_addr }}:{{ inst.listen_port }}
+              </p>
+              <p class="m3-muted">
+                出口：{{ devices.find((d) => d.id === inst.device_id)?.name || inst.device_id }}
+              </p>
             </div>
           </div>
-          <el-button type="primary" @click="openDrawer()" class="!border-0">
-            <el-icon class="mr-1.5"><Add24Regular /></el-icon>
-            <span>新增实例</span>
-          </el-button>
-        </div>
-
-        <ListSkeleton v-if="initialLoading && instances.length === 0" :rows="3" />
-
-        <EmptyState v-else-if="instances.length === 0" title="暂无代理实例" subtitle="点击「新增实例」创建第一个实例" />
-
-        <div v-else class="space-y-3">
-          <div
-            v-for="inst in instancesWithStatus"
-            :key="inst.id"
-            class="ui-panel-muted p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"
-          >
-            <div class="flex items-center gap-3 min-w-0">
-              <span class="w-2.5 h-2.5 rounded-full shrink-0" :class="inst.status.running ? 'bg-green-500' : 'bg-gray-300'" />
-              <div class="min-w-0">
-                <div class="font-bold text-gray-900 dark:text-white truncate">{{ inst.name || inst.id }}</div>
-                <div class="text-xs text-gray-500 mt-0.5 truncate">
-                  {{ formatModeLabel(inst.mode) }} · {{ inst.listen_addr }}:{{ inst.listen_port }} · 绑定: {{ devices.find(d => d.id === inst.device_id)?.name || inst.device_id }}
-                </div>
-                <div v-if="inst.status.last_error" class="text-xs text-red-500 mt-1 truncate">
-                  {{ inst.status.last_error }}
-                </div>
-              </div>
-            </div>
-
-            <div class="flex items-center gap-2 shrink-0">
-              <el-tag size="small" :type="inst.enabled ? 'success' : 'info'">
-                {{ inst.enabled ? '启用' : '禁用' }}
-              </el-tag>
-              <el-tag size="small" :type="inst.status.running ? 'success' : 'danger'">
-                {{ inst.status.running ? '运行中' : '已停止' }}
-              </el-tag>
-              <el-tag size="small" type="info">
-                {{ formatModeLabel(inst.mode) }}
-              </el-tag>
-              <el-tag size="small" :type="inst.auth_enabled ? 'warning' : 'info'">
-                {{ inst.auth_enabled ? '账号认证' : '免认证' }}
-              </el-tag>
-
-              <el-button-group class="ml-2">
-                <el-button v-if="!inst.status.running" size="small" :disabled="!inst.enabled" @click="startInstance(inst.id)">
-                  <el-icon><Play24Regular /></el-icon>
-                </el-button>
-                <el-button v-if="inst.status.running" size="small" @click="stopInstance(inst.id)">
-                  <el-icon><Stop24Regular /></el-icon>
-                </el-button>
-                <el-button size="small" @click="restartInstance(inst.id)" :disabled="!inst.enabled">
-                  <el-icon><ArrowSync24Regular /></el-icon>
-                </el-button>
-              </el-button-group>
-
-              <el-button size="small" @click="openDrawer(inst)">
-                <el-icon><Edit24Regular /></el-icon>
-              </el-button>
-              <el-button size="small" type="danger" @click="deleteInstance(inst.id)">
-                <el-icon><Delete24Regular /></el-icon>
-              </el-button>
-            </div>
+          <div class="proxy-item-footer">
+            <span class="proxy-state">
+              <StatusLight :tone="inst.status.running ? 'success' : 'neutral'" :animated="false" />
+              {{ inst.status.running ? '运行中' : '已停止' }}
+            </span>
+            <span class="m3-badge">{{ inst.enabled ? '已启用' : '已禁用' }}</span>
+            <span class="m3-badge">{{ inst.auth_enabled ? '账号认证' : '免认证' }}</span>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═══════════ 出站代理编辑 Drawer ═══════════ -->
-    <el-drawer v-model="drawerOpen" :title="editingInstance ? '编辑代理实例' : '新增代理实例'" size="560px">
-      <div class="space-y-6 pb-6">
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-indigo-500 rounded-full"></div>
-            <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">基础设置</h3>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">实例 ID</label>
-              <el-input v-model="instanceForm.id" :disabled="!!editingInstance" placeholder="唯一标识" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">名称</label>
-              <el-input v-model="instanceForm.name" placeholder="显示名称" />
-            </div>
-          </div>
-
-          <div class="space-y-1">
-            <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">绑定设备（必填）</label>
-            <el-select v-model="instanceForm.device_id" placeholder="选择设备" class="w-full">
-              <el-option v-for="d in devices" :key="d.id" :label="`${d.name} (${d.interface})`" :value="d.id" />
-            </el-select>
-          </div>
-
-          <div class="space-y-1">
-            <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">代理模式</label>
-            <el-select v-model="instanceForm.mode" placeholder="选择代理模式" class="w-full">
-              <el-option
-                v-for="opt in modeOptions"
-                :key="opt.value"
-                :label="opt.label"
-                :value="opt.value"
-              />
-            </el-select>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">监听地址</label>
-              <el-input v-model="instanceForm.listen_addr" placeholder="0.0.0.0" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">监听端口</label>
-              <el-input-number v-model="instanceForm.listen_port" :min="1" :max="65535" class="!w-full" />
-            </div>
-          </div>
-
-          <div class="ui-panel-muted p-3 flex items-center justify-between rounded-lg">
-            <div>
-              <div class="text-sm font-bold text-gray-800 dark:text-gray-100">启用实例</div>
-              <div class="text-xs text-gray-500">禁用后实例不会自动启动</div>
-            </div>
-            <el-switch v-model="instanceForm.enabled" />
-          </div>
-        </div>
-
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-amber-500 rounded-full"></div>
-            <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">认证设置</h3>
-          </div>
-
-          <div class="ui-panel-muted p-3 flex items-center justify-between rounded-lg">
-            <div>
-              <div class="text-sm font-bold text-gray-800 dark:text-gray-100">启用账号认证</div>
-              <div class="text-xs text-gray-500">关闭后将允许免认证连接</div>
-            </div>
-            <el-switch v-model="instanceForm.auth_enabled" />
-          </div>
-
-          <div v-if="instanceForm.auth_enabled" class="grid grid-cols-2 gap-4">
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">用户名</label>
-              <el-input v-model="instanceForm.username" placeholder="例如 user01" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">密码</label>
-              <el-input v-model="instanceForm.password" type="password" show-password placeholder="请输入密码" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="flex items-center justify-end gap-2">
-          <el-button @click="drawerOpen = false">取消</el-button>
-          <el-button type="primary" @click="saveForm">保存</el-button>
-        </div>
-      </template>
-    </el-drawer>
-
-    <!-- ═══════════ 前置代理编辑 Drawer ═══════════ -->
-    <el-drawer v-model="upstreamDrawerOpen" :title="editingUpstream ? '编辑前置代理' : '新增前置代理'" size="520px">
-      <div class="space-y-6 pb-6">
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-indigo-500 rounded-full"></div>
-            <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">代理信息</h3>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">代理 ID</label>
-              <el-input v-model="upstreamForm.id" :disabled="!!editingUpstream" placeholder="唯一标识，如 jp-proxy-01" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">名称</label>
-              <el-input v-model="upstreamForm.name" placeholder="例如：日本代理" />
-            </div>
-          </div>
-
-          <div class="space-y-1">
-            <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Socks5 地址</label>
-            <el-input v-model="upstreamForm.addr" placeholder="host:port，例如 1.2.3.4:1080 或 [2001:db8::1]:1080" />
-            <div class="text-xs text-gray-400 mt-1">VoWiFi 通过此 Socks5 代理连接运营商，实现跨区域本地 VoWiFi。{{ upstreamProxyIPv6AddressHint }}。保存时会自动探测 Socks5 握手与 UDP Associate。</div>
-          </div>
-
-          <div class="ui-panel-muted p-3 flex items-center justify-between rounded-lg">
-            <div>
-              <div class="text-sm font-bold text-gray-800 dark:text-gray-100">启用代理</div>
-              <div class="text-xs text-gray-500">禁用后绑定到该代理的国家规则会回退为直连</div>
-            </div>
-            <el-switch v-model="upstreamForm.enabled" />
-          </div>
-        </div>
-
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-amber-500 rounded-full"></div>
-            <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">鉴权设置（可选）</h3>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">用户名</label>
-              <el-input v-model="upstreamForm.username" placeholder="留空则免鉴权" />
-            </div>
-            <div class="space-y-1">
-              <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">密码</label>
-              <el-input v-model="upstreamForm.password" type="password" show-password placeholder="留空则免鉴权" />
-              <div class="text-xs text-gray-400 mt-1">编辑已有代理时留空会保持原密码不变。</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="flex items-center justify-end gap-2">
-          <el-button @click="upstreamDrawerOpen = false">取消</el-button>
-          <el-button type="primary" @click="saveUpstreamForm">
-            {{ editingUpstream ? '更新' : '创建' }}
-          </el-button>
-        </div>
-      </template>
-    </el-drawer>
-
-    <!-- ═══════════ 国家规则 Drawer ═══════════ -->
-    <el-drawer v-model="countryRuleDrawerOpen" :title="`国家规则 — ${countryRuleTargetProxy?.name || countryRuleTargetProxy?.id || ''}`" size="560px">
-      <div class="space-y-6 pb-6">
-        <!-- 已配置国家规则 -->
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-green-500 rounded-full"></div>
-            <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">已路由到该代理的国家</h3>
-          </div>
-
-          <EmptyState
-            v-if="currentProxyCountryRules.length === 0"
-            title="暂无国家规则"
-            subtitle="未配置的国家会默认直连"
-          />
-
-          <div v-else class="space-y-2">
-            <div
-              v-for="rule in currentProxyCountryRules"
-              :key="rule.country_code"
-              class="ui-panel-muted p-3 flex items-center justify-between rounded-lg"
+          <p v-if="inst.status.last_error" class="proxy-error">{{ inst.status.last_error }}</p>
+          <div class="m3-actions proxy-actions">
+            <md-text-button
+              v-if="!inst.status.running"
+              type="button"
+              :disabled="!inst.enabled || saving || !!instanceAction"
+              @click="startInstance(inst.id)"
             >
-              <div class="flex items-center gap-2 min-w-0">
-                <span class="w-2 h-2 rounded-full bg-green-500 shrink-0"></span>
-                <div class="min-w-0">
-                  <div class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {{ rule.country_code }} · {{ rule.country_name || rule.country_code }}
-                  </div>
-                  <div class="text-xs text-gray-400 font-mono truncate">MCC {{ rule.mccs.join('/') || '-' }}</div>
-                </div>
-              </div>
-              <el-button size="small" type="danger" text @click="doDeleteCountryRule(rule.country_code)">
-                删除规则
-              </el-button>
-            </div>
+              <SvgIcon slot="icon" :svg="playIcon" />
+              启动
+            </md-text-button>
+            <md-text-button
+              v-else
+              type="button"
+              :disabled="saving || !!instanceAction"
+              @click="stopInstance(inst.id)"
+            >
+              <SvgIcon slot="icon" :svg="stopIcon" />
+              停止
+            </md-text-button>
+            <md-icon-button
+              :aria-label="`重启 ${inst.name || inst.id}`"
+              :disabled="!inst.enabled || saving || !!instanceAction"
+              @click="restartInstance(inst.id)"
+            >
+              <SvgIcon :svg="refreshIcon" />
+            </md-icon-button>
+            <md-icon-button
+              :aria-label="`编辑 ${inst.name || inst.id}`"
+              :disabled="saving || !!instanceAction"
+              @click="openDrawer(inst)"
+            >
+              <SvgIcon :svg="editIcon" />
+            </md-icon-button>
+            <md-icon-button
+              class="danger"
+              :aria-label="`删除 ${inst.name || inst.id}`"
+              :disabled="saving || !!instanceAction"
+              @click="deleteInstance(inst.id)"
+            >
+              <SvgIcon :svg="deleteIcon" />
+            </md-icon-button>
           </div>
-        </div>
-
-        <!-- 添加国家规则 -->
-        <div class="space-y-4">
-          <div class="flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-gray-800">
-            <div class="w-1 h-4 bg-indigo-500 rounded-full"></div>
-            <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">添加国家规则</h3>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <el-select v-model="selectedCountryCode" placeholder="选择国家" class="flex-1" filterable>
-              <el-option
-                v-for="country in availableCountries"
-                :key="country.country_code"
-                :label="formatCountryLabel(country)"
-                :value="country.country_code"
-              >
-                <div class="flex items-center justify-between w-full">
-                  <span>{{ country.country_code }} · {{ country.country_name || country.country_code }}</span>
-                  <el-tag
-                    v-if="upstreamStore.getRuleForCountry(country.country_code)?.upstream_proxy_id === countryRuleTargetProxy?.id"
-                    size="small"
-                    type="success"
-                    class="ml-2"
-                  >
-                    已配置
-                  </el-tag>
-                  <span class="text-xs text-gray-400 font-mono ml-2">MCC {{ country.mccs.join('/') }}</span>
-                </div>
-              </el-option>
-            </el-select>
-            <el-button type="primary" @click="doUpsertCountryRule" :disabled="!selectedCountryCode">
-              <el-icon class="mr-1.5"><Link24Regular /></el-icon>
-              <span>保存规则</span>
-            </el-button>
-          </div>
-
-          <el-alert type="info" :closable="false" show-icon class="!py-2">
-            <template #default>
-              <span class="text-xs">规则按 SIM 归属 MCC 解析国家。例如 US 会覆盖 MCC 310/311/312/313/314/315/316 等表内分组；没有配置规则的国家默认直连。需要重启 VoWiFi 生效。</span>
-            </template>
-          </el-alert>
-        </div>
+        </article>
       </div>
-    </el-drawer>
+    </section>
+
+    <md-dialog
+      class="proxy-dialog"
+      :open="drawerOpen"
+      @cancel="guardClose($event, saving)"
+      @closed="drawerOpen = false"
+    >
+      <div slot="headline">{{ editingInstance ? '编辑代理实例' : '新增代理实例' }}</div>
+      <form id="instance-form" slot="content" class="proxy-form" @submit.prevent="saveForm">
+        <p v-if="formError" class="proxy-error" role="alert">{{ formError }}</p>
+        <div class="form-pair">
+          <md-outlined-text-field
+            label="实例 ID"
+            name="id"
+            required
+            :value="instanceForm.id"
+            :disabled="!!editingInstance || saving || instanceLoading"
+            @input="instanceForm.id = fieldValue($event)"
+          />
+          <md-outlined-text-field
+            label="名称"
+            name="name"
+            :value="instanceForm.name"
+            :disabled="saving || instanceLoading"
+            @input="instanceForm.name = fieldValue($event)"
+          />
+        </div>
+        <md-outlined-select
+          label="出口设备"
+          name="device_id"
+          required
+          :value="instanceForm.device_id"
+          :disabled="saving || instanceLoading"
+          @change="instanceForm.device_id = fieldValue($event)"
+        >
+          <md-select-option
+            v-for="d in devices"
+            :key="d.id"
+            :value="d.id"
+            :selected="instanceForm.device_id === d.id"
+          >
+            <div slot="headline">{{ d.name }} ({{ d.interface }})</div>
+          </md-select-option>
+        </md-outlined-select>
+        <md-outlined-select
+          label="代理协议"
+          name="mode"
+          :value="instanceForm.mode"
+          :disabled="saving || instanceLoading"
+          @change="instanceForm.mode = fieldValue($event) as ProxyMode"
+        >
+          <md-select-option
+            v-for="opt in modeOptions"
+            :key="opt.value"
+            :value="opt.value"
+            :selected="instanceForm.mode === opt.value"
+          >
+            <div slot="headline">{{ opt.label }}</div>
+          </md-select-option>
+        </md-outlined-select>
+        <div class="form-pair">
+          <md-outlined-text-field
+            label="监听地址"
+            name="listen_addr"
+            :value="instanceForm.listen_addr"
+            :disabled="saving || instanceLoading"
+            @input="instanceForm.listen_addr = fieldValue($event)"
+          />
+          <md-outlined-text-field
+            label="监听端口"
+            name="listen_port"
+            type="number"
+            required
+            min="1"
+            max="65535"
+            step="1"
+            :value="String(instanceForm.listen_port)"
+            :disabled="saving || instanceLoading"
+            @input="instanceForm.listen_port = Number(fieldValue($event))"
+          />
+        </div>
+        <label class="form-switch">
+          <span>
+            启用实例
+            <small>禁用后不会自动启动</small>
+          </span>
+          <md-switch
+            v-sync-switch
+            aria-label="启用实例"
+            :selected="instanceForm.enabled"
+            :disabled="saving || instanceLoading"
+            @change="instanceForm.enabled = fieldSelected($event)"
+          />
+        </label>
+        <label class="form-switch">
+          <span>
+            账号认证
+            <small>关闭后允许免认证连接</small>
+          </span>
+          <md-switch
+            v-sync-switch
+            aria-label="账号认证"
+            :selected="instanceForm.auth_enabled"
+            :disabled="saving || instanceLoading"
+            @change="instanceForm.auth_enabled = fieldSelected($event)"
+          />
+        </label>
+        <div v-if="instanceForm.auth_enabled" class="form-pair">
+          <md-outlined-text-field
+            label="用户名"
+            name="username"
+            autocomplete="off"
+            :value="instanceForm.username"
+            :disabled="saving || instanceLoading"
+            @input="instanceForm.username = fieldValue($event)"
+          />
+          <md-outlined-text-field
+            label="密码"
+            name="password"
+            :type="showInstancePassword ? 'text' : 'password'"
+            autocomplete="new-password"
+            :value="instanceForm.password || ''"
+            :disabled="saving || instanceLoading"
+            @input="instanceForm.password = fieldValue($event)"
+          >
+            <md-icon-button
+              slot="trailing-icon"
+              type="button"
+              :aria-label="showInstancePassword ? '隐藏密码' : '显示密码'"
+              :aria-pressed="showInstancePassword"
+              :disabled="saving || instanceLoading"
+              @click="showInstancePassword = !showInstancePassword"
+            >
+              <SvgIcon :svg="showInstancePassword ? hiddenIcon : visibilityIcon" />
+            </md-icon-button>
+          </md-outlined-text-field>
+        </div>
+        <p v-if="instanceLoading" class="m3-muted" role="status">正在读取完整配置…</p>
+      </form>
+      <div slot="actions">
+        <md-text-button type="button" :disabled="saving" @click="drawerOpen = false">
+          取消
+        </md-text-button>
+        <md-filled-button type="submit" form="instance-form" :disabled="saving || instanceLoading">
+          {{ saving ? '保存中…' : '保存' }}
+        </md-filled-button>
+      </div>
+    </md-dialog>
+
+    <md-dialog
+      class="proxy-dialog"
+      :open="upstreamDrawerOpen"
+      @cancel="guardClose($event, upstreamSaving)"
+      @closed="upstreamDrawerOpen = false"
+    >
+      <div slot="headline">{{ editingUpstream ? '编辑前置代理' : '新增前置代理' }}</div>
+      <form id="upstream-form" slot="content" class="proxy-form" @submit.prevent="saveUpstreamForm">
+        <p v-if="formError" class="proxy-error" role="alert">{{ formError }}</p>
+        <div class="form-pair">
+          <md-outlined-text-field
+            label="代理 ID"
+            name="id"
+            required
+            :value="upstreamForm.id"
+            :disabled="!!editingUpstream || upstreamSaving"
+            @input="upstreamForm.id = fieldValue($event)"
+          />
+          <md-outlined-text-field
+            label="名称"
+            name="name"
+            :value="upstreamForm.name"
+            :disabled="upstreamSaving"
+            @input="upstreamForm.name = fieldValue($event)"
+          />
+        </div>
+        <md-outlined-text-field
+          label="SOCKS5 地址"
+          name="addr"
+          required
+          placeholder="host:1080 或 [IPv6]:1080"
+          :value="upstreamForm.addr"
+          :disabled="upstreamSaving"
+          @input="upstreamForm.addr = fieldValue($event)"
+        />
+        <p class="m3-muted">
+          {{ upstreamProxyIPv6AddressHint }}。保存时会探测 SOCKS5 握手与 UDP Associate。
+        </p>
+        <label class="form-switch">
+          <span>
+            启用代理
+            <small>禁用后，该代理的国家规则会回退直连</small>
+          </span>
+          <md-switch
+            v-sync-switch
+            aria-label="启用代理"
+            :selected="upstreamForm.enabled"
+            :disabled="upstreamSaving"
+            @change="upstreamForm.enabled = fieldSelected($event)"
+          />
+        </label>
+        <div class="form-pair">
+          <md-outlined-text-field
+            label="用户名（可选）"
+            name="username"
+            autocomplete="off"
+            :value="upstreamForm.username"
+            :disabled="upstreamSaving"
+            @input="upstreamForm.username = fieldValue($event)"
+          />
+          <md-outlined-text-field
+            label="密码（可选）"
+            name="password"
+            :type="showUpstreamPassword ? 'text' : 'password'"
+            autocomplete="new-password"
+            :value="upstreamForm.password || ''"
+            :disabled="upstreamSaving"
+            @input="upstreamForm.password = fieldValue($event)"
+          >
+            <md-icon-button
+              slot="trailing-icon"
+              type="button"
+              :aria-label="showUpstreamPassword ? '隐藏密码' : '显示密码'"
+              :aria-pressed="showUpstreamPassword"
+              :disabled="upstreamSaving"
+              @click="showUpstreamPassword = !showUpstreamPassword"
+            >
+              <SvgIcon :svg="showUpstreamPassword ? hiddenIcon : visibilityIcon" />
+            </md-icon-button>
+          </md-outlined-text-field>
+        </div>
+        <p v-if="editingUpstream" class="m3-muted">密码留空会保持原密码不变。</p>
+      </form>
+      <div slot="actions">
+        <md-text-button
+          type="button"
+          :disabled="upstreamSaving"
+          @click="upstreamDrawerOpen = false"
+        >
+          取消
+        </md-text-button>
+        <md-filled-button type="submit" form="upstream-form" :disabled="upstreamSaving">
+          {{ upstreamSaving ? '保存中…' : editingUpstream ? '更新' : '创建' }}
+        </md-filled-button>
+      </div>
+    </md-dialog>
+
+    <md-dialog
+      class="proxy-dialog"
+      :open="countryRuleDrawerOpen"
+      @cancel="guardClose($event, upstreamSaving)"
+      @closed="countryRuleDrawerOpen = false"
+    >
+      <div slot="headline">
+        国家规则 · {{ countryRuleTargetProxy?.name || countryRuleTargetProxy?.id }}
+      </div>
+      <div slot="content" class="proxy-form">
+        <p v-if="formError" class="proxy-error" role="alert">{{ formError }}</p>
+        <p class="m3-notice">
+          按 SIM 归属 MCC 匹配国家。未配置规则的国家默认直连；修改后需重启 VoWiFi 生效。
+        </p>
+        <h3>已配置国家</h3>
+        <p v-if="!currentProxyCountryRules.length" class="m3-muted">尚未配置国家规则</p>
+        <div v-for="rule in currentProxyCountryRules" :key="rule.country_code" class="country-rule">
+          <div>
+            <strong>{{ rule.country_code }} · {{ rule.country_name || rule.country_code }}</strong>
+            <p class="m3-muted">
+              MCC {{ rule.mccs.join('/') || '-' }} · {{ rule.enabled ? '已启用' : '已禁用' }}
+            </p>
+          </div>
+          <md-text-button
+            type="button"
+            class="danger"
+            :disabled="upstreamSaving"
+            @click="doDeleteCountryRule(rule.country_code)"
+          >
+            删除规则
+          </md-text-button>
+        </div>
+        <form id="country-form" class="proxy-form" @submit.prevent="doUpsertCountryRule">
+          <md-outlined-text-field
+            label="查找国家"
+            name="country_query"
+            :value="countryQuery"
+            @input="countryQuery = fieldValue($event)"
+          />
+          <md-outlined-select
+            label="国家"
+            name="country_code"
+            required
+            :value="selectedCountryCode"
+            :disabled="upstreamSaving"
+            @change="selectedCountryCode = fieldValue($event)"
+          >
+            <md-select-option
+              v-for="country in filteredCountries"
+              :key="country.country_code"
+              :value="country.country_code"
+              :selected="selectedCountryCode === country.country_code"
+            >
+              <div slot="headline">{{ formatCountryLabel(country) }}</div>
+            </md-select-option>
+          </md-outlined-select>
+          <p v-if="!filteredCountries.length" class="m3-muted">没有可选的匹配国家</p>
+        </form>
+      </div>
+      <div slot="actions">
+        <md-text-button
+          type="button"
+          :disabled="upstreamSaving"
+          @click="countryRuleDrawerOpen = false"
+        >
+          关闭
+        </md-text-button>
+        <md-filled-button
+          type="submit"
+          form="country-form"
+          :disabled="!selectedCountryCode || upstreamSaving"
+        >
+          {{ upstreamSaving ? '保存中…' : '保存规则' }}
+        </md-filled-button>
+      </div>
+    </md-dialog>
+
+    <md-dialog
+      :open="!!confirmation"
+      @cancel="guardClose($event, confirmBusy)"
+      @closed="confirmation = null"
+    >
+      <div slot="headline">{{ confirmation?.title }}</div>
+      <div slot="content" class="confirmation-message">
+        {{ confirmation?.message }}
+        <p v-if="formError" class="proxy-error" role="alert">{{ formError }}</p>
+      </div>
+      <div slot="actions">
+        <md-text-button type="button" :disabled="confirmBusy" @click="confirmation = null">
+          取消
+        </md-text-button>
+        <md-filled-button
+          type="button"
+          class="danger"
+          :disabled="confirmBusy"
+          @click="runConfirmation"
+        >
+          {{ confirmBusy ? '处理中…' : '删除' }}
+        </md-filled-button>
+      </div>
+    </md-dialog>
+    <MaterialSnackbar :message="notice" @dismiss="notice = ''" />
   </div>
 </template>
 
 <style scoped>
-.proxy-tabs :deep(.el-tabs__header) {
-  margin-bottom: 0;
+.proxy-section,
+.proxy-form {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
 }
-.proxy-tabs :deep(.el-tabs__nav-wrap::after) {
-  height: 1px;
+.section-heading {
+  display: grid;
+  gap: 8px;
+}
+.section-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.proxy-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+}
+.proxy-item {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.proxy-identity {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.proxy-identity > div {
+  min-width: 0;
+}
+h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+.proxy-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.proxy-address {
+  margin: 4px 0;
+  font: 14px/20px var(--vh-typeface-mono);
+  overflow-wrap: anywhere;
+}
+.proxy-item-footer,
+.proxy-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.proxy-actions {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+.proxy-actions md-text-button {
+  margin-right: auto;
+}
+.proxy-error {
+  color: var(--md-sys-color-error);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.proxy-dialog {
+  width: min(560px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+}
+.proxy-form {
+  width: 100%;
+  padding: 0;
+}
+.proxy-form[slot='content'] {
+  padding: 24px 24px 8px;
+}
+.form-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.proxy-form md-outlined-text-field,
+.proxy-form md-outlined-select {
+  width: 100%;
+  min-width: 0;
+}
+.form-switch,
+.country-rule {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+  font-size: 14px;
+}
+.form-switch small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.country-rule > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.country-rule md-text-button {
+  flex-shrink: 0;
+}
+.confirmation-message {
+  white-space: pre-line;
+}
+md-icon-button.danger {
+  --md-icon-button-icon-color: var(--md-sys-color-error);
+}
+md-text-button.danger {
+  --md-text-button-label-text-color: var(--md-sys-color-error);
+}
+md-filled-button.danger {
+  --md-filled-button-container-color: var(--md-sys-color-error);
+  --md-filled-button-label-text-color: var(--md-sys-color-on-error);
+}
+@media (max-width: 599px) {
+  .form-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 </style>

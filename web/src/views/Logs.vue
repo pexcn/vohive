@@ -1,34 +1,42 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { ElMessage } from 'element-plus'
 import PageHeader from '../components/PageHeader.vue'
-import ArrowDownload24Regular from '@vicons/fluent/es/ArrowDownload24Regular'
-import Delete24Regular from '@vicons/fluent/es/Delete24Regular'
-import Pause24Regular from '@vicons/fluent/es/Pause24Regular'
-import Play24Regular from '@vicons/fluent/es/Play24Regular'
+import SvgIcon from '../components/SvgIcon.vue'
+import ErrorState from '../components/ErrorState.vue'
+import MaterialSnackbar from '../components/MaterialSnackbar.vue'
+import StatusLight from '../components/StatusLight.vue'
+import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
+import downloadIcon from '@material-symbols/svg-400/outlined/download.svg?raw'
+import deleteIcon from '@material-symbols/svg-400/outlined/delete.svg?raw'
+import pauseIcon from '@material-symbols/svg-400/outlined/pause.svg?raw'
+import playIcon from '@material-symbols/svg-400/outlined/play_arrow.svg?raw'
+import searchIcon from '@material-symbols/svg-400/outlined/search.svg?raw'
 import { useLogsStore } from '../stores/logs'
 import { useEventStream } from '../composables/useEventStream'
 
-// 日志条目类型
-interface LogEntry {
-  time: string
-  level: string
-  caller: string
-  message: string
-  fields?: string
-}
+import type { LogEntry } from '../services/logs'
 
 const logsStore = useLogsStore()
-const { logs } = storeToRefs(logsStore)
+const { logs, loading, error } = storeToRefs(logsStore)
 
-const connected = ref(false)
 const paused = ref(false)
 const autoScroll = ref(true)
 const levelFilter = ref<'all' | 'debug' | 'info' | 'warn' | 'error'>('all')
 const searchQuery = ref('')
 const maxLogs = 1000 // 最大保留日志条数
-const lastConnectError = ref<string>('')
+const notice = ref('')
+let disposed = false
+const levels = ['all', 'debug', 'info', 'warn', 'error'] as const
+
+function changeAutoScroll(event: Event) {
+  autoScroll.value = (event.target as HTMLElement & { selected: boolean }).selected
+}
+
+function changeLevel(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  if (levels.includes(value as typeof levels[number])) levelFilter.value = value as typeof levels[number]
+}
 
 // 日志容器引用
 const logContainer = ref<HTMLElement | null>(null)
@@ -62,10 +70,6 @@ const stream = useEventStream<LogEntry>({
   eventName: 'log',
   query: { level: '' },
   parse: (payload) => JSON.parse(payload) as LogEntry,
-  onConnected: () => {
-    connected.value = true
-    lastConnectError.value = ''
-  },
   onEvent: (entry) => {
     if (paused.value) return
     logsStore.append(entry, maxLogs)
@@ -76,21 +80,20 @@ const stream = useEventStream<LogEntry>({
   }
 })
 
+const { connected, lastError: lastConnectError } = stream
+
 function connect() {
-  connected.value = false
   stream.setPaused(false)
 }
 
 function disconnect() {
   stream.disconnect()
-  connected.value = false
 }
 
 // 暂停/继续
 function togglePause() {
   paused.value = !paused.value
   stream.setPaused(paused.value)
-  if (!paused.value) connect()
 }
 
 // 清空日志
@@ -113,19 +116,7 @@ function exportLogs() {
   a.download = `logs-${new Date().toISOString().slice(0, 10)}.txt`
   a.click()
   URL.revokeObjectURL(url)
-  ElMessage.success('已导出日志')
-}
-
-// 日志级别颜色
-function getLevelClass(level: string): string {
-  switch (level.toLowerCase()) {
-    case 'debug': return 'text-purple-500'
-    case 'info': return 'text-blue-500'
-    case 'warn': return 'text-yellow-500'
-    case 'error': return 'text-red-500'
-    case 'fatal': return 'text-red-600 font-bold'
-    default: return 'text-gray-500'
-  }
+  notice.value = '已导出日志'
 }
 
 // 格式化日期时间
@@ -155,10 +146,11 @@ async function loadHistory() {
 
 onMounted(async () => {
   await loadHistory()
-  connect()
+  if (!disposed) connect()
 })
 
 onUnmounted(() => {
+  disposed = true
   disconnect()
 })
 
@@ -171,79 +163,199 @@ watch(levelFilter, () => {
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto">
-    <PageHeader title="实时日志" subtitle="查看系统运行日志，支持过滤和搜索">
+  <div class="m3-page logs-page">
+    <PageHeader title="实时日志" subtitle="查看系统运行日志，支持级别过滤和内容搜索">
       <template #actions>
-        <div class="flex items-center gap-2">
-          <el-button @click="togglePause" :type="paused ? 'success' : 'warning'" class="!border-0">
-            <el-icon><component :is="paused ? Play24Regular : Pause24Regular" /></el-icon>
-            {{ paused ? '继续' : '暂停' }}
-          </el-button>
-          <el-button @click="clearLogs" class="!border-0">
-            <el-icon><Delete24Regular /></el-icon>
-            清空
-          </el-button>
-          <el-button @click="exportLogs" type="primary" class="!border-0">
-            <el-icon><ArrowDownload24Regular /></el-icon>
-            导出
-          </el-button>
-        </div>
+        <md-outlined-button type="button" :aria-pressed="paused" @click="togglePause">
+          <SvgIcon slot="icon" :svg="paused ? playIcon : pauseIcon" />
+          {{ paused ? '继续' : '暂停' }}
+        </md-outlined-button>
+        <md-text-button type="button" :disabled="!logs.length" @click="clearLogs">
+          <SvgIcon slot="icon" :svg="deleteIcon" />
+          清空
+        </md-text-button>
+        <md-filled-button type="button" :disabled="!filteredLogs.length" @click="exportLogs">
+          <SvgIcon slot="icon" :svg="downloadIcon" />
+          导出
+        </md-filled-button>
       </template>
     </PageHeader>
-
-    <!-- 连接状态 -->
-    <div class="flex items-center gap-4 mb-4">
-      <div class="flex items-center gap-2">
-        <span class="w-2 h-2 rounded-full" :class="connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'" />
-        <span class="text-sm text-gray-500">{{ connected ? '已连接' : '未连接' }}</span>
+    <ErrorState
+      v-if="error"
+      title="历史日志加载失败"
+      :message="error.message"
+      @retry="loadHistory"
+    />
+    <section class="m3-card log-controls" aria-label="日志筛选">
+      <div class="log-toolbar">
+        <span class="log-connection" role="status">
+          <StatusLight
+            :tone="paused ? 'neutral' : connected ? 'success' : 'warning'"
+            :animated="false"
+          />
+          {{ paused ? '已暂停' : connected ? '实时连接中' : '等待连接' }}
+        </span>
+        <span class="m3-muted">显示 {{ filteredLogs.length }} / {{ logs.length }} 条</span>
+        <label class="log-follow">
+          自动追尾
+          <md-switch
+            v-sync-switch
+            aria-label="自动追尾"
+            :selected="autoScroll"
+            @change="changeAutoScroll"
+          />
+        </label>
       </div>
-      <span class="text-sm text-gray-400">{{ logs.length }} 条日志</span>
-      <span v-if="!connected && lastConnectError" class="text-sm text-red-500 truncate" :title="lastConnectError">{{ lastConnectError }}</span>
-      <div class="flex-1" />
-      <el-checkbox v-model="autoScroll" label="自动追尾" />
-    </div>
-
-    <!-- 过滤器 -->
-    <div class="ui-card p-4 mb-4">
-      <div class="flex flex-wrap items-center gap-4">
-        <el-select v-model="levelFilter" placeholder="日志级别" class="w-32">
-          <el-option label="全部" value="all" />
-          <el-option label="DEBUG" value="debug" />
-          <el-option label="INFO" value="info" />
-          <el-option label="WARN" value="warn" />
-          <el-option label="ERROR" value="error" />
-        </el-select>
-        <el-input
-          v-model="searchQuery"
-          placeholder="搜索日志内容..."
-          clearable
-          class="w-64"
-        />
-        <span class="text-sm text-gray-400">显示 {{ filteredLogs.length }} / {{ logs.length }} 条</span>
+      <div v-if="!paused && !connected && lastConnectError" class="m3-notice" role="status">
+        日志流连接失败：{{ lastConnectError }}
       </div>
-    </div>
-
-    <!-- 日志列表 -->
-    <div class="ui-card overflow-hidden">
-      <div
-        ref="logContainer"
-        class="h-[60vh] overflow-auto font-mono text-sm bg-gray-900 dark:bg-black text-gray-100 p-4"
-      >
-        <div v-if="filteredLogs.length === 0" class="text-gray-500 text-center py-8">
-          {{ connected ? '等待日志...' : '未连接到日志流' }}
-        </div>
-        <div
-          v-for="(log, idx) in filteredLogs"
-          :key="idx"
-          class="py-0.5 hover:bg-white/5 px-2 -mx-2 rounded whitespace-nowrap"
+      <div class="log-filters">
+        <md-outlined-select label="日志级别" :value="levelFilter" @change="changeLevel">
+          <md-select-option
+            v-for="level in levels"
+            :key="level"
+            :value="level"
+            :selected="levelFilter === level"
+          >
+            <div slot="headline">{{ level === 'all' ? '全部级别' : level.toUpperCase() }}</div>
+          </md-select-option>
+        </md-outlined-select>
+        <md-outlined-text-field
+          label="搜索日志"
+          :value="searchQuery"
+          supporting-text="内容、调用位置或附加字段"
+          @input="searchQuery = ($event.target as HTMLInputElement).value"
         >
-          <span class="text-gray-500">[{{ formatDateTime(log.time) }}]</span>
-          <span class="font-bold ml-1 inline-block w-14" :class="getLevelClass(log.level)">{{ log.level.toUpperCase().padEnd(5) }}</span>
-          <span class="text-indigo-400 inline-block w-48 truncate align-bottom" :title="log.caller">{{ log.caller }}</span>
-          <span class="text-gray-100 ml-1">{{ log.message }}</span>
-          <span v-if="log.fields" class="text-amber-300/70 ml-1">{{ log.fields }}</span>
+          <SvgIcon slot="leading-icon" :svg="searchIcon" />
+        </md-outlined-text-field>
+      </div>
+    </section>
+    <section class="log-viewer" aria-label="日志内容" :aria-busy="loading">
+      <div ref="logContainer" class="log-scroll" tabindex="0" aria-label="可滚动的日志列表">
+        <div v-if="!filteredLogs.length" class="log-empty m3-muted">
+          {{
+            loading
+              ? '加载历史日志…'
+              : logs.length
+                ? '没有匹配的日志'
+                : paused
+                  ? '日志已暂停'
+                  : connected
+                    ? '等待日志…'
+                    : '等待日志流连接…'
+          }}
+        </div>
+        <div v-for="(log, index) in filteredLogs" :key="index" class="log-entry">
+          <time class="log-time" :datetime="log.time">{{ formatDateTime(log.time) }}</time>
+          <span class="log-level" :data-level="log.level.toLowerCase()">
+            {{ log.level.toUpperCase() }}
+          </span>
+          <span class="log-caller" :title="log.caller">{{ log.caller }}</span>
+          <span>{{ log.message }}</span>
+          <span v-if="log.fields" class="log-fields">{{ log.fields }}</span>
         </div>
       </div>
-    </div>
+    </section>
+    <MaterialSnackbar :message="notice" @dismiss="notice = ''" />
   </div>
 </template>
+
+<style scoped>
+.log-controls {
+  display: grid;
+  gap: 16px;
+}
+.log-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.log-connection,
+.log-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.log-follow {
+  margin-left: auto;
+}
+.log-filters {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 16px;
+}
+.log-viewer {
+  min-width: 0;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.log-scroll {
+  height: 60vh;
+  min-height: 280px;
+  overflow: auto;
+  padding: 16px;
+  background: var(--md-sys-color-surface-container-lowest);
+  color: var(--md-sys-color-on-surface);
+  font: 12px/20px var(--vh-typeface-mono);
+}
+.log-scroll:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+.log-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  width: max-content;
+  min-width: 100%;
+  padding: 2px 0;
+  white-space: pre;
+}
+.log-entry:hover {
+  background: var(--md-sys-color-surface-container);
+}
+.log-time,
+.log-caller {
+  color: var(--md-sys-color-on-surface-variant);
+}
+.log-caller {
+  width: 180px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-level {
+  width: 48px;
+  flex-shrink: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-weight: 500;
+}
+.log-level[data-level='debug'] {
+  color: var(--md-sys-color-tertiary);
+}
+.log-level[data-level='info'] {
+  color: var(--md-sys-color-primary);
+}
+.log-level[data-level='warn'] {
+  color: var(--vh-warning);
+}
+.log-level[data-level='error'],
+.log-level[data-level='fatal'] {
+  color: var(--md-sys-color-error);
+}
+.log-fields {
+  color: var(--md-sys-color-tertiary);
+}
+.log-empty {
+  padding: 32px 16px;
+  text-align: center;
+}
+@media (max-width: 599px) {
+  .log-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+</style>

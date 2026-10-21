@@ -63,6 +63,7 @@ declare module 'vue' {
     HelloWorld: typeof import('./components/HelloWorld.vue')['default']
     ListSkeleton: typeof import('./components/ListSkeleton.vue')['default']
     LoadingScreen: typeof import('./components/LoadingScreen.vue')['default']
+    MaterialSnackbar: typeof import('./components/MaterialSnackbar.vue')['default']
     OperatorSelectionDialog: typeof import('./components/OperatorSelectionDialog.vue')['default']
     PageHeader: typeof import('./components/PageHeader.vue')['default']
     RefreshButton: typeof import('./components/RefreshButton.vue')['default']
