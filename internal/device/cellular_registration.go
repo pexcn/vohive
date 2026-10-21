@@ -27,7 +27,7 @@ func (w *Worker) cellularRegistrationBlocked() bool {
 }
 
 func (w *Worker) cellularRegistrationBlockedLocked(restoreSwitchSnapshot bool) bool {
-	if !restoreSwitchSnapshot && (w.Config.VoWiFiEnabled || w.Config.AirplaneEnabled) {
+	if w.radioPolicyPending || w.Config.VoWiFiEnabled || w.Config.AirplaneEnabled {
 		return true
 	}
 	if w.stop != nil {

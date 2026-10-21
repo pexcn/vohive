@@ -1170,7 +1170,13 @@ func setWorkerFlightMode(ctx context.Context, worker *device.Worker, flightModeE
 	}
 
 	if worker.Backend != nil {
-		if err := worker.Backend.SetOperatingMode(ctx, targetMode); err != nil {
+		var err error
+		if flightModeEnabled {
+			err = worker.EnterAirplaneMode(ctx)
+		} else {
+			err = worker.Backend.SetOperatingMode(ctx, targetMode)
+		}
+		if err != nil {
 			return 0, false, err
 		}
 		opMode, err := worker.Backend.GetOperatingMode(ctx)
@@ -2426,6 +2432,10 @@ func (s *Server) handleDeviceMgmtReboot(c *gin.Context) {
 	worker := s.pool.GetWorker(id)
 	if worker == nil {
 		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "设备未找到"})
+		return
+	}
+	if s.pool.IsESIMSwitching(id) {
+		c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "设备正在切卡，请稍后再重启模组"})
 		return
 	}
 

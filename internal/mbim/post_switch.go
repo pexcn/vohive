@@ -93,33 +93,16 @@ func (m *Manager) GetUIMReadiness(ctx context.Context) (qmimanager.UIMReadiness,
 	return out, nil
 }
 
-func (m *Manager) setRadioState(ctx context.Context, sw mbim.RadioSwitch) (mbim.RadioState, error) {
-	if hook := m.setRadioStateHook; hook != nil {
-		return hook(ctx, sw)
-	}
-	return m.SetRadioState(ctx, sw)
-}
-
 func (m *Manager) UIMPowerOffSIM(ctx context.Context, slot uint8) error {
 	if d, err := m.device(); err == nil && m.qmiReadUsable() {
 		return d.UIMPowerOffSIM(ctx, slot)
 	}
-	_, err := m.setRadioState(ctx, mbim.RadioOff)
-	return err
+	return fmt.Errorf("MBIM SIM-only power off unavailable; refusing radio fallback")
 }
 
 func (m *Manager) UIMPowerOnSIM(ctx context.Context, slot uint8) error {
 	if d, err := m.device(); err == nil && m.qmiReadUsable() {
-		firstErr := d.UIMPowerOnSIM(ctx, slot)
-		_, radioErr := m.setRadioState(ctx, mbim.RadioOn)
-		if firstErr != nil && radioErr != nil {
-			return fmt.Errorf("qmi power on failed: %v; radio on failed: %w", firstErr, radioErr)
-		}
-		if radioErr != nil {
-			return radioErr
-		}
-		return firstErr
+		return d.UIMPowerOnSIM(ctx, slot)
 	}
-	_, err := m.setRadioState(ctx, mbim.RadioOn)
-	return err
+	return fmt.Errorf("MBIM SIM-only power on unavailable; refusing radio fallback")
 }

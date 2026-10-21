@@ -63,6 +63,9 @@ func (p *Pool) startQMICoreWithStartupBudget(worker *Worker, reason string) erro
 
 	result := runQMIStartCoreAttempt(p.ctx, worker.QMICore.StartCoreContext, qmiCoreStartupInlineBudget)
 	if result.err == nil {
+		if err := worker.ensureRadioOff(p.ctx); err != nil {
+			return err
+		}
 		cleanupWorkerStartupSIMAuthLogicalChannels(worker)
 		if _, resetErr := p.resetExistingQMIDataConnectionBeforePreference(worker, reason); resetErr != nil {
 			logger.Warn(fmt.Sprintf("[%s] QMI Core 启动后清理已有数据连接失败，继续启动", worker.ID), "err", resetErr)
@@ -106,6 +109,10 @@ func (p *Pool) startQMICoreRetryLoop(worker *Worker) {
 				return worker.QMICore.StartCoreContext(ctx)
 			}
 			if err := runQMIStartCoreRetryAttempt(p.ctx, startCore, qmiCoreRetryAttemptBudget); err == nil {
+				if offErr := worker.ensureRadioOff(p.ctx); offErr != nil {
+					logger.Error("QMI 恢复后无法确认射频关闭，保持策略锁定", "device", worker.ID, "err", offErr)
+					return
+				}
 				logger.Info(fmt.Sprintf("[%s] QMI Core 已恢复启动", worker.ID))
 				cleanupWorkerStartupSIMAuthLogicalChannels(worker)
 				if _, resetErr := p.resetExistingQMIDataConnectionBeforePreference(worker, "qmi_core_recovered"); resetErr != nil {

@@ -89,6 +89,7 @@ type qmiEFADReader interface {
 
 // QMIBackend QMI 后端 — 复用 qmicore.Manager 提供的 QMI 资源池通信
 type QMIBackend struct {
+	radioGuard
 	source      QMISource
 	controlPath string // cdc-wdm 设备节点路径
 
@@ -895,6 +896,13 @@ func (q *QMIBackend) DeleteAllSMS(ctx context.Context) error {
 // ============================================================================
 
 func (q *QMIBackend) SetOperatingMode(ctx context.Context, mode OperatingMode) error {
+	if mode == ModeOnline {
+		release, err := q.beginOnline(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	var qmiMode qmi.OperatingMode
 	switch mode {
 	case ModeOnline:

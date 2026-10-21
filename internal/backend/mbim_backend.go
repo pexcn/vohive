@@ -13,6 +13,7 @@ import (
 
 // MBIMBackend implements DeviceBackend over an MBIM modem.
 type MBIMBackend struct {
+	radioGuard
 	source      MBIMSource
 	controlPath string
 }
@@ -206,6 +207,13 @@ func (b *MBIMBackend) GetOperatingMode(ctx context.Context) (OperatingMode, erro
 }
 
 func (b *MBIMBackend) SetOperatingMode(ctx context.Context, mode OperatingMode) error {
+	if mode == ModeOnline {
+		release, err := b.beginOnline(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	sw := mbim.RadioOff
 	if mode == ModeOnline {
 		sw = mbim.RadioOn

@@ -130,10 +130,12 @@ type Worker struct {
 	qmiRegistrationMu       sync.Mutex
 	qmiRegistrationInFlight bool
 	registrationMu          sync.Mutex
+	radioMu                 sync.Mutex // serializes RF commands, never policy updates/cancellation
 	registrationNextID      uint64
 	registrationRuns        map[uint64]cellularRegistrationRun
 
 	networkPolicyICCID      string // protected by registrationMu
+	radioPolicyPending      bool   // startup/new SIM has no confirmed card policy
 	networkDesired          atomic.Bool
 	networkReconnectRunning atomic.Bool
 
@@ -1900,7 +1902,10 @@ func (p *Pool) UpdateWorkerConfig(id string, cfg config.DeviceConfig, applyAll b
 		return false
 	}
 	if applyAll {
+		w.registrationMu.Lock()
+		w.radioPolicyPending = true
 		w.Config = cfg
+		w.registrationMu.Unlock()
 	} else {
 		w.Config.Name = cfg.Name
 	}
@@ -2038,7 +2043,7 @@ func (w *Worker) autoConnectDataAllowed() bool {
 	}
 	w.registrationMu.Lock()
 	defer w.registrationMu.Unlock()
-	return w.Config.NetworkEnabled && !w.Config.VoWiFiEnabled && !w.Config.AirplaneEnabled &&
+	return !w.radioPolicyPending && w.Config.NetworkEnabled && !w.Config.VoWiFiEnabled && !w.Config.AirplaneEnabled &&
 		(w.networkPolicyICCID == "" || db.CanonicalICCID(w.networkPolicyICCID) == db.CanonicalICCID(w.CurrentICCID()))
 }
 
@@ -2073,7 +2078,12 @@ func (w *Worker) connectNetwork(ctx context.Context) error {
 		return err
 	}
 	w.networkDesired.Store(true)
+	release, err := w.BeginRadioOnline(ctx)
+	if err != nil {
+		return err
+	}
 	err = nc.Connect()
+	release()
 	if err != nil {
 		w.scheduleNetworkReconnect()
 	}
@@ -2152,14 +2162,26 @@ func (w *Worker) RotateWithNotify() (oldIP, newIP string, err error) {
 
 		oldPrivateIP := strings.TrimSpace(nc.GetPrivateIP())
 
-		if err := nc.RotateIP(); err != nil {
+		release, guardErr := w.BeginRadioOnline(context.Background())
+		if guardErr != nil {
+			return oldIP, "", guardErr
+		}
+		rotateErr := nc.RotateIP()
+		release()
+		if err := rotateErr; err != nil {
 			logger.Error(fmt.Sprintf("[%s] IP 切换失败", w.ID), "err", err)
 
 			w.consecutiveFailures++
 			if w.consecutiveFailures >= 5 {
 				logger.Error(fmt.Sprintf("[%s] 连续切换 IP 失败 5 次，尝试重启模组", w.ID))
-				if err := w.Backend.Reboot(context.Background()); err != nil {
-					logger.Error(fmt.Sprintf("[%s] 重启模组失败", w.ID), "err", err)
+				if release, err := w.BeginRadioOnline(context.Background()); err != nil {
+					logger.Warn(fmt.Sprintf("[%s] 当前卡策略禁止自动重启模组", w.ID), "err", err)
+				} else {
+					err := w.Backend.Reboot(context.Background())
+					release()
+					if err != nil {
+						logger.Error(fmt.Sprintf("[%s] 重启模组失败", w.ID), "err", err)
+					}
 				}
 				w.consecutiveFailures = 0
 			}

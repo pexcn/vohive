@@ -12,6 +12,7 @@ import (
 // ATBackend AT 后端适配器 — 纯包装层，委托给现有 modem.Manager
 // 不修改 modem.Manager 的任何一行代码
 type ATBackend struct {
+	radioGuard
 	modem *modem.Manager
 }
 
@@ -239,6 +240,13 @@ func (a *ATBackend) CancelUSSD(ctx context.Context) error {
 // ============================================================================
 
 func (a *ATBackend) SetOperatingMode(ctx context.Context, mode OperatingMode) error {
+	if mode == ModeOnline {
+		release, err := a.beginOnline(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
+	}
 	cmd := fmt.Sprintf("AT+CFUN=%d", int(mode))
 	_, err := a.modem.ExecuteAT(cmd, 5*time.Second)
 	return err

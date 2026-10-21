@@ -416,16 +416,17 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 	}
 
 	w := &Worker{
-		ID:               devCfg.ID,
-		Config:           devCfg,
-		Modem:            m,
-		QMICore:          qmiCore,
-		MBIMCore:         mbimCore,
-		ESIMQMITransport: qmiTransportLifecycle,
-		APDUArbiter:      apduarbiter.New(devCfg.ID, apduarbiter.Options{MaxLeaseHold: 10 * time.Minute, MaxSessions: 3, MaxQMITransports: 3}),
-		Pool:             p,
-		stop:             make(chan struct{}),
-		reassembler:      smscodec.NewReassembler(),
+		ID:                 devCfg.ID,
+		Config:             devCfg,
+		Modem:              m,
+		QMICore:            qmiCore,
+		MBIMCore:           mbimCore,
+		ESIMQMITransport:   qmiTransportLifecycle,
+		APDUArbiter:        apduarbiter.New(devCfg.ID, apduarbiter.Options{MaxLeaseHold: 10 * time.Minute, MaxSessions: 3, MaxQMITransports: 3}),
+		Pool:               p,
+		stop:               make(chan struct{}),
+		reassembler:        smscodec.NewReassembler(),
+		radioPolicyPending: true,
 	}
 	p.assignWorkerGeneration(w)
 	configureWorkerAPDUArbiter(w, qmiTransport)
@@ -445,6 +446,11 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 		return nil, err
 	}
 	w.Backend = be
+	if guarded, ok := be.(interface {
+		SetRadioOnlineGuard(func(context.Context) (func(), error))
+	}); ok {
+		guarded.SetRadioOnlineGuard(w.BeginRadioOnline)
+	}
 	if mbimCore != nil {
 		mbimCore.OnDataDisconnected(w.scheduleNetworkReconnect)
 	}
@@ -604,6 +610,16 @@ func (p *Pool) AddWorkerFromConfig(devCfg config.DeviceConfig) (*Worker, error) 
 		logger.Warn(fmt.Sprintf("[%s] Modem 初始化超时，继续启动 QMI Core", devCfg.ID))
 	}
 	if qmiCore == nil {
+		if err := w.ensureRadioOff(p.ctx); err != nil {
+			if qmiTransportLifecycle != nil {
+				_ = qmiTransportLifecycle.Stop()
+			}
+			if mbimCore != nil {
+				_ = mbimCore.Close()
+			}
+			m.Stop()
+			return nil, err
+		}
 		cleanupWorkerStartupSIMAuthLogicalChannels(w)
 	}
 

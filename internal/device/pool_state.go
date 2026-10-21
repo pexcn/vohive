@@ -154,6 +154,7 @@ func (w *Worker) BeginSIMIdentityTransition(targetICCID, reason string) uint64 {
 	if w == nil {
 		return 0
 	}
+	w.holdRadioPolicy()
 	now := time.Now()
 	w.cacheMu.Lock()
 	defer w.cacheMu.Unlock()
@@ -165,6 +166,8 @@ func (w *Worker) EnsureSIMIdentityTransition(targetICCID, reason string) uint64 
 	if w == nil {
 		return 0
 	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
 	now := time.Now()
 	w.cacheMu.Lock()
 	defer w.cacheMu.Unlock()
@@ -178,6 +181,7 @@ func (w *Worker) EnsureSIMIdentityTransition(targetICCID, reason string) uint64 
 		w.state.Meta.UpdatedAt = now
 		return w.state.Identity.Generation
 	}
+	w.radioPolicyPending = true
 	w.beginSIMIdentityTransitionLocked(target, reason, now)
 	return w.state.Identity.Generation
 }

@@ -79,7 +79,6 @@ type Manager struct {
 	reopenBackoff     time.Duration
 	reopenTimeout     time.Duration
 	runRecoveryHook   func(reason string)
-	setRadioStateHook func(ctx context.Context, sw mbim.RadioSwitch) (mbim.RadioState, error)
 }
 
 // New creates an unopened Manager. Call Open before use.

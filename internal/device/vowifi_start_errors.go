@@ -56,6 +56,10 @@ func (p *Pool) restoreNetworkAfterVoWiFiStartupFailure(traceID, deviceID string,
 	if w == nil {
 		return
 	}
+	if w.radioMustStayOff() {
+		w.restoreNetworkAfterVoWiFi = false
+		return
+	}
 	defer func() {
 		w.restoreNetworkAfterVoWiFi = false
 	}()

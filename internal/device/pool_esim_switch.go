@@ -79,6 +79,7 @@ func (p *Pool) captureESIMSwitchContext(deviceID string, targetICCID string) esi
 	ctx.ICCIDBefore = strings.TrimSpace(cached.ICCID)
 	ctx.IMSIBefore = strings.TrimSpace(cached.IMSI)
 	ctx.NetworkEnabledBefore = worker.Config.NetworkEnabled
+	ctx.FlightModeBefore = worker.radioMustStayOff()
 	if nc := worker.NetworkController(); nc != nil {
 		ctx.QMIConnectedBefore = nc.IsConnected()
 	}
@@ -86,7 +87,7 @@ func (p *Pool) captureESIMSwitchContext(deviceID string, targetICCID string) esi
 
 	if worker.Backend != nil {
 		if opMode, err := worker.Backend.GetOperatingMode(context.Background()); err == nil {
-			ctx.FlightModeBefore = isFlightOperatingMode(opMode)
+			ctx.FlightModeBefore = ctx.FlightModeBefore || isFlightOperatingMode(opMode)
 		} else {
 			logger.Warn("切卡前读取飞行模式状态失败", "device", deviceID, "err", err)
 		}
@@ -268,36 +269,19 @@ func (p *Pool) applyNetworkPreferenceForSwitchSnapshot(worker *Worker, snapshot 
 	return worker.StopNetwork()
 }
 
-func releaseRadioBeforeSwitch(deviceID string, worker *Worker) {
-	if worker == nil || worker.Backend == nil {
-		return
-	}
-	controller, ok := worker.Backend.(backend.OperatingModeController)
-	if !ok {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if err := controller.SetOperatingMode(ctx, backend.ModeLowPower); err != nil {
-		logger.Warn("eSIM 切卡前释放 radio 失败，继续切卡",
-			"device", deviceID,
-			"err", err)
-		return
-	}
-	logger.Info("eSIM 切卡前已释放 radio",
-		"device", deviceID,
-		"mode", backend.ModeLowPower)
-}
-
 func (p *Pool) bringRadioOnlineAfterSwitch(deviceID string, worker *Worker, snapshot esimSwitchContext, attachTimeout time.Duration) {
 	if worker == nil || worker.Backend == nil {
 		return
 	}
+	if worker.radioMustStayOff() {
+		return
+	}
 	controller, ok := worker.Backend.(backend.OperatingModeController)
 	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx = context.WithValue(ctx, switchSnapshotRegistrationKey{}, true)
 	err := controller.SetOperatingMode(ctx, backend.ModeOnline)
 	cancel()
 	if err != nil {
@@ -328,6 +312,7 @@ func (p *Pool) bringRadioOnlineAfterSwitch(deviceID string, worker *Worker, snap
 func (p *Pool) handleESIMSwitchBefore(deviceID string, targetICCID string) (uint64, error) {
 	snapshot := p.beginESIMSwitch(deviceID, targetICCID)
 	if worker := p.GetWorker(deviceID); worker != nil {
+		worker.holdRadioPolicy()
 		worker.networkDesired.Store(false)
 		worker.cancelCellularRegistration()
 		worker.markHealthRecoveryWindow(qmiHealthGraceAfterSwitch)
@@ -354,18 +339,21 @@ func (p *Pool) handleESIMSwitchBefore(deviceID string, targetICCID string) (uint
 	if err := p.voWiFiHost().SwitchBegin(ctx, deviceID); err != nil {
 		return snapshot.SwitchToken, fmt.Errorf("切卡前清理 VoWiFi 失败: %w", err)
 	}
-	if worker := p.GetWorker(deviceID); worker != nil && worker.QMICore != nil {
-		if worker.Config.ESIMSwitch.RadioCycle {
-			releaseRadioBeforeSwitch(deviceID, worker)
+	if worker := p.GetWorker(deviceID); worker != nil {
+		if err := worker.stopCellularRegistration(ctx); err != nil {
+			return snapshot.SwitchToken, fmt.Errorf("切卡前等待驻网退出失败: %w", err)
 		}
+		if err := worker.ensureRadioOff(ctx); err != nil {
+			return snapshot.SwitchToken, fmt.Errorf("切卡前射频隔离失败: %w", err)
+		}
+	}
+	if worker := p.GetWorker(deviceID); worker != nil && worker.QMICore != nil {
 		worker.QMICore.ReleaseAPDULeasesForSwitchTeardown()
 		// 切卡前主动清空 DeviceSnapshot 中缓存的 ICCID/IMSI，
 		// 防止切卡后其他代码路径从 Snapshot 读到旧卡身份。
 		if snap := worker.QMICore.GetDeviceSnapshot(); snap != nil {
 			snap.ResetIdentities(false)
 		}
-	} else if worker := p.GetWorker(deviceID); worker != nil && worker.Config.ESIMSwitch.RadioCycle {
-		releaseRadioBeforeSwitch(deviceID, worker)
 	}
 	return snapshot.SwitchToken, nil
 }
@@ -885,7 +873,8 @@ func (p *Pool) setOperatingModeWithRetry(worker *Worker, mode backend.OperatingM
 			case <-time.After(delays[i-1]):
 			}
 		}
-		lastErr = worker.Backend.SetOperatingMode(p.ctx, mode)
+		ctx := context.WithValue(p.ctx, switchSnapshotRegistrationKey{}, true)
+		lastErr = worker.Backend.SetOperatingMode(ctx, mode)
 		if lastErr == nil {
 			return nil
 		}
@@ -897,9 +886,9 @@ func (p *Pool) setOperatingModeWithRetry(worker *Worker, mode backend.OperatingM
 }
 
 func (p *Pool) restoreRadioDataForSwitchSnapshot(deviceID string, worker *Worker, snapshot esimSwitchContext, reason string, radioCycleAlreadyDone bool) {
-	if snapshot.FlightModeBefore {
+	if snapshot.FlightModeBefore || worker.radioMustStayOff() {
 		if worker.Backend != nil {
-			if err := p.setOperatingModeWithRetry(worker, backend.ModeRFOff); err != nil {
+			if err := worker.ensureRadioOff(p.ctx); err != nil {
 				logger.Warn("切卡后维持飞行模式失败", "device", deviceID, "reason", reason, "err", err)
 			}
 		}
@@ -956,6 +945,9 @@ func (p *Pool) handleESIMSwitchFailure(deviceID string, token uint64, commandNot
 			restoredIdentity = true
 		}
 		worker.cacheMu.Unlock()
+	}
+	if restoredIdentity {
+		p.resolveAndApplyPolicy(worker, "switch_prepare_failed")
 	}
 	logger.Warn("eSIM 切卡失败，按切卡前快照恢复 radio/data",
 		"device", deviceID,
@@ -1072,14 +1064,6 @@ func (p *Pool) handleESIMSwitchAfter(deviceID string, token uint64) {
 		return
 	}
 
-	if worker.Config.ESIMSwitch.RadioCycle {
-		attachTimeout := time.Duration(worker.Config.ESIMSwitch.NASAttachTimeoutMS) * time.Millisecond
-		p.bringRadioOnlineAfterSwitch(deviceID, worker, snapshot, attachTimeout)
-		if !p.switchTokenStillCurrent(deviceID, token, "radio_online") {
-			return
-		}
-	}
-
 	p.markESIMSwitchPhaseIfToken(deviceID, token, esim.SwitchPhaseIdentityRefresh)
 	identityRefreshStart := time.Now()
 	identityReady, identityRefreshErr := p.refreshPostSwitchIdentity(deviceID, worker, snapshot)
@@ -1114,6 +1098,13 @@ func (p *Pool) handleESIMSwitchAfter(deviceID string, token uint64) {
 		snapshot.FlightModeBefore = worker.Config.AirplaneEnabled || worker.Config.VoWiFiEnabled
 		snapshot.NetworkEnabledBefore = worker.Config.NetworkEnabled && !snapshot.FlightModeBefore
 		snapshot.QMIConnectedBefore = false
+	}
+	if worker.Config.ESIMSwitch.RadioCycle && !snapshot.FlightModeBefore && !worker.radioMustStayOff() {
+		attachTimeout := time.Duration(worker.Config.ESIMSwitch.NASAttachTimeoutMS) * time.Millisecond
+		p.bringRadioOnlineAfterSwitch(deviceID, worker, snapshot, attachTimeout)
+		if !p.switchTokenStillCurrent(deviceID, token, "radio_online") {
+			return
+		}
 	}
 	var restoreGateErr error
 	if worker.Config.VoWiFiEnabled {
