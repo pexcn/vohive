@@ -24,7 +24,6 @@ import { useDevicesStore } from '../stores/devices'
 import { debugCollector } from '../debug/collector'
 import { copyToClipboard } from '../utils/clipboard'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
-import { isControlOnline, isRecoveryPhase } from '../utils/deviceLifecycle'
 import { getMccMncIndex, isoToFlagEmoji, type MccMncRow } from '../utils/mcc-mnc'
 import type { CardPolicy, CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
 import type { AppError } from '../types/domain'
@@ -56,10 +55,6 @@ const loadLastOkAt = ref<number | null>(null)
 const loadError = ref<{ message: string; status?: number; method?: string; url?: string } | null>(null)
 const devices = ref<DeviceMgmtListItem[]>([])
 const discovered = ref<DiscoveredDevice[]>([])
-const query = ref('')
-const statusFilter = ref<'all' | 'online' | 'offline'>('all')
-const sortKey = ref<'name' | 'signal'>('name')
-const sortDir = ref<'asc' | 'desc'>('asc')
 const selectedId = ref('')
 const selectedDetail = ref<DeviceOverviewItem | null>(null)
 const hasAutoSelected = ref(false)
@@ -134,44 +129,6 @@ type RollingTrafficSample = {
 
 const realtimeTrafficWindowMs = 60_000
 let rollingTrafficWindow: RollingTrafficSample[] = []
-
-const filteredDevices = computed<DeviceMgmtListItem[]>(() => {
-  const q = String(query.value || '').trim().toLowerCase()
-  let list = devices.value.slice()
-
-  if (statusFilter.value === 'online') {
-    list = list.filter(d => isControlOnline(d))
-  } else if (statusFilter.value === 'offline') {
-    list = list.filter(d => !d?.running && !isRecoveryPhase(d.lifecycle_phase))
-  }
-
-  if (q) {
-    list = list.filter(d => {
-      const hay = `${d?.id || ''} ${d?.name || ''} ${d?.modem?.iccid || ''} ${d?.modem?.imei || ''} ${d?.interface || ''}`.toLowerCase()
-      return hay.includes(q)
-    })
-  }
-
-  list.sort((a, b) => {
-    let av = 0
-    let bv = 0
-    if (sortKey.value === 'name') {
-      const an = (a.name || a.id || '').toLowerCase()
-      const bn = (b.name || b.id || '').toLowerCase()
-      if (an < bn) return sortDir.value === 'asc' ? -1 : 1
-      if (an > bn) return sortDir.value === 'asc' ? 1 : -1
-      return 0
-    }
-    if (sortKey.value === 'signal') {
-      av = Number(a?.modem?.signal_dbm ?? -999)
-      bv = Number(b?.modem?.signal_dbm ?? -999)
-      return sortDir.value === 'asc' ? av - bv : bv - av
-    }
-    return 0
-  })
-
-  return list
-})
 
 const selectedListItem = computed<DeviceMgmtListItem | null>(() => {
   return devices.value.find(d => d.id === selectedId.value) || null
@@ -1253,18 +1210,10 @@ usePollingScheduler(async () => {
     <div class="devices-layout">
       <DeviceListPanel
         :loading="loading"
-        :query="query"
-        :status-filter="statusFilter"
-        :sort-key="sortKey"
-        :sort-dir="sortDir"
         :selected-id="selectedId"
-        :filtered-devices="filteredDevices"
+        :devices="devices"
         :device-count="devices.length"
         :device-limit="deviceLimit"
-        @update:query="query = $event"
-        @update:status-filter="statusFilter = $event"
-        @update:sort-key="sortKey = $event"
-        @update:sort-dir="sortDir = $event"
         @select-device="selectDevice"
       />
 
