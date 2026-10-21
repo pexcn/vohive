@@ -4,13 +4,13 @@ export type StatusLightSize = 'sm' | 'md'
 export function statusLightToneClass(tone: StatusLightTone) {
   switch (tone) {
     case 'success':
-      return 'bg-green-500'
+      return 'bg-[var(--vh-success)]'
     case 'warning':
-      return 'bg-amber-500'
+      return 'bg-[var(--vh-warning)]'
     case 'danger':
-      return 'bg-red-500'
+      return 'bg-[var(--md-sys-color-error)]'
     case 'neutral':
-      return 'bg-gray-400'
+      return 'bg-[var(--md-sys-color-outline)]'
   }
 }
 

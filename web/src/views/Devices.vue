@@ -32,8 +32,9 @@ import { toAppError } from '../services/http'
 import { devicesService } from '../services/devices'
 import { cardsService } from '../services/cards'
 import { createEmptyTrafficAnalysis, trafficService, type TrafficRange } from '../services/traffic'
-import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
-import Add24Regular from '@vicons/fluent/es/Add24Regular'
+import SvgIcon from '../components/SvgIcon.vue'
+import scanIcon from '@material-symbols/svg-400/outlined/search.svg?raw'
+import addIcon from '@material-symbols/svg-400/outlined/add.svg?raw'
 
 const router = useRouter()
 const route = useRoute()
@@ -63,6 +64,22 @@ const selectedId = ref('')
 const selectedDetail = ref<DeviceOverviewItem | null>(null)
 const hasAutoSelected = ref(false)
 const deviceTabs = new Set(['overview', 'esim', 'at', 'ussd', 'config', 'card'])
+const detailTabs = [
+  { key: 'overview', label: '概览' },
+  { key: 'esim', label: 'eSIM' },
+  { key: 'at', label: 'AT 终端' },
+  { key: 'ussd', label: 'USSD 终端' },
+  { key: 'card', label: '卡策略' },
+  { key: 'config', label: '配置' }
+]
+const visitedTabs = reactive(new Set(['overview']))
+watch(activeTab, tab => visitedTabs.add(tab), { immediate: true })
+
+function handleDetailTabChange(event: Event) {
+  const tab = (event.target as HTMLElement & { activeTab?: HTMLElement }).activeTab?.dataset.tab
+  if (tab && deviceTabs.has(tab)) activeTab.value = tab
+}
+
 
 const editConfig = ref<DeviceConfigDTO | null>(null)
 const editBaseline = ref('')
@@ -1197,19 +1214,25 @@ usePollingScheduler(async () => {
 </script>
 
 <template>
-  <div class="devices-page max-w-7xl mx-auto">
+  <div class="devices-page m3-page">
     <PageHeader title="设备管理" subtitle="查看设备信息、编辑配置、执行 AT 指令">
       <template #actions>
-        <div class="flex items-center gap-2">
+        <div class="m3-actions">
           <RefreshButton :loading="loading" @click="fetchAll" />
-          <el-button @click="rescanDevices" :loading="rescanning" class="ui-glass-border !border-0">
-            <el-icon><ArrowSync24Regular /></el-icon>
+          <md-outlined-button
+            type="button"
+            :disabled="rescanning"
+            :aria-busy="rescanning"
+            @click="rescanDevices"
+          >
+            <md-circular-progress v-if="rescanning" slot="icon" class="m3-progress" indeterminate />
+            <SvgIcon v-else slot="icon" :svg="scanIcon" />
             重新扫描
-          </el-button>
-          <el-button type="primary" @click="openAddDialog" class="!border-0">
-            <el-icon><Add24Regular /></el-icon>
+          </md-outlined-button>
+          <md-filled-button type="button" @click="openAddDialog">
+            <SvgIcon slot="icon" :svg="addIcon" />
             添加设备
-          </el-button>
+          </md-filled-button>
         </div>
       </template>
     </PageHeader>
@@ -1245,7 +1268,7 @@ usePollingScheduler(async () => {
         @select-device="selectDevice"
       />
 
-      <div v-if="selectedDevice" class="space-y-6">
+      <div v-if="selectedDevice" class="device-workspace">
         <DeviceDetailHeader
           :device="selectedDevice"
           :rotating="rotating"
@@ -1258,78 +1281,133 @@ usePollingScheduler(async () => {
           @open-sms="openSms"
         />
 
-        <div class="ui-card p-6">
-          <el-tabs v-model="activeTab" class="device-detail-tabs">
-            <el-tab-pane label="概览" name="overview">
-              <div class="space-y-6">
-                <DeviceOverviewTab
-                  :device="selectedDevice"
-                  :sim-operator-display="selectedSimOperatorDisplay"
-                  :traffic-speed-rx="trafficSpeedRx"
-                  :traffic-speed-tx="trafficSpeedTx"
-                  :traffic-minute-rx="rollingMinuteRx"
-                  :traffic-minute-tx="rollingMinuteTx"
-                  :e911-starting="e911Starting"
-                  @setup-e911="openE911Websheet"
-                />
-                <TrafficAnalysisPanel
-                  :analysis="deviceAnalysis"
-                  :loading="deviceAnalysisLoading"
-                  :error="deviceAnalysisError"
-                  :last-ok-at="deviceAnalysisLastOkAt"
-                  :range="deviceAnalysisRange"
-                  mode="device"
-                  title="当前设备流量分析"
-                  subtitle="数据每分钟采样一次，按日/周/月聚合"
-                  :disabled="!selectedDevice?.network_connected"
-                  :device-label="selectedDevice?.name || selectedDevice?.id"
-                  @update:range="handleDeviceTrafficRangeChange"
-                  @refresh="refreshCurrentDeviceTrafficAnalysis"
-                />
-              </div>
-            </el-tab-pane>
-            <el-tab-pane label="eSIM" name="esim" lazy>
-              <DeviceEsimTab :esim-switching="selectedDevice.esim_switching === true" :device-id="selectedDevice.id" :device-imei="selectedDevice.modem?.imei || ''" :is-active="activeTab === 'esim'" :device-online="selectedDevice.running === true" />
-            </el-tab-pane>
-            <el-tab-pane label="AT 终端" name="at" lazy>
-              <DeviceAtTab
-                :device-id="selectedDevice.id"
-                :backend-mode="selectedDevice.backend_mode"
-                :at-port="selectedDevice.at_port"
-                :running="selectedDevice.running"
+        <section class="device-detail m3-card">
+          <md-tabs class="device-detail-tabs" @change="handleDetailTabChange">
+            <md-primary-tab
+              v-for="tab in detailTabs"
+              :id="`device-tab-${tab.key}`"
+              :key="tab.key"
+              :data-tab="tab.key"
+              :active="activeTab === tab.key"
+              :aria-controls="`device-panel-${tab.key}`"
+            >
+              {{ tab.label }}
+            </md-primary-tab>
+          </md-tabs>
+          <div
+            v-show="activeTab === 'overview'"
+            id="device-panel-overview"
+            role="tabpanel"
+            aria-labelledby="device-tab-overview"
+            class="device-tab-panel"
+          >
+            <div class="space-y-6">
+              <DeviceOverviewTab
+                :device="selectedDevice"
+                :sim-operator-display="selectedSimOperatorDisplay"
+                :traffic-speed-rx="trafficSpeedRx"
+                :traffic-speed-tx="trafficSpeedTx"
+                :traffic-minute-rx="rollingMinuteRx"
+                :traffic-minute-tx="rollingMinuteTx"
+                :e911-starting="e911Starting"
+                @setup-e911="openE911Websheet"
               />
-            </el-tab-pane>
-            <el-tab-pane label="USSD 终端" name="ussd" lazy>
-              <DeviceUssdTab :device-id="selectedDevice.id" />
-            </el-tab-pane>
-            <el-tab-pane label="卡策略" name="card" lazy>
-              <CardPolicyPanel
-                :device-id="selectedDevice.id"
-                :iccid="selectedDetail?.modem?.iccid"
-                :policy="cardPolicy"
-                :device-online="selectedDevice.running === true"
-                @policy-changed="onCardPolicyChanged"
+              <TrafficAnalysisPanel
+                :analysis="deviceAnalysis"
+                :loading="deviceAnalysisLoading"
+                :error="deviceAnalysisError"
+                :last-ok-at="deviceAnalysisLastOkAt"
+                :range="deviceAnalysisRange"
+                mode="device"
+                title="当前设备流量分析"
+                subtitle="数据每分钟采样一次，按日/周/月聚合"
+                :disabled="!selectedDevice?.network_connected"
+                :device-label="selectedDevice?.name || selectedDevice?.id"
+                @update:range="handleDeviceTrafficRangeChange"
+                @refresh="refreshCurrentDeviceTrafficAnalysis"
               />
-            </el-tab-pane>
-            <el-tab-pane label="配置" name="config" lazy>
-              <DeviceConfigTab
-                :edit-config="editConfig"
-                :device-status="selectedDetail"
-                :saving="saving"
-                :deleting="deleting"
-                @save="saveConfig"
-                @delete="deleteDevice"
-              />
-            </el-tab-pane>
-          </el-tabs>
-        </div>
+            </div>
+          </div>
+          <div
+            v-if="visitedTabs.has('esim')"
+            v-show="activeTab === 'esim'"
+            id="device-panel-esim"
+            role="tabpanel"
+            aria-labelledby="device-tab-esim"
+            class="device-tab-panel"
+          >
+            <DeviceEsimTab
+              :esim-switching="selectedDevice.esim_switching === true"
+              :device-id="selectedDevice.id"
+              :device-imei="selectedDevice.modem?.imei || ''"
+              :is-active="activeTab === 'esim'"
+              :device-online="selectedDevice.running === true"
+            />
+          </div>
+          <div
+            v-if="visitedTabs.has('at')"
+            v-show="activeTab === 'at'"
+            id="device-panel-at"
+            role="tabpanel"
+            aria-labelledby="device-tab-at"
+            class="device-tab-panel"
+          >
+            <DeviceAtTab
+              :device-id="selectedDevice.id"
+              :backend-mode="selectedDevice.backend_mode"
+              :at-port="selectedDevice.at_port"
+              :running="selectedDevice.running"
+            />
+          </div>
+          <div
+            v-if="visitedTabs.has('ussd')"
+            v-show="activeTab === 'ussd'"
+            id="device-panel-ussd"
+            role="tabpanel"
+            aria-labelledby="device-tab-ussd"
+            class="device-tab-panel"
+          >
+            <DeviceUssdTab :device-id="selectedDevice.id" />
+          </div>
+          <div
+            v-if="visitedTabs.has('card')"
+            v-show="activeTab === 'card'"
+            id="device-panel-card"
+            role="tabpanel"
+            aria-labelledby="device-tab-card"
+            class="device-tab-panel"
+          >
+            <CardPolicyPanel
+              :device-id="selectedDevice.id"
+              :iccid="selectedDetail?.modem?.iccid"
+              :policy="cardPolicy"
+              :device-online="selectedDevice.running === true"
+              @policy-changed="onCardPolicyChanged"
+            />
+          </div>
+          <div
+            v-if="visitedTabs.has('config')"
+            v-show="activeTab === 'config'"
+            id="device-panel-config"
+            role="tabpanel"
+            aria-labelledby="device-tab-config"
+            class="device-tab-panel"
+          >
+            <DeviceConfigTab
+              :edit-config="editConfig"
+              :device-status="selectedDetail"
+              :saving="saving"
+              :deleting="deleting"
+              @save="saveConfig"
+              @delete="deleteDevice"
+            />
+          </div>
+        </section>
       </div>
 
       <div v-else>
         <DeviceDetailLoading v-if="loading" />
-        <div v-else class="ui-card p-8 text-gray-500 dark:text-gray-400">
-          暂无设备
-        </div>
+        <div v-else class="m3-card m3-muted">暂无设备</div>
       </div>
     </div>
   </div>
@@ -1355,24 +1433,30 @@ usePollingScheduler(async () => {
 .devices-page {
   container-type: inline-size;
 }
-
 .devices-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1.5rem;
+  gap: 24px;
 }
-
-@container (min-width: 980px) {
+.device-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+.device-detail {
+  padding-top: 8px;
+}
+.device-detail-tabs {
+  --md-tabs-container-color: transparent;
+}
+.device-tab-panel {
+  padding-top: 24px;
+  min-width: 0;
+}
+@container (min-width: 1060px) {
   .devices-layout {
-    grid-template-columns: 270px minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
   }
-}
-
-.device-detail-tabs :deep(.el-tabs__content) {
-  overflow: visible;
-}
-
-.device-detail-tabs :deep(.el-tab-pane) {
-  padding-bottom: 0.25rem;
 }
 </style>

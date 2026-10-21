@@ -27,19 +27,51 @@ const metaText = computed(() => {
 </script>
 
 <template>
-  <div class="p-6 bg-red-50/70 dark:bg-red-500/10 rounded-2xl border border-red-100 dark:border-red-500/20">
-    <div class="flex items-start justify-between gap-4">
+  <section class="error-state" role="alert">
+    <div class="error-content">
       <div class="min-w-0">
-        <div class="text-sm font-extrabold text-red-700 dark:text-red-300">{{ title || '加载失败' }}</div>
-        <div class="mt-1 text-xs text-red-700/80 dark:text-red-200/80 break-words">{{ message }}</div>
-        <div v-if="metaText" class="mt-2 text-[11px] text-red-800/60 dark:text-red-100/60 font-mono break-words">
+        <h2>{{ title || '加载失败' }}</h2>
+        <p>{{ message }}</p>
+        <div v-if="metaText" class="error-meta">
           {{ metaText }}
         </div>
-        <div v-if="details" class="mt-2 text-xs font-mono text-red-900/60 dark:text-red-100/60 whitespace-pre-wrap break-words">{{ details }}</div>
+        <div v-if="details" class="error-meta">{{ details }}</div>
       </div>
-      <el-button v-if="retryText" type="primary" @click="emit('retry')" class="!border-0">
+      <md-outlined-button v-if="retryText" type="button" @click="emit('retry')">
         {{ retryText }}
-      </el-button>
+      </md-outlined-button>
     </div>
-  </div>
+  </section>
 </template>
+
+<style scoped>
+.error-state {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+.error-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+h2 {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+p {
+  margin-top: 4px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.error-meta {
+  margin-top: 8px;
+  font: 12px/16px var(--vh-typeface-mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+</style>

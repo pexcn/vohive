@@ -6,11 +6,38 @@ defineProps<{
 </script>
 
 <template>
-  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 sm:mb-8">
+  <header class="page-heading">
     <div>
-      <h2 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">{{ title }}</h2>
-      <p v-if="subtitle" class="text-gray-500 dark:text-gray-400 mt-1">{{ subtitle }}</p>
+      <h1>{{ title }}</h1>
+      <p v-if="subtitle">{{ subtitle }}</p>
     </div>
-    <slot name="actions" />
-  </div>
+    <div v-if="$slots.actions" class="m3-actions"><slot name="actions" /></div>
+  </header>
 </template>
+
+<style scoped>
+.page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+h1 {
+  margin: 0;
+  color: var(--md-sys-color-on-surface);
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 36px;
+}
+p {
+  margin: 8px 0 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+.m3-page > .page-heading {
+  margin-bottom: 0;
+}
+</style>

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 
 <head>
   <meta charset="UTF-8" />
@@ -12,7 +12,7 @@
   <script>
     try {
       const theme = localStorage.getItem('theme')
-      if (theme === 'dark') {
+      if (theme === 'dark' || (theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
         document.documentElement.classList.add('dark')
       } else {
         document.documentElement.classList.remove('dark')
@@ -31,11 +31,11 @@
     }
 
     body {
-      background: #f9fafb;
+      background: #f9f6ef;
     }
 
     html.dark body {
-      background: #101014;
+      background: #111318;
     }
   </style>
 </head>

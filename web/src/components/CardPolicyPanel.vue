@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import Sim24Regular from '@vicons/fluent/es/Sim24Regular'
-import { Loading } from '@element-plus/icons-vue'
 import type { CardPolicy } from '../types/api'
 import { devicesService } from '../services/devices'
 import { useCardPolicyToggles, type PolicyMirror } from '../composables/useCardPolicyToggles'
+import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
 
 const props = defineProps<{
   deviceId: string | undefined
@@ -82,6 +81,25 @@ const {
   }
 })
 
+function fieldValue(event: Event) {
+  return (event.target as HTMLInputElement).value
+}
+
+function switchValue(event: Event) {
+  return (event.target as HTMLElement & { selected: boolean }).selected
+}
+
+function changePolicy(field: keyof PolicyMirror, event: Event) {
+  const enabled = switchValue(event)
+  local.value[field] = enabled
+  const apply = {
+    network_enabled: onNetworkToggle,
+    vowifi_enabled: onVoWiFiToggle,
+    airplane_enabled: onAirplaneToggle
+  }[field]
+  return apply(enabled)
+}
+
 const sourceLabel = computed(() => {
   if (!props.policy) return ''
   return props.policy.source === 'user' ? '手动设置' : '自动默认'
@@ -89,127 +107,186 @@ const sourceLabel = computed(() => {
 </script>
 
 <template>
-  <div>
-    <!-- 标题行 -->
-    <div class="flex items-center gap-3 mb-4">
-      <div class="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-        <el-icon size="22"><Sim24Regular /></el-icon>
-      </div>
-      <div>
-        <div class="text-lg font-bold text-gray-900 dark:text-white">卡策略</div>
-        <div class="text-xs text-gray-500 dark:text-gray-400">网络/VoWiFi 开关跟着 SIM 卡走，切换即时生效</div>
-      </div>
-    </div>
-
-    <!-- 无 ICCID 提示 -->
-    <div v-show="!iccid" class="ui-panel-muted p-4 text-center text-sm text-gray-500 dark:text-gray-400">
-      设备尚未识别到 SIM 卡 ICCID，策略不可操作
-    </div>
-
-    <!-- 离线提示（有 ICCID 但设备离线） -->
-    <div v-show="iccid && !deviceOnline" class="mb-3 px-3 py-2 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 text-xs text-yellow-700 dark:text-yellow-300">
-      设备离线，策略仅展示，切换操作已禁用
-    </div>
-
-    <!-- 用 v-show 让 el-switch 始终挂载，避免 element-plus 2.13 在挂载前访问未就绪 input 而崩溃 -->
-    <div v-show="iccid" class="space-y-3">
-      <!-- ICCID + 来源 -->
-      <div class="ui-panel-muted p-3 flex items-center justify-between">
+  <section class="policy-panel" aria-labelledby="policy-title">
+    <header>
+      <h2 id="policy-title" class="m3-title">卡策略</h2>
+      <p class="m3-muted">策略跟随 SIM 卡保存，切卡后即时生效</p>
+    </header>
+    <p v-if="!iccid" class="m3-notice">尚未识别到 SIM 卡 ICCID，暂时无法设置策略。</p>
+    <template v-else>
+      <p v-if="!deviceOnline" class="m3-notice">设备离线，当前策略仅供查看。</p>
+      <div class="policy-identity m3-inset">
         <div>
-          <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-0.5">当前卡 ICCID</div>
-          <div class="text-sm font-mono text-gray-800 dark:text-gray-100">{{ iccid }}</div>
+          <p class="m3-label">当前卡 ICCID</p>
+          <p class="policy-iccid">{{ iccid }}</p>
         </div>
-        <el-tag v-if="sourceLabel" :type="policy?.source === 'user' ? 'primary' : 'info'" size="small">{{ sourceLabel }}</el-tag>
+        <span v-if="sourceLabel" class="m3-badge">{{ sourceLabel }}</span>
       </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <!-- IP 版本 -->
-        <div class="space-y-1">
-          <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">IP 版本</label>
-          <el-select v-model="ipVersion" class="w-full" :disabled="!canToggle">
-            <el-option label="IPv4" value="v4" />
-            <el-option label="IPv6" value="v6" />
-            <el-option label="IPv4 + IPv6（双栈）" value="v4v6" />
-          </el-select>
-          <div class="text-xs text-gray-400">下次开启网络时生效</div>
-        </div>
-
-        <!-- APN -->
-        <div class="space-y-1">
-          <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">APN（可选）</label>
-          <el-input v-model="apn" placeholder="留空自动识别" :disabled="!canToggle" />
-          <div class="text-xs text-gray-400">下次开启网络时生效</div>
-        </div>
-        <!-- 开启网络 -->
-        <div
-          class="ui-panel-muted p-3 space-y-1"
-          :class="local.network_enabled ? 'border border-indigo-300 bg-indigo-50/50 dark:bg-indigo-900/20' : ''"
+      <div class="policy-settings">
+        <md-outlined-select
+          label="IP 版本"
+          supporting-text="下次开启网络时生效"
+          :value="ipVersion"
+          :disabled="!canToggle"
+          @change="ipVersion = fieldValue($event) as typeof ipVersion"
         >
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="text-sm font-bold text-gray-800 dark:text-gray-100">开启网络</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">VoWiFi/飞行开启时不可用</div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span v-if="networkFailed" class="text-xs text-orange-500 dark:text-orange-400">未生效</span>
-              <el-icon v-if="networkPending" class="animate-spin text-gray-400"><Loading /></el-icon>
-              <el-switch
-                v-model="local.network_enabled"
-                :disabled="!canToggle || local.vowifi_enabled || local.airplane_enabled || networkPending"
-                @change="onNetworkToggle"
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- VoWiFi -->
-        <div
-          class="ui-panel-muted p-3 space-y-1"
-          :class="local.vowifi_enabled ? 'border border-orange-300 bg-orange-50/50 dark:bg-orange-900/20' : ''"
-        >
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="text-sm font-bold text-gray-800 dark:text-gray-100">VoWiFi</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">启用后进飞行模式，不支持国内运营商</div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span v-if="vowifiFailed" class="text-xs text-orange-500 dark:text-orange-400">未生效</span>
-              <el-icon v-if="vowifiPending" class="animate-spin text-gray-400"><Loading /></el-icon>
-              <el-switch
-                v-model="local.vowifi_enabled"
-                :disabled="!canToggle || vowifiPending"
-                @change="onVoWiFiToggle"
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- 飞行模式 -->
-        <div
-          class="ui-panel-muted p-3 space-y-1"
-          :class="local.airplane_enabled ? 'border border-indigo-300 bg-indigo-50/50 dark:bg-indigo-900/20' : ''"
-        >
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <div>
-                <div class="text-sm font-bold text-gray-800 dark:text-gray-100">飞行模式</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">射频关闭，断网；VoWiFi 开启时由其接管</div>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span v-if="airplaneFailed" class="text-xs text-orange-500 dark:text-orange-400">未生效</span>
-              <el-icon v-if="airplanePending" class="animate-spin text-gray-400"><Loading /></el-icon>
-              <el-switch
-                v-model="local.airplane_enabled"
-                :disabled="!canToggle || local.vowifi_enabled || airplanePending"
-                @change="onAirplaneToggle"
-              />
-            </div>
-          </div>
-        </div>
-
-
+          <md-select-option value="v4" :selected="ipVersion === 'v4'">
+            <div slot="headline">IPv4</div>
+          </md-select-option>
+          <md-select-option value="v6" :selected="ipVersion === 'v6'">
+            <div slot="headline">IPv6</div>
+          </md-select-option>
+          <md-select-option value="v4v6" :selected="ipVersion === 'v4v6'">
+            <div slot="headline">IPv4 + IPv6</div>
+          </md-select-option>
+        </md-outlined-select>
+        <md-outlined-text-field
+          label="APN（可选）"
+          supporting-text="留空自动识别；下次开启网络时生效"
+          :value="apn"
+          :disabled="!canToggle"
+          @input="apn = fieldValue($event)"
+        />
       </div>
-    </div>
-  </div>
+      <div class="policy-options">
+        <div class="policy-option">
+          <div>
+            <h3 id="network-policy-label">开启网络</h3>
+            <p id="network-policy-help">VoWiFi 或飞行模式开启时不可用</p>
+            <span v-if="networkFailed" class="policy-failure" role="status">未生效，请重试</span>
+          </div>
+          <div class="policy-control">
+            <md-circular-progress
+              v-if="networkPending"
+              class="m3-progress"
+              indeterminate
+              aria-label="正在设置网络"
+            />
+            <md-switch
+              v-sync-switch
+              aria-labelledby="network-policy-label"
+              aria-describedby="network-policy-help"
+              :selected="local.network_enabled"
+              :disabled="
+                !canToggle || local.vowifi_enabled || local.airplane_enabled || networkPending
+              "
+              @change="changePolicy('network_enabled', $event)"
+            />
+          </div>
+        </div>
+        <div class="policy-option">
+          <div>
+            <h3 id="vowifi-policy-label">VoWiFi</h3>
+            <p id="vowifi-policy-help">启用后关闭射频，通过 Wi-Fi 连接；不支持国内运营商</p>
+            <span v-if="vowifiFailed" class="policy-failure" role="status">未生效，请重试</span>
+          </div>
+          <div class="policy-control">
+            <md-circular-progress
+              v-if="vowifiPending"
+              class="m3-progress"
+              indeterminate
+              aria-label="正在设置 VoWiFi"
+            />
+            <md-switch
+              v-sync-switch
+              aria-labelledby="vowifi-policy-label"
+              aria-describedby="vowifi-policy-help"
+              :selected="local.vowifi_enabled"
+              :disabled="!canToggle || vowifiPending"
+              @change="changePolicy('vowifi_enabled', $event)"
+            />
+          </div>
+        </div>
+        <div class="policy-option">
+          <div>
+            <h3 id="airplane-policy-label">飞行模式</h3>
+            <p id="airplane-policy-help">关闭射频和数据网络；VoWiFi 开启时由其接管</p>
+            <span v-if="airplaneFailed" class="policy-failure" role="status">未生效，请重试</span>
+          </div>
+          <div class="policy-control">
+            <md-circular-progress
+              v-if="airplanePending"
+              class="m3-progress"
+              indeterminate
+              aria-label="正在设置飞行模式"
+            />
+            <md-switch
+              v-sync-switch
+              aria-labelledby="airplane-policy-label"
+              aria-describedby="airplane-policy-help"
+              :selected="local.airplane_enabled"
+              :disabled="!canToggle || local.vowifi_enabled || airplanePending"
+              @change="changePolicy('airplane_enabled', $event)"
+            />
+          </div>
+        </div>
+      </div>
+    </template>
+  </section>
 </template>
+
+<style scoped>
+.policy-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+header p {
+  margin-top: 8px;
+}
+.policy-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.policy-iccid {
+  margin-top: 4px;
+  font: 14px/20px var(--vh-typeface-mono);
+  overflow-wrap: anywhere;
+}
+.policy-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 24px;
+}
+.policy-options {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.policy-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 16px;
+}
+.policy-option + .policy-option {
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+h3 {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+.policy-option p {
+  margin-top: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+.policy-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.policy-failure {
+  display: block;
+  margin-top: 4px;
+  color: var(--md-sys-color-error);
+  font-size: 12px;
+}
+</style>

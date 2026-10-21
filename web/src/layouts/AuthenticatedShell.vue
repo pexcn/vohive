@@ -2,27 +2,21 @@
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
-import { Expand, Fold } from '@element-plus/icons-vue'
 import LoadingScreen from '../components/LoadingScreen.vue'
 import ErrorBoundary from '../components/ErrorBoundary.vue'
 import SwitchDark from '../components/SwitchDark.vue'
 import { debugCollector } from '../debug/collector'
-import Mail24Regular from '@vicons/fluent/es/Mail24Regular'
-import Settings24Regular from '@vicons/fluent/es/Settings24Regular'
-import SignOut24Regular from '@vicons/fluent/es/SignOut24Regular'
-import Board24Regular from '@vicons/fluent/es/Board24Regular'
-import Phone24Regular from '@vicons/fluent/es/Phone24Regular'
-import Globe24Regular from '@vicons/fluent/es/Globe24Regular'
-import DocumentText24Regular from '@vicons/fluent/es/DocumentText24Regular'
-
-defineProps({
-  isDark: {
-    type: Boolean,
-    required: true
-  }
-})
-
-const emit = defineEmits(['toggle-theme'])
+import SvgIcon from '../components/SvgIcon.vue'
+import dashboardIcon from '@material-symbols/svg-400/outlined/dashboard.svg?raw'
+import devicesIcon from '@material-symbols/svg-400/outlined/devices.svg?raw'
+import proxyIcon from '@material-symbols/svg-400/outlined/language.svg?raw'
+import smsIcon from '@material-symbols/svg-400/outlined/sms.svg?raw'
+import logsIcon from '@material-symbols/svg-400/outlined/article.svg?raw'
+import settingsIcon from '@material-symbols/svg-400/outlined/settings.svg?raw'
+import menuIcon from '@material-symbols/svg-400/outlined/menu.svg?raw'
+import closeIcon from '@material-symbols/svg-400/outlined/close.svg?raw'
+import logoutIcon from '@material-symbols/svg-400/outlined/logout.svg?raw'
+import debugIcon from '@material-symbols/svg-400/outlined/bug_report.svg?raw'
 
 const router = useRouter()
 const route = useRoute()
@@ -31,30 +25,35 @@ const collapsed = ref(false)
 const isMobile = ref(false)
 const drawerOpen = ref(false)
 const debugOpen = ref(false)
+const logoutOpen = ref(false)
+const navigationDrawer = ref<HTMLDialogElement | null>(null)
 const DebugPanel = defineAsyncComponent(() => import('../components/DebugPanel.vue'))
 
 const menuItems = [
-  { index: '/', label: '仪表盘', icon: Board24Regular },
-  { index: '/devices', label: '设备管理', icon: Phone24Regular },
-  { index: '/proxy', label: '代理管理', icon: Globe24Regular },
-  { index: '/sms', label: '短信中心', icon: Mail24Regular },
-  { index: '/logs', label: '实时日志', icon: DocumentText24Regular },
-  { index: '/settings', label: '系统设置', icon: Settings24Regular }
+  { index: '/', label: '仪表盘', icon: dashboardIcon },
+  { index: '/devices', label: '设备管理', icon: devicesIcon },
+  { index: '/proxy', label: '代理管理', icon: proxyIcon },
+  { index: '/sms', label: '短信中心', icon: smsIcon },
+  { index: '/logs', label: '实时日志', icon: logsIcon },
+  { index: '/settings', label: '系统设置', icon: settingsIcon }
 ]
 
-async function handleLogout() {
-  const { ElMessageBox } = await import('element-plus')
-  const confirmed = await ElMessageBox.confirm('确认退出登录？', '提示', {
-    confirmButtonText: '退出',
-    cancelButtonText: '取消',
-    type: 'warning'
-  })
-    .then(() => true)
-    .catch(() => false)
-  if (!confirmed) return
-  auth.logout()
-  router.push('/login')
+function handleLogout() {
+  logoutOpen.value = true
 }
+
+function confirmLogout() {
+  logoutOpen.value = false
+  auth.logout()
+  void router.push('/login')
+}
+
+watch(drawerOpen, (open) => {
+  const drawer = navigationDrawer.value
+  if (!drawer) return
+  if (open && !drawer.open) drawer.showModal()
+  else if (!open && drawer.open) drawer.close()
+})
 
 function syncIsMobile() {
   if (typeof window === 'undefined') return
@@ -118,115 +117,102 @@ watch(
 )
 
 const activePath = computed(() => route.path)
+const currentPage = computed(() => menuItems.find(item => item.index === activePath.value)?.label || 'VoHive')
 </script>
 
 <template>
-  <el-container v-if="auth.isAuthenticated && route.name !== 'Login'" class="h-full">
-    <el-aside
-      v-if="!isMobile"
-      :width="collapsed ? '52px' : '232px'"
-      class="h-full ui-glass transition-[width] duration-200 relative sidebar-shell"
-    >
-      <div class="h-14 px-4 flex items-center" :class="collapsed ? 'justify-center px-0' : ''">
-        <div class="sidebar-brand-icon">V</div>
-        <div v-if="!collapsed" class="ml-3">
-          <div class="sidebar-brand-title">VoHive</div>
-        </div>
+  <div v-if="auth.isAuthenticated && route.name !== 'Login'" class="app-shell">
+    <aside v-if="!isMobile" class="navigation" :class="{ expanded: !collapsed }">
+      <div class="navigation-brand">
+        <span class="brand-mark">VH</span>
+        <span v-if="!collapsed">VoHive</span>
       </div>
-
-      <el-menu
-        :collapse="collapsed"
-        :collapse-transition="false"
-        :default-active="activePath"
-        class="sidebar-menu !border-0 !border-r-0 !bg-transparent mt-2"
-        router
-      >
-        <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
-          <el-icon><component :is="item.icon" /></el-icon>
-          <template #title><span class="sidebar-menu-label">{{ item.label }}</span></template>
-        </el-menu-item>
-      </el-menu>
-
-      <div class="absolute bottom-4 w-full px-3" v-if="!collapsed">
-        <div class="ui-panel-muted p-3 flex items-center gap-3">
-          <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-300">
-            <el-icon><Settings24Regular /></el-icon>
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-bold truncate">Admin</div>
-            <div class="text-xs text-gray-400 truncate">Administrator</div>
-          </div>
-          <el-button text type="danger" @click="handleLogout">
-            <el-icon><SignOut24Regular /></el-icon>
-          </el-button>
-        </div>
-      </div>
-    </el-aside>
-
-    <el-drawer v-model="drawerOpen" direction="ltr" size="256px" :with-header="false" class="mobile-drawer">
-      <div class="h-full bg-white/95 dark:bg-[#141418]/95 backdrop-blur-md relative sidebar-shell">
-        <div class="h-16 px-4 flex items-center">
-          <div class="sidebar-brand-icon">V</div>
-          <div class="ml-3">
-            <div class="sidebar-brand-title">VoHive</div>
-          </div>
-        </div>
-
-        <el-menu
-          :collapse="false"
-          :collapse-transition="false"
-          :default-active="activePath"
-          class="sidebar-menu !border-0 !border-r-0 !bg-transparent mt-2"
-          router
+      <nav aria-label="主导航" class="navigation-links">
+        <RouterLink
+          v-for="item in menuItems"
+          :key="item.index"
+          :to="item.index"
+          class="navigation-link"
+          :aria-current="activePath === item.index ? 'page' : undefined"
+          :title="item.label"
         >
-          <el-menu-item v-for="item in menuItems" :key="item.index" :index="item.index">
-            <el-icon><component :is="item.icon" /></el-icon>
-            <template #title><span class="sidebar-menu-label">{{ item.label }}</span></template>
-          </el-menu-item>
-        </el-menu>
-
-        <div class="absolute bottom-4 w-full px-3">
-          <div class="ui-panel-muted p-3 flex items-center gap-3">
-            <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-300">
-              <el-icon><Settings24Regular /></el-icon>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="text-sm font-bold truncate">Admin</div>
-              <div class="text-xs text-gray-400 truncate">Administrator</div>
-            </div>
-            <el-button text type="danger" @click="handleLogout">
-              <el-icon><SignOut24Regular /></el-icon>
-            </el-button>
-          </div>
-        </div>
+          <span class="navigation-indicator">
+            <md-ripple />
+            <SvgIcon :svg="item.icon" />
+          </span>
+          <span>{{ item.label }}</span>
+        </RouterLink>
+      </nav>
+      <div class="navigation-footer">
+        <md-icon-button aria-label="退出登录" title="退出登录" @click="handleLogout">
+          <SvgIcon :svg="logoutIcon" />
+        </md-icon-button>
+        <span v-if="!collapsed" class="m3-muted">管理会话</span>
       </div>
-    </el-drawer>
+    </aside>
 
-    <el-container class="h-full">
-      <el-header class="h-14 px-4 sm:px-5 flex items-center justify-between ui-glass border-b border-gray-100 dark:border-white/5 sticky top-0 z-10">
-        <div class="flex items-center gap-2">
-          <el-button text @click="handleNavToggle" class="!px-2">
-            <el-icon>
-              <Fold v-if="!isMobile && !collapsed" />
-              <Expand v-else />
-            </el-icon>
-          </el-button>
+    <dialog
+      ref="navigationDrawer"
+      class="navigation-drawer"
+      aria-label="主导航"
+      @close="drawerOpen = false"
+      @click="$event.target === $event.currentTarget && (drawerOpen = false)"
+    >
+      <div class="drawer-content">
+        <div class="m3-row drawer-heading">
+          <span class="navigation-brand">
+            <span class="brand-mark">VH</span>
+            VoHive
+          </span>
+          <md-icon-button aria-label="关闭导航" @click="drawerOpen = false">
+            <SvgIcon :svg="closeIcon" />
+          </md-icon-button>
         </div>
+        <nav class="navigation-links expanded">
+          <RouterLink
+            v-for="item in menuItems"
+            :key="item.index"
+            :to="item.index"
+            class="navigation-link"
+            :aria-current="activePath === item.index ? 'page' : undefined"
+          >
+            <md-ripple />
+            <SvgIcon :svg="item.icon" />
+            <span>{{ item.label }}</span>
+          </RouterLink>
+        </nav>
+        <md-text-button type="button" @click="handleLogout">
+          <SvgIcon slot="icon" :svg="logoutIcon" />
+          退出登录
+        </md-text-button>
+      </div>
+    </dialog>
 
-        <div class="flex items-center gap-3">
-          <SwitchDark :is-dark="isDark" @toggle="(e) => emit('toggle-theme', e)" />
-
-          <div class="hidden sm:flex items-center justify-center w-7 h-7 rounded-full bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 shadow-sm">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-          </div>
+    <div class="shell-body">
+      <header class="top-app-bar">
+        <div class="m3-actions">
+          <md-icon-button
+            :aria-label="isMobile ? '打开导航' : collapsed ? '展开导航' : '收起导航'"
+            :aria-expanded="isMobile ? drawerOpen : !collapsed"
+            @click="handleNavToggle"
+          >
+            <SvgIcon :svg="menuIcon" />
+          </md-icon-button>
+          <span class="app-bar-title">{{ currentPage }}</span>
         </div>
-      </el-header>
-
-      <el-main class="p-4 sm:p-6 overflow-auto bg-gray-50/50 dark:bg-transparent">
-        <div class="main-inner mx-auto w-full">
+        <div class="m3-actions">
+          <md-icon-button
+            aria-label="打开调试面板"
+            title="调试面板（Ctrl+Shift+D）"
+            @click="debugOpen = true"
+          >
+            <SvgIcon :svg="debugIcon" />
+          </md-icon-button>
+          <SwitchDark />
+        </div>
+      </header>
+      <main id="main-content" class="shell-main">
+        <div class="main-inner">
           <router-view v-slot="{ Component, route: r }">
             <ErrorBoundary v-if="Component" title="页面渲染失败">
               <component :is="Component" :key="r.fullPath" />
@@ -234,207 +220,186 @@ const activePath = computed(() => route.path)
             <LoadingScreen v-else title="正在加载页面…" subtitle="正在准备页面组件与资源" />
           </router-view>
         </div>
-      </el-main>
-    </el-container>
+      </main>
+    </div>
 
+    <md-dialog :open="logoutOpen" @closed="logoutOpen = false">
+      <div slot="headline">退出登录？</div>
+      <div slot="content">退出当前管理会话，设备会继续运行。</div>
+      <div slot="actions">
+        <md-text-button type="button" @click="logoutOpen = false">取消</md-text-button>
+        <md-filled-button type="button" @click="confirmLogout">退出</md-filled-button>
+      </div>
+    </md-dialog>
     <DebugPanel v-model="debugOpen" />
-  </el-container>
+  </div>
 </template>
 
 <style scoped>
-.sidebar-shell {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  --sidebar-menu-text: #475569;
-  --sidebar-menu-hover-bg: rgba(91, 91, 214, 0.08);
-  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(91, 91, 214, 0.14), rgba(91, 91, 214, 0.1));
-  --sidebar-menu-active-color: #4a4ac2;
-  --sidebar-menu-active-ring: rgba(91, 91, 214, 0.16);
-}
-
-.sidebar-brand-title {
-  font-family: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 1.62rem;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1;
+.app-shell {
   display: flex;
-  align-items: center;
-  min-height: 1.75rem;
-  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 8px rgba(91, 91, 214, 0.18));
-  white-space: nowrap;
-  padding-right: 4px;
+  height: 100%;
+  overflow: hidden;
 }
-
-.sidebar-brand-icon {
-  width: 1.62rem;
-  height: 1.62rem;
-  border-radius: 0.5rem;
+.navigation {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 80px;
+  background: var(--md-sys-color-surface);
+  padding: 16px 0;
+}
+.navigation.expanded {
+  width: 240px;
+}
+.navigation-brand {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
-  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
-  color: #fff;
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 0.84rem;
-  font-weight: 700;
-  box-shadow: 0 6px 14px rgba(91, 91, 214, 0.18);
+  gap: 12px;
+  min-height: 48px;
+  font-size: 22px;
+  line-height: 28px;
 }
-
-.sidebar-menu-label {
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-}
-
-:global(html.dark .sidebar-shell) {
-  --sidebar-menu-text: rgba(255, 255, 255, 0.84);
-  --sidebar-menu-hover-bg: rgba(91, 91, 214, 0.18);
-  --sidebar-menu-active-bg: linear-gradient(135deg, rgba(91, 91, 214, 0.24), rgba(91, 91, 214, 0.15));
-  --sidebar-menu-active-color: #a5a6f6;
-  --sidebar-menu-active-ring: rgba(91, 91, 214, 0.22);
-}
-
-:deep(.sidebar-menu) {
-  border-right: 0 !important;
-  --el-menu-hover-bg-color: var(--sidebar-menu-hover-bg);
-  --el-menu-active-color: var(--sidebar-menu-active-color);
-  --el-menu-text-color: var(--sidebar-menu-text);
-}
-
-:deep(.sidebar-menu .el-menu-item) {
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 40px;
   height: 40px;
-  min-height: 40px;
-  line-height: 40px;
-  margin: 2px 8px;
-  border-radius: 10px;
-  padding-left: 13px !important;
-  padding-right: 13px !important;
-  font-size: 0.94rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--sidebar-menu-text);
-  transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease;
+  border-radius: 12px;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 16px;
+  font-weight: 500;
 }
-
-:deep(.sidebar-menu .el-menu-item .el-icon) {
-  margin-right: 8px !important;
-  font-size: 1.18rem;
-  color: inherit;
+.navigation-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px 0;
 }
-
-:deep(.sidebar-menu .el-menu-item .el-icon svg) {
-  width: 1.18rem;
-  height: 1.18rem;
-}
-
-:deep(.sidebar-menu .el-menu-item:hover) {
-  background: var(--sidebar-menu-hover-bg);
-}
-
-:global(html.dark .sidebar-shell .sidebar-menu .el-menu-item:not(.is-active)) {
-  color: rgba(236, 241, 252, 0.9) !important;
-}
-
-:global(html.dark .sidebar-shell .sidebar-menu .el-menu-item:not(.is-active) .el-icon),
-:global(html.dark .sidebar-shell .sidebar-menu .el-menu-item:not(.is-active) .sidebar-menu-label) {
-  color: rgba(236, 241, 252, 0.9) !important;
-}
-
-:deep(.sidebar-menu .el-menu-item.is-active) {
-  background: var(--sidebar-menu-active-bg);
-  color: var(--sidebar-menu-active-color);
-  box-shadow: inset 0 0 0 1px var(--sidebar-menu-active-ring);
-}
-
-:deep(.sidebar-menu .el-menu-item.is-active .el-icon),
-:deep(.sidebar-menu .el-menu-item.is-active .sidebar-menu-label) {
-  color: inherit;
-}
-
-:deep(.sidebar-menu .el-menu-item::after) {
-  display: none !important;
-}
-
-:deep(.sidebar-menu.el-menu--collapse) {
-  width: 100%;
+.navigation-link {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
 }
-
-:deep(.sidebar-menu.el-menu--collapse .el-menu-item) {
-  width: 36px;
-  height: 36px;
-  min-height: 36px;
-  line-height: 36px;
-  margin: 3px auto;
-  border-radius: 10px;
+.navigation-indicator {
+  position: relative;
   display: grid;
   place-items: center;
-  padding: 0 !important;
+  width: 56px;
+  height: 32px;
+  border-radius: 16px;
+  overflow: hidden;
 }
-
-:deep(.sidebar-menu.el-menu--collapse .el-menu-item .el-icon) {
-  width: 1.18rem;
-  height: 1.18rem;
-  margin: 0 !important;
-  font-size: 1.18rem;
-  line-height: 1;
-  display: grid;
-  place-items: center;
+.navigation-link[aria-current='page'] {
+  color: var(--md-sys-color-on-surface);
 }
-
-:deep(.sidebar-menu.el-menu--collapse .el-menu-item .el-icon svg) {
-  width: 1.18rem;
-  height: 1.18rem;
-  display: block;
+.navigation-link[aria-current='page'] .navigation-indicator {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
-
-:deep(.sidebar-menu.el-menu--collapse .el-menu-item .el-menu-tooltip__trigger) {
-  position: static;
-  inset: auto;
-  width: 100%;
-  height: 100%;
-  padding: 0 !important;
-  display: grid;
-  place-items: center;
+.expanded .navigation-link {
+  position: relative;
+  flex-direction: row;
+  gap: 16px;
+  min-height: 56px;
+  margin: 0 12px;
+  padding: 0 16px;
+  border-radius: 28px;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
 }
-
-:deep(.sidebar-menu.el-menu--collapse > .el-menu-item [class^=el-icon]) {
-  width: 1.18rem !important;
+.expanded .navigation-link[aria-current='page'] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
 }
-
-:deep(.sidebar-menu.el-menu--collapse .el-tooltip) {
-  width: 36px;
-  display: grid;
-  place-items: center;
+.expanded .navigation-indicator {
+  width: 24px;
+  height: 32px;
+  overflow: visible;
 }
-
-:deep(.sidebar-menu.el-menu--collapse .el-tooltip__trigger) {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
+.navigation-link:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: -3px;
+  border-radius: 16px;
 }
-
+.navigation-footer {
+  margin-top: auto;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.shell-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.top-app-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding: 0 16px;
+  background: var(--md-sys-color-surface);
+}
+.app-bar-title {
+  font-size: 22px;
+  line-height: 28px;
+}
+.shell-main {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 24px 32px;
+}
 .main-inner {
-  max-width: 100%;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
 }
-
-@media (min-width: 768px) {
-  .main-inner {
-    max-width: clamp(0px, calc(100vw - 240px - 48px), 80rem);
+.navigation-drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(360px, calc(100vw - 56px));
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0 16px 16px 0;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+.navigation-drawer::backdrop {
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 32%, transparent);
+}
+.drawer-content {
+  min-height: 100%;
+  padding: 16px 0;
+}
+.drawer-heading {
+  padding: 0 16px;
+}
+.drawer-content > md-text-button {
+  margin: 16px;
+}
+@media (max-width: 599px) {
+  .shell-main {
+    padding: 8px 16px 24px;
   }
-}
-
-:deep(.mobile-drawer .el-drawer__body) {
-  padding: 0 !important;
+  .top-app-bar {
+    padding: 0 8px;
+  }
 }
 </style>

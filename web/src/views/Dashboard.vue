@@ -85,37 +85,36 @@ onMounted(() => {
 </script>
 
 <template>
-  <div>
-    <PageHeader title="设备监控" subtitle="实时查看设备状态与出口 IP">
-      <template #actions>
-        <RefreshButton :loading="loading" @click="fetchDevices" />
-      </template>
+  <div class="m3-page">
+    <PageHeader title="设备监控" subtitle="查看所有设备的连接状态与流量">
+      <template #actions><RefreshButton :loading="loading" @click="fetchDevices" /></template>
     </PageHeader>
-
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <div class="ui-panel p-4">
-        <div class="text-xs text-gray-400">设备总数</div>
-        <div class="text-2xl font-extrabold mt-1">{{ totalCount }}</div>
+    <section class="dashboard-summary" aria-label="设备概况">
+      <div class="m3-card summary-total">
+        <p class="m3-label">设备总数</p>
+        <strong>{{ totalCount }}</strong>
+        <span class="m3-muted">当前管理的设备</span>
       </div>
-      <div class="ui-panel p-4">
-        <div class="text-xs text-gray-400">在线</div>
-        <div class="text-2xl font-extrabold mt-1 text-green-600 dark:text-green-400">{{ onlineCount }}</div>
+      <div class="m3-card">
+        <p class="m3-label">在线设备</p>
+        <strong class="summary-online">{{ onlineCount }}</strong>
+        <span class="m3-muted">连接正常</span>
       </div>
-      <div class="ui-panel p-4">
-        <div class="text-xs text-gray-400">离线</div>
-        <div class="text-2xl font-extrabold mt-1 text-red-600 dark:text-red-400">{{ offlineCount }}</div>
+      <div class="m3-card">
+        <p class="m3-label">离线设备</p>
+        <strong>{{ offlineCount }}</strong>
+        <span class="m3-muted">等待连接或恢复</span>
       </div>
-      <div class="ui-panel p-4">
-        <div class="text-xs text-gray-400">最近刷新</div>
-        <div class="text-sm font-mono mt-2 text-gray-600 dark:text-gray-300">
+      <div class="m3-card">
+        <p class="m3-label">最近刷新</p>
+        <strong class="summary-time">
           {{ lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : '--:--:--' }}
-        </div>
+        </strong>
+        <span class="m3-muted">设备状态自动更新</span>
       </div>
-    </div>
-
+    </section>
     <ErrorState
       v-if="devicesError"
-      class="mb-6"
       title="设备列表加载失败"
       :message="devicesError.message"
       :status-code="devicesError.status"
@@ -125,24 +124,26 @@ onMounted(() => {
       retry-text="重试"
       @retry="fetchDevices"
     />
-
-    <ListSkeleton v-if="loading && devices.length === 0" :rows="10" />
-
-    <EmptyState v-else-if="devices.length === 0" title="暂无设备接入" subtitle="请先在设备管理中添加或接管设备" />
-
-    <!-- Grid View -->
-    <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-5">
+    <ListSkeleton v-if="loading && devices.length === 0" :rows="4" />
+    <EmptyState
+      v-else-if="devices.length === 0"
+      title="暂无设备接入"
+      subtitle="添加设备后，可在这里查看连接状态和流量"
+    >
+      <template #actions>
+        <md-filled-button type="button" @click="router.push('/devices')">管理设备</md-filled-button>
+      </template>
+    </EmptyState>
+    <section v-else class="dashboard-devices" aria-label="设备列表">
       <DeviceCard
         v-for="dev in devices"
         :key="dev.id"
         :device="dev"
         @open-device="openDeviceOverview"
       />
-    </div>
-
+    </section>
     <TrafficAnalysisPanel
       v-if="devices.length > 0 || !loading"
-      class="mt-8"
       :analysis="analysis"
       :loading="analysisLoading"
       :error="analysisError"
@@ -154,3 +155,46 @@ onMounted(() => {
     />
   </div>
 </template>
+
+<style scoped>
+.dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+.dashboard-summary .m3-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dashboard-summary strong {
+  font-size: 36px;
+  line-height: 44px;
+  font-weight: 400;
+}
+.dashboard-summary .summary-time {
+  font-size: 24px;
+  line-height: 44px;
+}
+.summary-total {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.summary-total .m3-label,
+.summary-total .m3-muted {
+  color: inherit;
+}
+.summary-online {
+  color: var(--vh-success);
+}
+.dashboard-devices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 16px;
+}
+@media (max-width: 1023px) {
+  .dashboard-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+</style>

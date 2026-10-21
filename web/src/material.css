@@ -1,37 +1,240 @@
+@property --md-filled-button-container-shape {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 20px;
+}
+@property --md-outlined-button-container-shape {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 20px;
+}
+
 :root {
-  --md-ref-typeface-plain: Roboto, system-ui, sans-serif;
+  color-scheme: light;
+  --md-ref-typeface-plain:
+    Roboto, system-ui, 'PingFang SC', 'Noto Sans CJK SC', 'Noto Sans SC', 'Microsoft YaHei',
+    sans-serif;
+  --vh-typeface-mono:
+    'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, 'PingFang SC', 'Noto Sans CJK SC',
+    'Noto Sans SC', 'Microsoft YaHei', sans-serif;
   --md-ref-typeface-brand: var(--md-ref-typeface-plain);
-  --md-sys-color-primary: #5b5bd6;
+  --md-sys-color-primary: #65568c;
   --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-secondary-container: #e5e1ff;
-  --md-sys-color-on-secondary-container: #211d49;
-  --md-sys-color-surface: #faf8ff;
-  --md-sys-color-surface-container-low: #f4f2fa;
-  --md-sys-color-surface-container-highest: #e5e1eb;
-  --md-sys-color-on-surface: #1c1b20;
-  --md-sys-color-on-surface-variant: #47464f;
-  --md-sys-color-outline: #777680;
-  --md-sys-color-outline-variant: #c8c5d0;
+  --md-sys-color-primary-container: #ebddff;
+  --md-sys-color-on-primary-container: #200f47;
+  --md-sys-color-secondary: #615c6b;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #e7e0f0;
+  --md-sys-color-on-secondary-container: #1d1a26;
+  --md-sys-color-tertiary: #7d5261;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #ffd9e2;
+  --md-sys-color-on-tertiary-container: #31101d;
   --md-sys-color-error: #ba1a1a;
   --md-sys-color-on-error: #ffffff;
   --md-sys-color-error-container: #ffdad6;
   --md-sys-color-on-error-container: #410002;
+  --md-sys-color-surface: #f9f6ef;
+  --md-sys-color-on-surface: #1c1b17;
+  --md-sys-color-surface-variant: #e9e1d3;
+  --md-sys-color-on-surface-variant: #4b473e;
+  --md-sys-color-surface-dim: #ddd9d0;
+  --md-sys-color-surface-bright: #f9f6ef;
+  --md-sys-color-surface-container-lowest: #fffbf3;
+  --md-sys-color-surface-container-low: #f4f0e8;
+  --md-sys-color-surface-container: #eeeae2;
+  --md-sys-color-surface-container-high: #e8e4dc;
+  --md-sys-color-surface-container-highest: #e3ded6;
+  --md-sys-color-outline: #7c786e;
+  --md-sys-color-outline-variant: #cdc7ba;
+  --md-sys-color-inverse-surface: #322f2a;
+  --md-sys-color-inverse-on-surface: #f4f0e8;
+  --md-sys-color-inverse-primary: #cfbdfe;
+  --md-sys-color-surface-tint: #65568c;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+  --vh-success: #276a45;
+  --vh-success-container: #b8f0cd;
+  --vh-on-success-container: #06301a;
+  --vh-warning: #7a5900;
+  --vh-warning-container: #ffdea6;
+  --vh-on-warning-container: #261a00;
+  --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.15), 0 1px 3px 1px rgba(0, 0, 0, 0.08);
+  --md-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.15), 0 2px 6px 2px rgba(0, 0, 0, 0.08);
+  --md-elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.15);
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
 }
 
 html.dark {
-  --md-sys-color-primary: #c2c1ff;
-  --md-sys-color-on-primary: #292779;
-  --md-sys-color-secondary-container: #45415d;
-  --md-sys-color-on-secondary-container: #e5e1ff;
-  --md-sys-color-surface: #131318;
-  --md-sys-color-surface-container-low: #1c1b21;
-  --md-sys-color-surface-container-highest: #35343b;
-  --md-sys-color-on-surface: #e5e1e9;
-  --md-sys-color-on-surface-variant: #c8c5d0;
-  --md-sys-color-outline: #928f9a;
-  --md-sys-color-outline-variant: #47464f;
+  color-scheme: dark;
+  --md-sys-color-primary: #aac7ff;
+  --md-sys-color-on-primary: #0a305f;
+  --md-sys-color-primary-container: #274777;
+  --md-sys-color-on-primary-container: #d6e3ff;
+  --md-sys-color-secondary: #bdc7dc;
+  --md-sys-color-on-secondary: #273141;
+  --md-sys-color-secondary-container: #3d4758;
+  --md-sys-color-on-secondary-container: #d9e3f8;
+  --md-sys-color-tertiary: #dabde0;
+  --md-sys-color-on-tertiary: #3d2844;
+  --md-sys-color-tertiary-container: #553f5b;
+  --md-sys-color-on-tertiary-container: #f7d9fd;
   --md-sys-color-error: #ffb4ab;
   --md-sys-color-on-error: #690005;
   --md-sys-color-error-container: #93000a;
   --md-sys-color-on-error-container: #ffdad6;
+  --md-sys-color-surface: #111318;
+  --md-sys-color-on-surface: #e2e2e9;
+  --md-sys-color-surface-variant: #43474e;
+  --md-sys-color-on-surface-variant: #c3c6cf;
+  --md-sys-color-surface-dim: #111318;
+  --md-sys-color-surface-bright: #37393e;
+  --md-sys-color-surface-container-lowest: #0c0e13;
+  --md-sys-color-surface-container-low: #191c20;
+  --md-sys-color-surface-container: #1d2024;
+  --md-sys-color-surface-container-high: #282a2f;
+  --md-sys-color-surface-container-highest: #33353a;
+  --md-sys-color-outline: #8d9199;
+  --md-sys-color-outline-variant: #43474e;
+  --md-sys-color-inverse-surface: #e2e2e9;
+  --md-sys-color-inverse-on-surface: #2e3036;
+  --md-sys-color-inverse-primary: #415f91;
+  --md-sys-color-surface-tint: #aac7ff;
+  --md-sys-color-scrim: #000000;
+  --md-sys-color-shadow: #000000;
+  --vh-success: #7ddba0;
+  --vh-success-container: #1f4d33;
+  --vh-on-success-container: #a7f2c3;
+  --vh-warning: #f2c46b;
+  --vh-warning-container: #4d3b12;
+  --vh-on-warning-container: #ffdfa6;
+  --md-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+  --md-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+  --md-elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --md-shape-sm: 8px;
+  --md-shape-md: 12px;
+  --md-shape-lg: 16px;
+  --md-shape-xl: 28px;
+}
+
+.m3-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.m3-card {
+  min-width: 0;
+  padding: 24px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+
+.m3-inset {
+  padding: 16px;
+  border-radius: var(--md-shape-md);
+  background: var(--md-sys-color-surface-container);
+}
+
+.m3-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 28px;
+}
+
+.m3-label {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.m3-muted {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.m3-row,
+.m3-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m3-row {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.m3-actions {
+  flex-wrap: wrap;
+}
+
+.m3-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--md-shape-sm);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.m3-notice {
+  padding: 12px 16px;
+  border-radius: var(--md-shape-md);
+  background: var(--vh-warning-container);
+  color: var(--vh-on-warning-container);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.m3-progress {
+  --md-circular-progress-size: 18px;
+  --md-circular-progress-active-indicator-color: currentColor;
+}
+
+.m3-page md-outlined-text-field,
+.m3-page md-outlined-select {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 599px) {
+  .m3-card {
+    padding: 16px;
+  }
+}
+
+/* Match pulse-trade's M3 press shape, including the component's shadow DOM. */
+md-filled-button,
+md-outlined-button {
+  --md-filled-button-container-shape: 20px;
+  --md-outlined-button-container-shape: 20px;
+  transition:
+    --md-filled-button-container-shape 280ms cubic-bezier(0.2, 0, 0, 1),
+    --md-outlined-button-container-shape 280ms cubic-bezier(0.2, 0, 0, 1);
+}
+md-filled-button:active {
+  --md-filled-button-container-shape: var(--md-shape-sm);
+}
+md-outlined-button:active {
+  --md-outlined-button-container-shape: var(--md-shape-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  md-filled-button,
+  md-outlined-button {
+    transition: none;
+  }
 }

@@ -1,34 +1,15 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, onMounted } from 'vue'
+import { computed, defineAsyncComponent, provide } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import LoadingScreen from './components/LoadingScreen.vue'
+import { useTheme } from './composables/useTheme'
 
 const route = useRoute()
 const auth = useAuthStore()
 
-const isDark = ref(localStorage.getItem('theme') === 'dark')
-
-function toggleTheme() {
-  isDark.value = !isDark.value
-  const mode = isDark.value ? 'dark' : 'light'
-  localStorage.setItem('theme', mode)
-  updateHtmlClass(mode)
-}
-
-function updateHtmlClass(mode: 'dark' | 'light') {
-  if (mode === 'dark') {
-    document.documentElement.classList.add('dark')
-  } else {
-    document.documentElement.classList.remove('dark')
-  }
-}
-
-onMounted(() => {
-  if (isDark.value) {
-    updateHtmlClass('dark')
-  }
-})
+const { isDark } = useTheme()
+provide('isDark', isDark)
 
 const AuthenticatedShell = defineAsyncComponent(() => import('./layouts/AuthenticatedShell.vue'))
 const UnauthenticatedShell = defineAsyncComponent(() => import('./layouts/UnauthenticatedShell.vue'))
@@ -38,10 +19,10 @@ const shell = computed(() =>
 </script>
 
 <template>
-  <div class="h-screen w-screen overflow-hidden bg-gray-50 dark:bg-[#101014] text-gray-900 dark:text-gray-100 font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-300">
+  <div class="app-root">
     <Suspense>
       <template #default>
-        <component :is="shell" :is-dark="isDark" @toggle-theme="toggleTheme" />
+        <component :is="shell" />
       </template>
       <template #fallback>
         <LoadingScreen />
@@ -51,6 +32,15 @@ const shell = computed(() =>
 </template>
 
 <style>
+.app-root {
+  height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-ref-typeface-plain);
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

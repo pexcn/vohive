@@ -6,16 +6,54 @@ defineProps<{
 </script>
 
 <template>
-  <div class="p-12 text-center rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 ui-surface-muted">
-    <div class="mx-auto w-12 h-12 rounded-2xl bg-gray-100/80 dark:bg-white/5 flex items-center justify-center text-gray-500 dark:text-gray-300">
+  <section class="empty-state">
+    <div class="empty-icon" aria-hidden="true">
       <slot name="icon">
         <span class="text-xl font-bold">∅</span>
       </slot>
     </div>
-    <div class="mt-4 text-sm font-bold text-gray-700 dark:text-gray-200">{{ title }}</div>
-    <div v-if="subtitle" class="mt-1 text-xs text-gray-400">{{ subtitle }}</div>
-    <div class="mt-5 flex items-center justify-center gap-2">
+    <h2>{{ title }}</h2>
+    <p v-if="subtitle">{{ subtitle }}</p>
+    <div v-if="$slots.actions" class="empty-actions">
       <slot name="actions" />
     </div>
-  </div>
+  </section>
 </template>
+
+<style scoped>
+.empty-state {
+  padding: 40px 24px;
+  text-align: center;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+.empty-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+h2 {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+p {
+  margin-top: 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+  line-height: 20px;
+}
+.empty-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+}
+</style>

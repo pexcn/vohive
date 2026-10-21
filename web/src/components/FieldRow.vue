@@ -38,13 +38,13 @@ async function copy() {
 
 <template>
   <div class="flex w-full min-w-0 items-center justify-between gap-3 overflow-hidden">
-    <span class="text-gray-500 shrink-0 whitespace-nowrap">{{ label }}</span>
+    <span class="field-label shrink-0 whitespace-nowrap">{{ label }}</span>
     <span
       class="block min-w-0 max-w-full flex-1 truncate text-right"
       :class="[
         monospace ? 'font-mono' : '',
         canCopy ? 'cursor-pointer hover:underline' : '',
-        sensitive ? 'blur-sm select-none transition-all' : ''
+        sensitive ? 'blur-sm select-none transition-all' : '',
       ]"
       :title="titleValue"
       @click="copy"
@@ -53,3 +53,9 @@ async function copy() {
     </span>
   </div>
 </template>
+
+<style scoped>
+.field-label {
+  color: var(--md-sys-color-on-surface-variant);
+}
+</style>

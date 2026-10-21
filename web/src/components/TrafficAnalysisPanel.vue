@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watchEffect } from 'vue'
+import { computed, inject, ref, shallowRef, watchEffect, type Ref } from 'vue'
 import ErrorState from './ErrorState.vue'
 import RefreshButton from './RefreshButton.vue'
+import SvgIcon from './SvgIcon.vue'
+import checkIcon from '@material-symbols/svg-400/outlined/check.svg?raw'
 import type { AppError } from '../types/domain'
 import type { TrafficAnalysis, TrafficRange } from '../services/traffic'
 
@@ -94,6 +96,7 @@ async function ensureChartLoaded() {
 }
 
 const analysisBuckets = computed(() => props.analysis.buckets || [])
+const recentBuckets = computed(() => [...analysisBuckets.value].reverse())
 const analysisChartData = computed(() => props.analysis.chart)
 
 function formatBytes(bytes: unknown) {
@@ -215,11 +218,23 @@ const deviceSeriesName = computed(() => {
   return analysisChartData.value?.devices?.[0] || '当前设备'
 })
 
-const panelClass = computed(() => (
-  props.mode === 'device'
-    ? 'ui-panel-muted p-6 overflow-hidden'
-    : 'ui-card p-6 overflow-hidden'
-))
+const isDark = inject<Ref<boolean>>('isDark', ref(false))
+const chartColors = computed(() => {
+  // Re-read the CSS roles after the app switches its theme class.
+  void isDark.value
+  const style = getComputedStyle(document.documentElement)
+  const color = (role: string) => style.getPropertyValue(`--md-sys-color-${role}`).trim()
+  return {
+    primary: color('primary'),
+    onPrimary: color('on-primary'),
+    tertiary: color('tertiary'),
+    secondary: color('secondary'),
+    text: color('on-surface'),
+    muted: color('on-surface-variant'),
+    outline: color('outline-variant'),
+    surface: color('surface-container-high')
+  }
+})
 
 const chartOption = computed(() => {
   const snapshot = chartSeriesSnapshot.value
@@ -228,12 +243,21 @@ const chartOption = computed(() => {
   const { timestamps, devices, series, totalBytesByTs } = snapshot
   const maxBytes = Math.max(0, ...totalBytesByTs)
   const unit = pickUnit(maxBytes)
+  const colors = chartColors.value
+  const chartStyle = {
+    color: [colors.primary, colors.tertiary, colors.secondary],
+    textStyle: { color: colors.muted, fontFamily: 'Roboto, system-ui, sans-serif' }
+  }
 
   if (props.mode === 'device') {
     return {
+      ...chartStyle,
       tooltip: {
+        backgroundColor: colors.surface,
+        borderColor: colors.outline,
+        textStyle: { color: colors.text },
         trigger: 'axis',
-        axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } },
+        axisPointer: { type: 'cross', label: { backgroundColor: colors.primary, color: colors.onPrimary } },
         formatter: (params: unknown) => {
           const list: TooltipParam[] = Array.isArray(params)
             ? params.filter((item): item is TooltipParam => !!item && typeof item === 'object')
@@ -260,17 +284,20 @@ const chartOption = computed(() => {
       xAxis: [
         {
           type: 'category',
+          axisLabel: { color: colors.muted },
           boundaryGap: false,
           data: timestamps,
-          axisLine: { lineStyle: { color: '#4b5563' } }
+          axisLine: { lineStyle: { color: colors.outline } }
         }
       ],
       yAxis: [
         {
           type: 'value',
+          axisLabel: { color: colors.muted },
+          nameTextStyle: { color: colors.muted },
           name: `流量 (${unit.label})`,
-          splitLine: { lineStyle: { color: '#374151', type: 'dashed', opacity: 0.3 } },
-          axisLine: { lineStyle: { color: '#4b5563' } }
+          splitLine: { lineStyle: { color: colors.outline, type: 'dashed', opacity: 0.3 } },
+          axisLine: { lineStyle: { color: colors.outline } }
         }
       ],
       dataZoom: [
@@ -317,9 +344,13 @@ const chartOption = computed(() => {
   }
 
   return {
+    ...chartStyle,
     tooltip: {
+      backgroundColor: colors.surface,
+      borderColor: colors.outline,
+      textStyle: { color: colors.text },
       trigger: 'axis',
-      axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } },
+      axisPointer: { type: 'cross', label: { backgroundColor: colors.primary, color: colors.onPrimary } },
       formatter: (params: unknown) => {
         const list: TooltipParam[] = Array.isArray(params)
           ? params.filter((item): item is TooltipParam => !!item && typeof item === 'object')
@@ -362,7 +393,7 @@ const chartOption = computed(() => {
     legend: {
       type: 'scroll',
       data: ['总流量', ...devices],
-      textStyle: { color: '#9ca3af' },
+      textStyle: { color: colors.muted },
       top: 0,
       left: 10,
       right: 10,
@@ -378,17 +409,20 @@ const chartOption = computed(() => {
     xAxis: [
       {
         type: 'category',
+        axisLabel: { color: colors.muted },
         boundaryGap: false,
         data: timestamps,
-        axisLine: { lineStyle: { color: '#4b5563' } }
+        axisLine: { lineStyle: { color: colors.outline } }
       }
     ],
     yAxis: [
       {
         type: 'value',
+        axisLabel: { color: colors.muted },
+        nameTextStyle: { color: colors.muted },
         name: `流量 (${unit.label})`,
-        splitLine: { lineStyle: { color: '#374151', type: 'dashed', opacity: 0.3 } },
-        axisLine: { lineStyle: { color: '#4b5563' } }
+        splitLine: { lineStyle: { color: colors.outline, type: 'dashed', opacity: 0.3 } },
+        axisLine: { lineStyle: { color: colors.outline } }
       }
     ],
     dataZoom: [
@@ -422,30 +456,38 @@ function handleRangeChange(value: string | number | boolean | undefined) {
 </script>
 
 <template>
-  <div :class="panelClass">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+  <section class="traffic-panel m3-card" :aria-label="title">
+    <header class="traffic-heading">
       <div>
-        <div class="text-lg font-extrabold text-gray-900 dark:text-white">{{ title }}</div>
-        <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ subtitle }}</div>
+        <h2 class="m3-title">{{ title }}</h2>
+        <p class="m3-muted">{{ subtitle }}</p>
       </div>
-      <div class="flex items-center gap-2">
-        <el-radio-group :model-value="range" :disabled="disabled" @change="handleRangeChange">
-          <el-radio-button label="day">日</el-radio-button>
-          <el-radio-button label="week">周</el-radio-button>
-          <el-radio-button label="month">月</el-radio-button>
-        </el-radio-group>
+      <div class="m3-actions">
+        <div class="range-buttons" role="group" aria-label="流量统计范围">
+          <button
+            v-for="option in [
+              { value: 'day', label: '日' },
+              { value: 'week', label: '周' },
+              { value: 'month', label: '月' },
+            ]"
+            :key="option.value"
+            type="button"
+            :disabled="disabled"
+            :aria-pressed="range === option.value"
+            @click="handleRangeChange(option.value)"
+          >
+            <md-ripple />
+            <SvgIcon v-if="range === option.value" :svg="checkIcon" />
+            {{ option.label }}
+          </button>
+        </div>
         <RefreshButton :loading="loading" :disabled="disabled" @click="emit('refresh')" />
       </div>
-    </div>
-
-    <div v-if="disabled" class="ui-panel-muted p-6 text-sm text-gray-400 dark:text-gray-500">
-      网络已禁用，暂无流量分析
-    </div>
-
+    </header>
+    <p v-if="disabled" class="traffic-empty m3-muted">网络已禁用，暂无流量分析</p>
     <template v-else>
       <ErrorState
         v-if="error"
-        class="mb-4"
         title="流量分析加载失败"
         :message="error.message"
         :status-code="error.status"
@@ -455,60 +497,191 @@ function handleRangeChange(value: string | number | boolean | undefined) {
         retry-text="重试"
         @retry="emit('refresh')"
       />
-
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-        <div class="ui-panel-muted p-3">
-          <div class="text-xs text-gray-400">{{ rangeText }}下载</div>
-          <div class="text-lg font-mono font-bold mt-1">{{ formatBytes(analysisTotal.rx) }}</div>
+      <dl class="traffic-totals">
+        <div>
+          <dt>{{ rangeText }}下载</dt>
+          <dd>{{ formatBytes(analysisTotal.rx) }}</dd>
         </div>
-        <div class="ui-panel-muted p-3">
-          <div class="text-xs text-gray-400">{{ rangeText }}上传</div>
-          <div class="text-lg font-mono font-bold mt-1">{{ formatBytes(analysisTotal.tx) }}</div>
+        <div>
+          <dt>{{ rangeText }}上传</dt>
+          <dd>{{ formatBytes(analysisTotal.tx) }}</dd>
         </div>
-        <div class="ui-panel-muted p-3">
-          <div class="text-xs text-gray-400">{{ rangeText }}合计</div>
-          <div class="text-lg font-mono font-bold mt-1">{{ formatBytes(analysisTotal.total) }}</div>
+        <div>
+          <dt>{{ rangeText }}合计</dt>
+          <dd>{{ formatBytes(analysisTotal.total) }}</dd>
         </div>
-      </div>
-
-      <div v-if="chartOption && VChartComp" class="mb-6 h-[300px] w-full">
+      </dl>
+      <div v-if="chartOption && VChartComp" class="traffic-chart">
         <component :is="VChartComp" class="chart" :option="chartOption" autoresize />
       </div>
       <ErrorState
         v-else-if="chartOption && chartLoadError"
-        class="mb-6"
         title="流量图表加载失败"
         :message="chartLoadError"
         retry-text="重试图表"
         @retry="retryChartLoad"
       />
-      <div
-        v-else-if="chartOption && chartLoading"
-        class="mb-6 h-[180px] ui-panel-muted rounded-xl border border-dashed border-gray-200 dark:border-white/10 flex items-center justify-center text-sm text-gray-400 dark:text-gray-500"
-      >
-        流量图表加载中...
+      <div v-else class="traffic-empty m3-muted" role="status">
+        {{ chartOption && chartLoading ? '流量图表加载中…' : '暂无流量图表数据' }}
       </div>
       <div
-        v-else
-        class="mb-6 h-[180px] ui-panel-muted rounded-xl border border-dashed border-gray-200 dark:border-white/10 flex items-center justify-center text-sm text-gray-400 dark:text-gray-500"
+        class="traffic-table"
+        :aria-busy="!!loading"
+        tabindex="0"
+        role="region"
+        :aria-label="`${title}明细，按时间倒序，可滚动查看`"
       >
-        暂无流量图表数据
+        <table>
+          <caption class="sr-only">{{ title }}明细</caption>
+          <thead>
+            <tr>
+              <th scope="col">时间</th>
+              <th scope="col">下载</th>
+              <th scope="col">上传</th>
+              <th scope="col">合计</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(bucket, index) in recentBuckets" :key="`${bucket.bucket}:${index}`">
+              <th scope="row">{{ formatTrafficBucketTime(bucket) }}</th>
+              <td>{{ formatBytes(bucket.rx_bytes) }}</td>
+              <td>{{ formatBytes(bucket.tx_bytes) }}</td>
+              <td>{{ formatBytes(bucket.total_bytes) }}</td>
+            </tr>
+            <tr v-if="!analysisBuckets.length">
+              <td colspan="4" class="table-empty">{{ loading ? '正在加载…' : '暂无流量记录' }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-
-      <el-table :data="analysisBuckets" size="small" stripe v-loading="!!loading" class="w-full">
-        <el-table-column label="时间" min-width="140">
-          <template #default="scope">{{ formatTrafficBucketTime(scope?.row || {}) }}</template>
-        </el-table-column>
-        <el-table-column label="下载" min-width="120">
-          <template #default="scope">{{ formatBytes(scope?.row?.rx_bytes) }}</template>
-        </el-table-column>
-        <el-table-column label="上传" min-width="120">
-          <template #default="scope">{{ formatBytes(scope?.row?.tx_bytes) }}</template>
-        </el-table-column>
-        <el-table-column label="合计" min-width="120">
-          <template #default="scope">{{ formatBytes(scope?.row?.total_bytes) }}</template>
-        </el-table-column>
-      </el-table>
     </template>
-  </div>
+  </section>
 </template>
+
+<style scoped>
+.traffic-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.traffic-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.traffic-heading p {
+  margin-top: 8px;
+}
+.range-buttons {
+  display: flex;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 20px;
+  overflow: hidden;
+}
+.range-buttons button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 52px;
+  min-height: 40px;
+  padding: 0 12px;
+  color: var(--md-sys-color-on-surface);
+  font-size: 14px;
+  font-weight: 500;
+}
+.range-buttons button + button {
+  border-left: 1px solid var(--md-sys-color-outline);
+}
+.range-buttons button[aria-pressed='true'] {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.range-buttons button:disabled {
+  opacity: 0.38;
+}
+.range-buttons button:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: -3px;
+}
+.range-buttons .svg-icon {
+  width: 18px;
+  height: 18px;
+}
+.traffic-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 16px;
+}
+.traffic-totals > div {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+}
+.traffic-totals dt {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+}
+.traffic-totals dd {
+  margin-top: 8px;
+  font-size: 22px;
+  line-height: 28px;
+  overflow-wrap: anywhere;
+}
+.traffic-chart {
+  width: 100%;
+  height: 300px;
+}
+.traffic-empty {
+  padding: 32px 16px;
+  text-align: center;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container);
+}
+.traffic-table {
+  /* One header and ten data rows; older rows remain available by scrolling. */
+  max-height: calc(44px * 11);
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.traffic-table:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 20px;
+}
+th,
+td {
+  height: 44px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+  text-align: right;
+  white-space: nowrap;
+}
+th {
+  font-weight: 500;
+}
+th:first-child {
+  text-align: left;
+}
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.table-empty {
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+}
+</style>

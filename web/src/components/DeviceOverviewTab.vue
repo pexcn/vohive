@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import Eye24Regular from '@vicons/fluent/es/Eye24Regular'
-import EyeOff24Regular from '@vicons/fluent/es/EyeOff24Regular'
+import SvgIcon from './SvgIcon.vue'
+import FieldRow from './FieldRow.vue'
+import visibleIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
+import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
+import settingsIcon from '@material-symbols/svg-400/outlined/tune.svg?raw'
 import type { DeviceOverviewItem } from '../types/api'
 import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
 import { activeEsimProfileDisplayName } from './deviceOverviewActiveEsim'
 import { isControlOnline, isRadioRegistered, isRecoveryPhase, lifecycleStatusLabel } from '../utils/deviceLifecycle'
 import StatusLight from './StatusLight.vue'
 import OperatorSelectionDialog from './OperatorSelectionDialog.vue'
-import Settings24Regular from '@vicons/fluent/es/Settings24Regular'
 import type { StatusLightTone } from './statusLight'
 
 const props = defineProps<{
@@ -106,20 +108,6 @@ const signalColor = computed<'green' | 'amber' | 'red' | 'gray'>(() => {
   return 'red'
 })
 
-const signalColorClass = computed(() => ({
-  green: 'text-emerald-500 dark:text-emerald-400',
-  amber: 'text-amber-500 dark:text-amber-400',
-  red:   'text-red-500 dark:text-red-400',
-  gray:  'text-gray-400 dark:text-gray-500',
-}[signalColor.value]))
-
-const signalBarColor = computed(() => ({
-  green: 'bg-emerald-500',
-  amber: 'bg-amber-500',
-  red:   'bg-red-500',
-  gray:  'bg-gray-300 dark:bg-gray-600',
-}[signalColor.value]))
-
 const flightModeEnabled = computed(() => {
   if (props.device?.vowifi_active) return true
   const mode = props.device?.modem?.operating_mode
@@ -166,216 +154,204 @@ const networkPanelMessage = computed(() => {
 </script>
 
 <template>
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-    <!-- ===== 运行状态面板 ===== -->
-    <div class="ui-panel-muted p-4">
-      <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">运行状态</div>
-
-      <!-- ── VoWiFi 模式 ── -->
-      <template v-if="device?.vowifi_enabled">
-
-        <!-- Hero pill -->
-        <div
-          class="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 mb-3 border"
-          :class="{
-            'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/25': vowifiStatus === 'ok',
-            'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25':         vowifiStatus === 'partial',
-            'bg-red-50 border-red-200 dark:bg-red-500/10 dark:border-red-500/25':                 vowifiStatus === 'off',
-          }"
+  <div class="overview-panels">
+    <section class="runtime-panel m3-inset" aria-label="运行状态">
+      <div class="m3-row">
+        <h2 class="m3-title">运行状态</h2>
+        <md-icon-button
+          v-if="!device?.vowifi_enabled"
+          aria-label="网络选择设置"
+          @click="showOperatorSelection = true"
         >
-          <!-- 状态点 -->
-          <StatusLight :tone="vowifiStatusTone" size="sm" :animated="vowifiStatus !== 'off'" />
-          <div class="min-w-0">
-            <div class="text-sm font-bold leading-tight" :class="{
-              'text-emerald-700 dark:text-emerald-300': vowifiStatus === 'ok',
-              'text-amber-700 dark:text-amber-300':     vowifiStatus === 'partial',
-              'text-red-700 dark:text-red-300':         vowifiStatus === 'off',
-            }">
-              <template v-if="vowifiStatus === 'ok'">WiFi-Calling · 全部就绪</template>
-              <template v-else-if="vowifiStatus === 'partial'">{{ notReadyNames.join(' · ') }} 未就绪</template>
-              <template v-else>VoWiFi 未连接</template>
-            </div>
-            <div v-if="vowifiStatus === 'partial' && device?.vowifi_runtime?.last_reason"
-              class="text-xs text-amber-600 dark:text-amber-400 mt-0.5 truncate">
-              {{ device.vowifi_runtime.last_reason }}
-            </div>
-          </div>
+          <SvgIcon :svg="settingsIcon" />
+        </md-icon-button>
+      </div>
+      <template v-if="device?.vowifi_enabled">
+        <div class="runtime-status" :data-tone="vowifiStatusTone">
+          <StatusLight :tone="vowifiStatusTone" :animated="vowifiStatus !== 'off'" />
+          <span v-if="vowifiStatus === 'ok'">Wi-Fi Calling · 全部就绪</span>
+          <span v-else-if="vowifiStatus === 'partial'">{{ notReadyNames.join(' · ') }} 未就绪</span>
+          <span v-else>VoWiFi 未连接</span>
         </div>
-
-        <!-- Readiness 进度条 -->
-        <div class="mb-3">
-          <div class="flex gap-1 mb-1">
-            <div
-              v-for="item in readinessItems" :key="item.key"
-              class="flex-1 h-1.5 rounded-full"
-              :class="item.ready === true  ? 'bg-emerald-500 dark:bg-emerald-400'
-                    : item.ready === false ? 'bg-red-500 dark:bg-red-400'
-                    : 'bg-gray-200 dark:bg-white/10'"
+        <p
+          v-if="vowifiStatus === 'partial' && device.vowifi_runtime?.last_reason"
+          class="m3-muted runtime-reason"
+        >
+          {{ device.vowifi_runtime.last_reason }}
+        </p>
+        <ol class="readiness-steps" aria-label="VoWiFi 连接进度">
+          <li
+            v-for="item in readinessItems"
+            :key="item.key"
+            :data-state="
+              item.ready === true ? 'ready' : item.ready === false ? 'pending' : 'unknown'
+            "
+            :aria-label="`${item.key}：${item.ready === true ? '已就绪' : '未就绪'}`"
+          >
+            <span class="readiness-track" />
+            <span>{{ item.key }}</span>
+          </li>
+        </ol>
+        <md-text-button
+          type="button"
+          :aria-expanded="showVowifiDetail || hasError"
+          aria-controls="vowifi-diagnostics"
+          @click="showVowifiDetail = !showVowifiDetail"
+        >
+          {{ showVowifiDetail || hasError ? '收起连接详情' : '查看连接详情' }}
+        </md-text-button>
+        <div v-if="showVowifiDetail || hasError" id="vowifi-diagnostics" class="overview-fields">
+          <FieldRow
+            label="数据平面"
+            :value="device.vowifi_runtime?.dataplane_mode || '--'"
+            monospace
+          />
+          <FieldRow label="最后原因" :value="device.vowifi_runtime?.last_reason || '--'" />
+          <FieldRow
+            label="错误分类"
+            :value="device.vowifi_runtime?.last_error_class || '--'"
+            monospace
+            copyable
+          />
+        </div>
+      </template>
+      <template v-else>
+        <div class="runtime-status" :data-tone="cellularStatusTone">
+          <StatusLight :tone="cellularStatusTone" :animated="isRegistered" />
+          <span>{{ isRegistered ? device?.modem?.operator || '--' : cellularStatusText }}</span>
+        </div>
+        <div class="signal-reading" :data-signal="signalColor">
+          <strong>
+            {{ hasValidSignalDbm(device?.modem?.signal_dbm) ? device?.modem?.signal_dbm : '--' }}
+          </strong>
+          <span>dBm</span>
+          <div class="signal-bars" aria-hidden="true">
+            <span
+              v-for="i in 5"
+              :key="i"
+              :class="{ active: i <= signalLevel }"
+              :style="{ height: `${i * 20}%` }"
             />
           </div>
-          <div class="flex justify-between">
-            <span
-              v-for="item in readinessItems" :key="item.key"
-              class="flex-1 text-center text-[10px]"
-              :class="item.ready === false ? 'text-red-500 dark:text-red-400 font-bold' : 'text-gray-400 dark:text-gray-500'"
-            >{{ item.key }}</span>
-          </div>
         </div>
-
-        <!-- 次要字段（有错误自动展开，否则可折叠） -->
-        <div class="border border-gray-200 dark:border-white/10 rounded-lg overflow-hidden">
-          <button
-            class="w-full flex items-center justify-between px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
-            @click="showVowifiDetail = !showVowifiDetail"
-          >
-            <span class="font-bold uppercase tracking-wider">详情</span>
-            <span>{{ showVowifiDetail || hasError ? '▴' : '▾' }}</span>
-          </button>
-          <div v-if="showVowifiDetail || hasError" class="px-3 pb-2 space-y-1.5 text-sm text-gray-700 dark:text-gray-200 border-t border-gray-100 dark:border-white/5 pt-2">
-            <FieldRow label="数据平面" :value="device?.vowifi_runtime?.dataplane_mode || '--'" monospace />
-            <FieldRow label="最后原因" :value="device?.vowifi_runtime?.last_reason || '--'" />
-            <FieldRow label="错误分类" :value="device?.vowifi_runtime?.last_error_class || '--'" monospace copyable />
-          </div>
+        <p class="m3-muted signal-detail">
+          RSRP {{ device?.modem?.signal_rsrp ?? '--' }} · RSRQ
+          {{ device?.modem?.signal_rsrq ?? '--' }} · SINR {{ device?.modem?.signal_sinr ?? '--' }}
+          <template v-if="device?.modem?.nr5g_signal_sinr !== undefined">
+            · NR5G SINR {{ device.modem.nr5g_signal_sinr }}
+          </template>
+        </p>
+        <div class="overview-fields">
+          <FieldRow
+            label="网络模式"
+            :value="
+              [device?.modem?.network_duplex, device?.modem?.network_mode]
+                .filter(Boolean)
+                .join(' ') || '--'
+            "
+            monospace
+          />
+          <FieldRow label="频段" :value="device?.modem?.radio_band || '--'" monospace />
+          <FieldRow
+            label="信道"
+            :value="device?.modem?.radio_channel ? String(device.modem.radio_channel) : '--'"
+            monospace
+          />
+          <FieldRow label="注册状态" :value="device?.modem?.reg_status_text || '--'" monospace />
         </div>
       </template>
-
-      <!-- ── 窝蜂模式 ── -->
-      <template v-else>
-
-        <!-- 运营商 hero（与 VoWiFi pill 统一样式） -->
-        <div class="flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 mb-3 border"
-          :class="isRegistered
-            ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/25'
-            : controlOnline
-              ? 'bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/25'
-              : 'bg-gray-100 border-gray-200 dark:bg-white/5 dark:border-white/10'"
+    </section>
+    <section class="m3-inset">
+      <div class="m3-row">
+        <h2 class="m3-title">SIM 与设备</h2>
+        <md-icon-button
+          :aria-label="showSensitive ? '隐藏敏感信息' : '显示敏感信息'"
+          :aria-pressed="showSensitive"
+          @click="showSensitive = !showSensitive"
         >
-          <StatusLight :tone="cellularStatusTone" size="sm" :animated="isRegistered" />
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-bold leading-tight"
-              :class="isRegistered
-                ? 'text-emerald-700 dark:text-emerald-300'
-                : controlOnline
-                  ? 'text-amber-700 dark:text-amber-300'
-                  : 'text-gray-500 dark:text-gray-400'"
-            >
-              <template v-if="isRegistered">
-                {{ device?.modem?.operator || '--' }}
-                <span v-if="device?.modem?.network_mode" class="opacity-70">· {{ [device?.modem?.network_duplex, device?.modem?.network_mode].filter(Boolean).join(' ') }}</span>
-              </template>
-              <template v-else>
-                {{ cellularStatusText }}
-              </template>
-            </div>
-          </div>
-          <button @click="showOperatorSelection = true" class="p-1 rounded hover:bg-black/5 dark:hover:bg-white/10 transition-colors" title="网络选择设置">
-            <Settings24Regular class="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          </button>
-        </div>
-
-        <!-- 信号大字 -->
-        <div class="rounded-xl border border-gray-200 dark:border-white/10 px-3.5 py-3 mb-3">
-          <div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">信号强度</div>
-          <div class="flex items-center gap-3">
-            <div>
-              <div class="flex items-baseline gap-1">
-                <span class="text-2xl font-extrabold tabular-nums leading-none" :class="signalColorClass">
-                  {{ device?.modem?.signal_dbm ?? '--' }}
-                </span>
-                <span class="text-xs text-gray-400">dBm</span>
-              </div>
-              <div class="text-[10px] text-gray-400 mt-1">
-                RSRP {{ device?.modem?.signal_rsrp ?? '--' }}
-                &nbsp;·&nbsp;
-                RSRQ {{ device?.modem?.signal_rsrq ?? '--' }}
-                &nbsp;·&nbsp;
-                SINR {{ device?.modem?.signal_sinr ?? '--' }}
-                <template v-if="device?.modem?.nr5g_signal_sinr !== undefined">
-                  &nbsp;·&nbsp;NR5G SINR {{ device?.modem?.nr5g_signal_sinr }}
-                </template>
-              </div>
-            </div>
-            <!-- 信号格 -->
-            <div class="flex items-end gap-0.5 ml-auto" style="height: 28px">
-              <div v-for="i in 5" :key="i"
-                class="w-1.5 rounded-sm"
-                :style="{ height: (i * 18 + 10) + '%' }"
-                :class="i <= signalLevel ? signalBarColor : 'bg-gray-200 dark:bg-white/10'"
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- 次要字段 -->
-        <div class="space-y-1.5 text-sm text-gray-700 dark:text-gray-200">
-          <FieldRow label="网络模式"  :value="[device?.modem?.network_duplex, device?.modem?.network_mode].filter(Boolean).join(' ') || '--'" monospace />
-          <FieldRow label="频段"  :value="device?.modem?.radio_band || '--'" monospace />
-          <FieldRow label="信道"  :value="device?.modem?.radio_channel ? String(device.modem.radio_channel) : '--'" monospace />
-          <FieldRow label="注册状态"  :value="device?.modem?.reg_status_text || '--'" monospace />
-        </div>
-      </template>
-    </div>
-
-    <!-- ===== SIM / 设备面板（不变）===== -->
-    <div class="ui-panel-muted p-4 relative min-w-0 overflow-hidden">
-      <div class="flex items-center justify-between mb-2">
-        <div class="text-xs font-bold text-gray-500 uppercase tracking-wider">SIM / 设备</div>
-        <div class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 cursor-pointer -mt-1 -mr-1" @click="showSensitive = !showSensitive">
-          <el-icon size="18">
-            <Eye24Regular v-if="showSensitive" />
-            <EyeOff24Regular v-else />
-          </el-icon>
-        </div>
+          <SvgIcon :svg="showSensitive ? visibleIcon : hiddenIcon" />
+        </md-icon-button>
       </div>
-      <div class="text-sm space-y-1.5 text-gray-700 dark:text-gray-200">
-        <FieldRow label="IMEI"      :value="device?.modem?.imei"   :sensitive="!showSensitive" monospace copyable />
-        <FieldRow label="ICCID"     :value="device?.modem?.iccid"  :sensitive="!showSensitive" monospace copyable />
-        <FieldRow label="IMSI"      :value="device?.modem?.imsi"   :sensitive="!showSensitive" monospace copyable />
-        <FieldRow label="本机号码" :value="device?.local_phone || '--'"  :sensitive="!showSensitive" monospace copyable />
-        <div v-if="device?.e911_setup_available" class="flex justify-between gap-3">
-          <span class="text-gray-500">E911地址</span>
-          <el-button
-            size="small"
-            type="primary"
-            plain
-            :loading="e911Starting"
-            class="!border-0"
-            @click="emit('setup-e911')"
-          >
+      <div class="overview-fields">
+        <FieldRow
+          label="IMEI"
+          :value="device?.modem?.imei"
+          :sensitive="!showSensitive"
+          monospace
+          copyable
+        />
+        <FieldRow
+          label="ICCID"
+          :value="device?.modem?.iccid"
+          :sensitive="!showSensitive"
+          monospace
+          copyable
+        />
+        <FieldRow
+          label="IMSI"
+          :value="device?.modem?.imsi"
+          :sensitive="!showSensitive"
+          monospace
+          copyable
+        />
+        <FieldRow
+          label="本机号码"
+          :value="device?.local_phone || '--'"
+          :sensitive="!showSensitive"
+          monospace
+          copyable
+        />
+        <div v-if="device?.e911_setup_available" class="m3-row">
+          <span class="m3-muted">E911 地址</span>
+          <md-text-button type="button" :disabled="e911Starting" @click="emit('setup-e911')">
+            <md-circular-progress
+              v-if="e911Starting"
+              slot="icon"
+              class="m3-progress"
+              indeterminate
+            />
             设置
-          </el-button>
+          </md-text-button>
         </div>
-        <FieldRow v-if="activeEsimProfileName" label="当前eSIM" :value="activeEsimProfileName" monospace copyable />
+        <FieldRow
+          v-if="activeEsimProfileName"
+          label="当前 eSIM"
+          :value="activeEsimProfileName"
+          monospace
+          copyable
+        />
         <FieldRow label="原运营商" :value="simOperatorDisplay" copyable />
-        <FieldRow label="固件版本"      :value="device?.modem?.firmware" monospace copyable />
-        <div class="flex justify-between gap-3">
-          <span class="text-gray-500">飞行模式</span>
-          <span>{{ flightModeStatusText }}</span>
-        </div>
-        <FieldRow label="运行模式"  :value="device?.backend_mode === 'qmi' ? 'QMI' : device?.backend_mode === 'mbim' ? 'MBIM' : device?.backend_mode === 'at' ? 'AT' : 'Auto'" monospace />
+        <FieldRow label="固件版本" :value="device?.modem?.firmware" monospace copyable />
+        <FieldRow label="飞行模式" :value="flightModeStatusText" />
+        <FieldRow
+          label="运行模式"
+          :value="
+            device?.backend_mode === 'qmi'
+              ? 'QMI'
+              : device?.backend_mode === 'mbim'
+                ? 'MBIM'
+                : device?.backend_mode === 'at'
+                  ? 'AT'
+                  : 'Auto'
+          "
+          monospace
+        />
       </div>
-    </div>
-
-    <!-- ===== 流量面板（不变）===== -->
-    <div class="ui-panel-muted p-4">
-      <div class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">网络</div>
-      <div v-if="networkPanelMessage" class="flex items-center justify-center p-6 text-sm text-gray-400">
-        {{ networkPanelMessage }}
+    </section>
+    <section class="m3-inset">
+      <h2 class="m3-title">网络与流量</h2>
+      <p v-if="networkPanelMessage" class="network-empty m3-muted">{{ networkPanelMessage }}</p>
+      <div v-else class="overview-fields">
+        <FieldRow label="内网 IPv4" :value="device?.private_ip" monospace copyable />
+        <FieldRow label="内网 IPv6" :value="device?.private_ipv6" monospace copyable />
+        <FieldRow label="外网 IPv4" :value="device?.public_ip" monospace copyable />
+        <FieldRow label="外网 IPv6" :value="device?.public_ipv6" monospace copyable />
+        <FieldRow label="近 1 分钟上传" :value="trafficTxDisplay" monospace />
+        <FieldRow label="近 1 分钟下载" :value="trafficRxDisplay" monospace />
+        <FieldRow label="实时下载速率" :value="trafficDownloadRateDisplay" monospace />
+        <FieldRow label="实时上传速率" :value="trafficUploadRateDisplay" monospace />
       </div>
-      <div v-else class="text-sm space-y-1.5 text-gray-700 dark:text-gray-200">
-        <FieldRow label="内网 IPv4"     :value="device?.private_ip"           monospace copyable />
-        <FieldRow label="内网 IPv6"   :value="device?.private_ipv6"         monospace copyable />
-        <FieldRow label="外网 IPv4"     :value="device?.public_ip"            monospace copyable />
-        <FieldRow label="外网 IPv6"   :value="device?.public_ipv6"          monospace copyable />
-        <FieldRow label="近1分钟上传" :value="trafficTxDisplay"             monospace />
-        <FieldRow label="近1分钟下载" :value="trafficRxDisplay"             monospace />
-        <FieldRow label="实时下载速率"    :value="trafficDownloadRateDisplay"   monospace />
-        <FieldRow label="实时上传速率"    :value="trafficUploadRateDisplay"     monospace />
-      </div>
-    </div>
-
-    <!-- 运营商选择弹窗 -->
+    </section>
     <OperatorSelectionDialog
       v-if="device?.id"
       v-model="showOperatorSelection"
@@ -384,3 +360,114 @@ const networkPanelMessage = computed(() => {
     />
   </div>
 </template>
+
+<style scoped>
+.overview-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 16px;
+}
+.runtime-panel {
+  grid-column: 1 / -1;
+}
+.runtime-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 18px;
+  line-height: 28px;
+  overflow-wrap: anywhere;
+}
+.runtime-status[data-tone='success'] {
+  color: var(--vh-success);
+}
+.runtime-status[data-tone='warning'] {
+  color: var(--vh-warning);
+}
+.runtime-status[data-tone='danger'] {
+  color: var(--md-sys-color-error);
+}
+.runtime-reason {
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+.readiness-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 24px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+.readiness-steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+}
+.readiness-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--md-sys-color-outline-variant);
+}
+[data-state='ready'] .readiness-track {
+  background: var(--vh-success);
+}
+[data-state='pending'] .readiness-track {
+  background: var(--vh-warning);
+}
+.overview-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.signal-reading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 24px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.signal-reading strong {
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 44px;
+}
+.signal-reading[data-signal='green'] {
+  color: var(--vh-success);
+}
+.signal-reading[data-signal='amber'] {
+  color: var(--vh-warning);
+}
+.signal-reading[data-signal='red'] {
+  color: var(--md-sys-color-error);
+}
+.signal-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 24px;
+  margin-left: 16px;
+}
+.signal-bars span {
+  width: 5px;
+  border-radius: 2px;
+  background: var(--md-sys-color-outline-variant);
+}
+.signal-bars span.active {
+  background: currentColor;
+}
+.signal-detail {
+  margin-top: 8px;
+}
+.network-empty {
+  padding: 32px 0;
+}
+</style>

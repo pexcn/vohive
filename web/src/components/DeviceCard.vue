@@ -2,148 +2,138 @@
 import { computed } from 'vue'
 import type { DashboardDevice } from '../types/api'
 import StatusLight from './StatusLight.vue'
-import Cellular3G24Regular from '@vicons/fluent/es/Cellular3G24Regular'
-import Cellular4G24Regular from '@vicons/fluent/es/Cellular4G24Regular'
-import Cellular5G24Regular from '@vicons/fluent/es/Cellular5G24Regular'
-import CellularData124Regular from '@vicons/fluent/es/CellularData124Regular'
-import Wifi124Regular from '@vicons/fluent/es/Wifi124Regular'
-import Globe24Regular from '@vicons/fluent/es/Globe24Regular'
-import Sim24Regular from '@vicons/fluent/es/Sim24Regular'
+import SvgIcon from './SvgIcon.vue'
+import simIcon from '@material-symbols/svg-400/outlined/sim_card.svg?raw'
+import wifiIcon from '@material-symbols/svg-400/outlined/wifi_calling.svg?raw'
+import cellularIcon from '@material-symbols/svg-400/outlined/signal_cellular_alt.svg?raw'
+import arrowIcon from '@material-symbols/svg-400/outlined/arrow_forward.svg?raw'
 
 const props = defineProps<{ device: DashboardDevice }>()
-const emit = defineEmits<{
-  'open-device': [id: string]
-}>()
-
-const displayNetworkMode = computed(() => {
-  const mode = String(props.device?.network_mode || '').trim()
-  const duplex = String(props.device?.network_duplex || '').trim()
-  if (!mode) return ''
-  return duplex ? `${duplex} ${mode}` : mode
+const emit = defineEmits<{ 'open-device': [id: string] }>()
+const networkMode = computed(() => [props.device.network_duplex, props.device.network_mode].filter(Boolean).join(' '))
+const signal = computed(() => {
+  const value = props.device.signal_dbm
+  return typeof value === 'number' && Number.isFinite(value) && value !== 0 && value !== -999 ? `${value} dBm` : '暂无信号数据'
 })
-
-const networkIcon = computed(() => {
-  // VoWiFi 模式显示 Wi-Fi 图标
-  if (props.device?.vowifi_active) return Wifi124Regular
-  const mode = displayNetworkMode.value
-  if (!mode) return CellularData124Regular
-  const m = String(mode).toUpperCase()
-  if (m.includes('5G') || m.includes('NR')) return Cellular5G24Regular
-  if (m.includes('4G') || m.includes('LTE')) return Cellular4G24Regular
-  if (m.includes('3G') || m.includes('WCDMA') || m.includes('HSPA') || m.includes('UMTS')) return Cellular3G24Regular
-  return CellularData124Regular
-})
-
-const networkColor = computed(() => {
-  // VoWiFi 模式显示特殊颜色
-  if (props.device?.vowifi_active) return 'text-emerald-500'
-  const mode = displayNetworkMode.value
-  if (!mode) return 'text-gray-400'
-  const m = String(mode).toUpperCase()
-  if (m.includes('5G') || m.includes('NR')) return 'text-purple-500'
-  if (m.includes('4G') || m.includes('LTE')) return 'text-blue-500'
-  if (m.includes('3G')) return 'text-orange-500'
-  return 'text-gray-400'
-})
-
-const networkModeText = computed(() => {
-  const mode = displayNetworkMode.value
-  if (!mode) return ''
-  const parts = String(mode).trim().split(/\s+/).filter(Boolean)
-  if (parts.length <= 1) return parts[0] || ''
-  return parts[1] || ''
-})
-
-const hideNetworkModeOnNarrow = computed(() => {
-  return networkModeText.value.toUpperCase() === 'LTE'
-})
-
-function hasValidSignalDbm(dbm: number | null | undefined): dbm is number {
-  return typeof dbm === 'number' && Number.isFinite(dbm) && dbm !== 0 && dbm !== -999
-}
-
-function getSignalColor(dbm: number | null | undefined) {
-  if (!hasValidSignalDbm(dbm)) return 'bg-gray-300 dark:bg-gray-600'
-  if (dbm > -70) return 'bg-green-500'
-  if (dbm > -90) return 'bg-yellow-500'
-  return 'bg-red-500'
-}
-
-function getSignalBars(dbm: number | null | undefined) {
-  if (!hasValidSignalDbm(dbm)) return 0
-  if (dbm > -70) return 4
-  if (dbm > -85) return 3
-  if (dbm > -100) return 2
-  return 1
-}
 </script>
 
 <template>
   <button
     type="button"
-    class="group relative block w-full overflow-hidden ui-card ui-card-hover text-left transition-all duration-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5b5bd6] focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950"
+    class="device-card"
+    :aria-label="`查看 ${device.name || device.id}`"
     @click="emit('open-device', device.id)"
   >
-    <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-indigo-500/10 to-indigo-400/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-150" />
-
-    <div class="p-6 relative z-10">
-      <div class="flex justify-between items-start mb-6">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl bg-gray-50 dark:bg-white/5 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-inner">
-            <el-icon size="20"><Sim24Regular /></el-icon>
-          </div>
-          <div>
-            <h3 class="font-bold text-base text-gray-800 dark:text-gray-100">{{ device.name || device.id }}</h3>
-            <div class="flex items-center gap-1.5 mt-0.5">
-              <StatusLight :tone="device.healthy ? 'success' : 'danger'" size="md" :animated="device.healthy" />
-              <span class="text-xs font-medium" :class="device.healthy ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
-                {{ device.healthy ? '在线' : '离线' }}
-              </span>
-            </div>
-          </div>
-        </div>
+    <md-ripple />
+    <div class="m3-row">
+      <div class="device-identity">
+        <span class="device-avatar"><SvgIcon :svg="simIcon" /></span>
+        <h2>{{ device.name || device.id }}</h2>
       </div>
-
-      <div class="space-y-4">
-        <div class="flex items-center justify-between p-3 bg-gray-50/50 dark:bg-white/5 rounded-xl border border-gray-100 dark:border-white/5">
-          <div class="flex items-center gap-2 min-w-0">
-            <div class="flex items-center gap-1.5 opacity-80">
-              <el-icon :class="networkColor" size="18">
-                <component :is="networkIcon" />
-              </el-icon>
-              <span
-                v-if="!device.vowifi_active && device.network_mode && networkModeText"
-                class="text-[11px] font-bold tracking-tighter leading-none"
-                :class="hideNetworkModeOnNarrow ? 'hidden xl:inline' : ''"
-              >
-                {{ networkModeText }}
-              </span>
-            </div>
-            <span class="flex-1 min-w-0 text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap truncate">
-              {{ device.vowifi_active ? 'Wi-Fi Calling' : (device.operator || '检测中...') }}
-            </span>
-          </div>
-          <div v-if="!device.vowifi_active" class="flex items-center gap-1" title="信号强度">
-            <div class="flex items-end gap-[2px] h-3">
-              <div
-                v-for="i in 4"
-                :key="i"
-                class="w-1 rounded-sm transition-all duration-500"
-                :class="getSignalBars(device.signal_dbm) >= i ? getSignalColor(device.signal_dbm) : 'bg-gray-200 dark:bg-gray-700'"
-                :style="{ height: `${i * 25}%` }"
-              />
-            </div>
-            <span class="text-xs font-mono text-gray-400 ml-1 hidden xl:inline">{{ device.signal_dbm }}dBm</span>
-          </div>
-        </div>
-
-        <div class="space-y-2">
-          <div class="flex justify-between items-center text-sm">
-            <span class="text-gray-400 flex items-center gap-1.5"><el-icon><Globe24Regular /></el-icon> 公网 IP</span>
-            <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">{{ device.public_ip || '---' }}</span>
-          </div>
-        </div>
-      </div>
+      <span class="device-health">
+        <StatusLight :tone="device.healthy ? 'success' : 'danger'" :animated="false" />
+        {{ device.healthy ? '在线' : '离线' }}
+      </span>
+    </div>
+    <p class="device-connection">
+      <SvgIcon :svg="device.vowifi_active ? wifiIcon : cellularIcon" />
+      <span>{{ device.vowifi_active ? 'Wi-Fi Calling' : device.operator || '运营商待识别' }}</span>
+    </p>
+    <p class="m3-muted">
+      {{
+        device.vowifi_active
+          ? '通过 Wi-Fi 网络连接'
+          : [networkMode, signal].filter(Boolean).join(' · ')
+      }}
+    </p>
+    <div class="device-ip">
+      <span>
+        <span class="m3-label">公网 IP</span>
+        <strong>{{ device.public_ip || '暂无' }}</strong>
+      </span>
+      <SvgIcon :svg="arrowIcon" />
     </div>
   </button>
 </template>
+
+<style scoped>
+.device-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  text-align: left;
+}
+.device-card:focus-visible {
+  outline: 3px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+.device-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.device-avatar {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 20px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.device-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 16px;
+}
+h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+.device-connection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.device-connection span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.device-ip {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-primary);
+}
+.device-ip > span {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.device-ip strong {
+  font: 14px/20px var(--vh-typeface-mono);
+  overflow-wrap: anywhere;
+}
+</style>
