@@ -70,6 +70,7 @@ export type DeviceOverviewItem = {
   running: boolean
   healthy: boolean
   control_online?: boolean
+  esim_switching?: boolean
   physical_present?: boolean
   worker_running?: boolean
   data_connected?: boolean

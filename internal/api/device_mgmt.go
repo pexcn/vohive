@@ -153,6 +153,7 @@ type deviceMgmtOverviewItem struct {
 	Running                bool               `json:"running"`
 	Healthy                bool               `json:"healthy"`
 	ControlOnline          bool               `json:"control_online"`
+	ESIMSwitching          bool               `json:"esim_switching"`
 	PhysicalPresent        bool               `json:"physical_present"`
 	WorkerRunning          bool               `json:"worker_running"`
 	DataConnected          bool               `json:"data_connected"`
@@ -284,6 +285,7 @@ func (s *Server) handleDeviceMgmtOverview(c *gin.Context) {
 			Running:                true,
 			Healthy:                controlOnline, // 兼容旧客户端：healthy 表示控制面在线
 			ControlOnline:          controlOnline,
+			ESIMSwitching:          s.pool.IsESIMSwitching(w.ID),
 			PublicIP:               w.GetCachedIP(),
 			PublicIPv6:             w.GetCachedIPv6(),
 			Modem:                  modemSummaryStatus(status),
@@ -347,6 +349,7 @@ type deviceMgmtOverviewLiteItem struct {
 	Running                bool               `json:"running"`
 	Healthy                bool               `json:"healthy"`
 	ControlOnline          bool               `json:"control_online"`
+	ESIMSwitching          bool               `json:"esim_switching"`
 	PhysicalPresent        bool               `json:"physical_present"`
 	WorkerRunning          bool               `json:"worker_running"`
 	DataConnected          bool               `json:"data_connected"`
@@ -580,6 +583,7 @@ func (s *Server) buildOverviewLiteItemFromWorkerWithModem(w *device.Worker, cfg 
 		Running:                true,
 		Healthy:                controlOnline,
 		ControlOnline:          controlOnline,
+		ESIMSwitching:          s.pool.IsESIMSwitching(w.ID),
 		PublicIP:               w.GetCachedIP(),
 		PublicIPv6:             w.GetCachedIPv6(),
 		Interface:              cfg.Interface,
@@ -623,6 +627,7 @@ type overviewStreamEmitVersion struct {
 	VoWiFiActive          bool
 	LifecyclePhase        string
 	LifecycleReason       string
+	ESIMSwitching         bool
 	ICCID                 string
 	IMSI                  string
 	ActiveESIMProfileName string
@@ -635,6 +640,7 @@ func newOverviewStreamEmitVersion(item deviceMgmtOverviewLiteItem) overviewStrea
 		VoWiFiActive:          item.VoWiFiActive,
 		LifecyclePhase:        item.LifecyclePhase,
 		LifecycleReason:       item.LifecycleReason,
+		ESIMSwitching:         item.ESIMSwitching,
 		ICCID:                 item.Modem.ICCID,
 		IMSI:                  item.Modem.IMSI,
 		ActiveESIMProfileName: item.ActiveESIMProfileName,

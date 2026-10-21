@@ -155,6 +155,8 @@ func (w *Worker) BeginSIMIdentityTransition(targetICCID, reason string) uint64 {
 		return 0
 	}
 	w.holdRadioPolicy()
+	w.simIdentityWriteMu.Lock()
+	defer w.simIdentityWriteMu.Unlock()
 	now := time.Now()
 	w.cacheMu.Lock()
 	defer w.cacheMu.Unlock()
@@ -166,6 +168,13 @@ func (w *Worker) EnsureSIMIdentityTransition(targetICCID, reason string) uint64 
 	if w == nil {
 		return 0
 	}
+	w.simIdentityWriteMu.Lock()
+	defer w.simIdentityWriteMu.Unlock()
+	return w.ensureSIMIdentityTransition(targetICCID, reason)
+}
+
+// Caller holds simIdentityWriteMu.
+func (w *Worker) ensureSIMIdentityTransition(targetICCID, reason string) uint64 {
 	w.registrationMu.Lock()
 	defer w.registrationMu.Unlock()
 	now := time.Now()

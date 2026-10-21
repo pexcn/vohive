@@ -2054,7 +2054,7 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	var switchToken uint64
 	commandSent := false
 	defer func() {
-		if !switchSucceeded {
+		if !switchSucceeded && (m.onBeforeSwitch == nil || switchStarted) {
 			m.emitSwitchPhase(operation, switchToken, SwitchPhaseFailed)
 		}
 		m.logWriteOperationHold("switch_profile", writeStarted)
@@ -2073,7 +2073,6 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	if err != nil {
 		return result, fmt.Errorf("无效的 ICCID %q: %w", targetICCID, err)
 	}
-	m.drainSwitchSignals()
 
 	// Validate caller input before stopping the old session.
 	var targetAID []byte
@@ -2088,13 +2087,14 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	}
 	// Preparation must finish before discovery or LPA opens any channel.
 	if m.onBeforeSwitch != nil {
-		switchStarted = true
 		switchToken, err = m.onBeforeSwitch(operation, targetICCID)
+		switchStarted = switchToken != 0 || err == nil
 		result.SwitchToken = switchToken
 		if err != nil {
 			return result, fmt.Errorf("切卡准备失败: %w", err)
 		}
 	}
+	m.drainSwitchSignals()
 	switchBarrier, err := m.beginSwitchAPDUBarrier(ctx)
 	barrierReleased := false
 	releaseSwitchBarrier := func(nextPhase SwitchPhase) {
@@ -2206,7 +2206,7 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 	var switchToken uint64
 	commandSent := false
 	defer func() {
-		if !disableSucceeded {
+		if !disableSucceeded && (m.onBeforeSwitch == nil || disableStarted) {
 			m.emitSwitchPhase(operation, switchToken, SwitchPhaseFailed)
 		}
 		m.logWriteOperationHold("disable_profile", writeStarted)
@@ -2237,8 +2237,8 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 		return err
 	}
 	if m.onBeforeSwitch != nil {
-		disableStarted = true
 		switchToken, err = m.onBeforeSwitch(operation, "")
+		disableStarted = switchToken != 0 || err == nil
 		if err != nil {
 			return fmt.Errorf("禁用 profile 准备失败: %w", err)
 		}

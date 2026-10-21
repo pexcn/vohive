@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { EsimChipInfo, EsimEUICCProfiles, EsimNotificationItem, EsimSpaceDelta } from '../types/api'
 import { devicesService } from '../services/devices'
@@ -34,6 +34,7 @@ const props = defineProps<{
   deviceImei?: string
   isActive?: boolean
   deviceOnline?: boolean
+  esimSwitching?: boolean
 }>()
 
 // 数据状态
@@ -44,6 +45,12 @@ const profiles = ref<EsimEUICCProfiles[]>([])
 
 // 操作状态
 const switching = ref<string | null>(null)
+const switchSubmitted = ref(false)
+let switchRequestId = 0
+const switchBusy = computed(() => switching.value !== null || switchSubmitted.value || props.esimSwitching === true)
+watch(() => props.esimSwitching, (busy) => {
+  if (!busy) switchSubmitted.value = false
+})
 const deleting = ref<string | null>(null)
 const renaming = ref<string | null>(null)
 const showSensitive = useSensitiveVisibility()
@@ -251,27 +258,38 @@ function applyOptimisticActive(targetICCID: string, aidHex: string) {
 
 // 切换 profile（启用/禁用）
 async function switchProfile(iccid: string, currentState: number, aidHex: string) {
+  if (switchBusy.value) return
+  const deviceId = props.deviceId
+  const requestId = ++switchRequestId
+  const isCurrent = () => props.deviceId === deviceId && requestId === switchRequestId
   const action = currentState === 1 ? '禁用' : '启用'
   const confirmed = await ElMessageBox.confirm(
     `确定要${action}此 Profile (${iccid}) 吗？切换后设备会短暂断网。`,
     `${action} Profile`,
     { confirmButtonText: action, cancelButtonText: '取消', type: 'warning' }
   ).then(() => true).catch(() => false)
-  if (!confirmed) return
+  if (!confirmed || switchBusy.value || !isCurrent()) return
 
   switching.value = iccid
   try {
-    const result = await devicesService.switchEsimProfile(props.deviceId, {
+    const result = await devicesService.switchEsimProfile(deviceId, {
       iccid,
       aid_hex: aidHex
     })
+    if (!isCurrent()) return
     if (!result.ok) throw new Error(result.error.message || `${action}失败`)
-    ElMessage.success(`Profile ${action}成功`)
+    switchSubmitted.value = true
+    ElMessage.success('切卡指令已提交，正在恢复设备服务')
     applyOptimisticActive(iccid, aidHex)
+    // Covers completion before the SSE busy transition reaches this component.
+    const overview = await devicesService.getOverviewLite(deviceId)
+    if (isCurrent() && (!overview.ok || !overview.data?.esim_switching)) {
+      switchSubmitted.value = false
+    }
   } catch (e: unknown) {
-    ElMessage.error(errorMessage(e, `${action}失败`))
+    if (isCurrent()) ElMessage.error(errorMessage(e, `${action}失败`))
   } finally {
-    switching.value = null
+    if (isCurrent()) switching.value = null
   }
 }
 
@@ -452,11 +470,18 @@ watch(
   { immediate: true }
 )
 
+watch(() => props.deviceId, () => {
+  switchRequestId++
+  switching.value = null
+  switchSubmitted.value = false
+})
+
 watch(() => props.deviceImei, () => {
   applyDeviceImeiDefault(false)
 })
 
 onBeforeUnmount(() => {
+  switchRequestId++
   clearRecentSpaceDelta()
   if (fetchAbortController) {
     fetchAbortController.abort()
@@ -639,6 +664,7 @@ onBeforeUnmount(() => {
               size="small"
               type="success"
               :loading="switching === p.iccid"
+              :disabled="switchBusy"
               @click="switchProfile(p.iccid, p.state, group.aid_hex)"
               plain
             >

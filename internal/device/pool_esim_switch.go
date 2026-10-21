@@ -96,11 +96,22 @@ func (p *Pool) captureESIMSwitchContext(deviceID string, targetICCID string) esi
 }
 
 func (p *Pool) beginESIMSwitch(deviceID string, targetICCID string) esimSwitchContext {
-	snapshot := p.captureESIMSwitchContext(deviceID, targetICCID)
+	if worker := p.GetWorker(deviceID); worker != nil {
+		worker.simIdentityWriteMu.Lock()
+		defer worker.simIdentityWriteMu.Unlock()
+	}
 	p.switchMu.Lock()
+	if p.switchingDevices[deviceID] {
+		p.switchMu.Unlock()
+		return esimSwitchContext{}
+	}
 	if p.switchingDevices == nil {
 		p.switchingDevices = make(map[string]bool)
 	}
+	p.switchingDevices[deviceID] = true
+	p.switchMu.Unlock()
+	snapshot := p.captureESIMSwitchContext(deviceID, targetICCID)
+	p.switchMu.Lock()
 	if p.switchContexts == nil {
 		p.switchContexts = make(map[string]esimSwitchContext)
 	}
@@ -119,14 +130,16 @@ func (p *Pool) beginESIMSwitch(deviceID string, targetICCID string) esimSwitchCo
 	go func(capturedAt time.Time) {
 		<-time.After(2 * time.Minute)
 		p.switchMu.Lock()
-		defer p.switchMu.Unlock()
 		current, ok := p.switchContexts[deviceID]
 		if !ok || !current.CapturedAt.Equal(capturedAt) {
+			p.switchMu.Unlock()
 			return
 		}
 		delete(p.switchContexts, deviceID)
 		delete(p.switchingDevices, deviceID)
 		delete(p.switchTokens, deviceID)
+		p.switchMu.Unlock()
+		p.broadcastVoWiFiStateChange(deviceID)
 		logger.Warn("切卡超时保护触发，已自动清理切卡中标记", "device", deviceID)
 	}(snapshot.CapturedAt)
 
@@ -225,6 +238,7 @@ func (p *Pool) clearESIMSwitch(deviceID string) {
 	delete(p.switchingDevices, deviceID)
 	delete(p.switchTokens, deviceID)
 	p.switchMu.Unlock()
+	p.broadcastVoWiFiStateChange(deviceID)
 }
 
 func (p *Pool) clearESIMSwitchIfToken(deviceID string, token uint64) {
@@ -232,13 +246,15 @@ func (p *Pool) clearESIMSwitchIfToken(deviceID string, token uint64) {
 		return
 	}
 	p.switchMu.Lock()
-	defer p.switchMu.Unlock()
 	if p.switchTokens[deviceID] != token {
+		p.switchMu.Unlock()
 		return
 	}
 	delete(p.switchContexts, deviceID)
 	delete(p.switchingDevices, deviceID)
 	delete(p.switchTokens, deviceID)
+	p.switchMu.Unlock()
+	p.broadcastVoWiFiStateChange(deviceID)
 }
 
 func (p *Pool) applyNetworkPreferenceForSwitchSnapshot(worker *Worker, snapshot esimSwitchContext) error {
@@ -311,6 +327,9 @@ func (p *Pool) bringRadioOnlineAfterSwitch(deviceID string, worker *Worker, snap
 
 func (p *Pool) handleESIMSwitchBefore(deviceID string, targetICCID string) (uint64, error) {
 	snapshot := p.beginESIMSwitch(deviceID, targetICCID)
+	if snapshot.SwitchToken == 0 {
+		return 0, fmt.Errorf("切卡处理中: %w", esim.ErrOperationInProgress)
+	}
 	if worker := p.GetWorker(deviceID); worker != nil {
 		worker.holdRadioPolicy()
 		worker.networkDesired.Store(false)
@@ -358,6 +377,23 @@ func (p *Pool) handleESIMSwitchBefore(deviceID string, targetICCID string) (uint
 	return snapshot.SwitchToken, nil
 }
 
+var errStalePostSwitchIdentity = errors.New("post_switch_identity_superseded")
+
+func (p *Pool) lockPostSwitchIdentity(deviceID string, worker *Worker, snapshot esimSwitchContext) (func(), error) {
+	worker.simIdentityWriteMu.Lock()
+	worker.cacheMu.RLock()
+	generation := worker.state.Identity.Generation
+	worker.cacheMu.RUnlock()
+	// Completed switches may still have bounded identity refreshes pending.
+	if (snapshot.SwitchToken != 0 && !p.isLatestSwitchToken(deviceID, snapshot.SwitchToken) &&
+		(snapshot.IdentityGeneration == 0 || p.IsESIMSwitching(deviceID))) ||
+		(snapshot.IdentityGeneration != 0 && generation != snapshot.IdentityGeneration) {
+		worker.simIdentityWriteMu.Unlock()
+		return nil, errStalePostSwitchIdentity
+	}
+	return worker.simIdentityWriteMu.Unlock, nil
+}
+
 func (p *Pool) refreshPostSwitchIdentity(deviceID string, worker *Worker, snapshot esimSwitchContext) (bool, error) {
 	pollTimeout := postSwitchIdentityPollTimeout
 	if pollTimeout <= 0 {
@@ -376,11 +412,23 @@ func (p *Pool) refreshPostSwitchIdentityWithPolling(deviceID string, worker *Wor
 	targetICCID := normalizeSIMIdentity(snapshot.TargetICCID)
 	targetICCIDKey := normalizeSIMIdentityForCompare(targetICCID)
 	oldICCIDKey := normalizeSIMIdentityForCompare(oldICCID)
-	worker.EnsureSIMIdentityTransition(targetICCID, "post_switch_finalize")
+	unlockIdentity, err := p.lockPostSwitchIdentity(deviceID, worker, snapshot)
+	if err != nil {
+		return false, err
+	}
+	if snapshot.IdentityGeneration == 0 {
+		snapshot.IdentityGeneration = worker.ensureSIMIdentityTransition(targetICCID, "post_switch_finalize")
+	}
+	unlockIdentity()
 
 	reader, ok := worker.Backend.(liveSIMIdentityReader)
 	if !ok {
-		err := fmt.Errorf("live_identity_not_supported")
+		unlockIdentity, err := p.lockPostSwitchIdentity(deviceID, worker, snapshot)
+		if err != nil {
+			return false, err
+		}
+		defer unlockIdentity()
+		err = fmt.Errorf("live_identity_not_supported")
 		worker.MarkSIMIdentityDegraded("post_switch_finalize", err)
 		logger.Warn("切卡后 live 身份读取能力不可用，将按严格门控处理",
 			"device", deviceID,
@@ -409,6 +457,11 @@ func (p *Pool) refreshPostSwitchIdentityWithPolling(deviceID string, worker *Wor
 
 	pollDeadline := time.Now().Add(pollTimeout)
 	for {
+		unlockIdentity, err := p.lockPostSwitchIdentity(deviceID, worker, snapshot)
+		if err != nil {
+			return false, err
+		}
+		unlockIdentity()
 		liveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		liveICCID, liveICCIDErr := reader.GetICCIDLive(liveCtx)
 		liveIMSI, liveIMSIErr := reader.GetIMSILive(liveCtx)
@@ -443,6 +496,11 @@ func (p *Pool) refreshPostSwitchIdentityWithPolling(deviceID string, worker *Wor
 		time.Sleep(pollInterval)
 	}
 
+	unlockIdentity, err = p.lockPostSwitchIdentity(deviceID, worker, snapshot)
+	if err != nil {
+		return false, err
+	}
+	defer unlockIdentity()
 	newICCIDKey := normalizeSIMIdentityForCompare(newICCID)
 	if targetICCIDKey != "" && newICCIDKey != targetICCIDKey {
 		err := fmt.Errorf("post_switch_target_iccid_not_active")
@@ -677,7 +735,6 @@ func (p *Pool) schedulePostSwitchIdentityRefreshes(deviceID string, snapshot esi
 				logger.Debug("切卡后补刷新 SIM 身份失败", "device", deviceID, "delay", delay.String(), "err", err)
 				return
 			}
-			p.PersistIdentityState(worker)
 			p.broadcastVoWiFiStateChange(deviceID)
 			logger.Debug("切卡后补刷新 SIM 身份完成", "device", deviceID, "delay", delay.String())
 		}()
@@ -924,6 +981,13 @@ func (p *Pool) handleESIMSwitchFailure(deviceID string, token uint64, commandNot
 	if !ok {
 		return
 	}
+	defer func() {
+		if snapshot.SwitchToken != 0 {
+			p.clearESIMSwitchIfToken(deviceID, snapshot.SwitchToken)
+		} else {
+			p.clearESIMSwitch(deviceID)
+		}
+	}()
 	worker := p.GetWorker(deviceID)
 	if worker == nil {
 		logger.Warn("eSIM 切卡失败收尾：设备不存在，已清理切卡状态", "device", deviceID)
@@ -977,11 +1041,6 @@ func (p *Pool) handleESIMSwitchDegradedWithError(deviceID string, token uint64, 
 func (p *Pool) finishESIMSwitchForFailure(deviceID string, token uint64) (esimSwitchContext, bool) {
 	if token == 0 {
 		snapshot, ok := p.finishESIMSwitch(deviceID)
-		if ok && snapshot.SwitchToken != 0 {
-			p.clearESIMSwitchIfToken(deviceID, snapshot.SwitchToken)
-			return snapshot, true
-		}
-		p.clearESIMSwitch(deviceID)
 		if !ok {
 			snapshot = p.captureESIMSwitchContext(deviceID, "")
 		}
@@ -1005,9 +1064,6 @@ func (p *Pool) finishESIMSwitchForFailure(deviceID string, token uint64) (esimSw
 			"switch_token", token)
 		return esimSwitchContext{}, false
 	}
-	delete(p.switchContexts, deviceID)
-	delete(p.switchingDevices, deviceID)
-	delete(p.switchTokens, deviceID)
 	return snapshot, true
 }
 
@@ -1037,8 +1093,15 @@ func (p *Pool) handleESIMSwitchAfter(deviceID string, token uint64) {
 		logger.Warn("切卡后恢复失败：设备不存在", "device", deviceID)
 		return
 	}
-	snapshot.IdentityGeneration = worker.EnsureSIMIdentityTransition(snapshot.TargetICCID, "post_switch_finalize")
+	unlockIdentity, err := p.lockPostSwitchIdentity(deviceID, worker, snapshot)
+	if err != nil {
+		return
+	}
+	if snapshot.IdentityGeneration == 0 {
+		snapshot.IdentityGeneration = worker.ensureSIMIdentityTransition(snapshot.TargetICCID, "post_switch_finalize")
+	}
 	p.updateESIMSwitchIdentityGeneration(deviceID, snapshot.SwitchToken, snapshot.IdentityGeneration)
+	unlockIdentity()
 	p.broadcastVoWiFiStateChange(deviceID)
 
 	coreWaitStart := time.Now()
@@ -1057,6 +1120,9 @@ func (p *Pool) handleESIMSwitchAfter(deviceID string, token uint64) {
 		"network_enabled_before", snapshot.NetworkEnabledBefore)
 
 	convergence := p.runPostSwitchConvergence(deviceID, token, worker, snapshot)
+	if !p.switchTokenStillCurrent(deviceID, token, "sim_convergence") {
+		return
+	}
 	if convergence.Degraded {
 		p.markESIMSwitchPhaseIfToken(deviceID, token, esim.SwitchPhaseDegraded)
 		p.schedulePostSwitchIdentityRefreshes(deviceID, snapshot)

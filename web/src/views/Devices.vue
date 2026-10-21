@@ -1291,7 +1291,7 @@ usePollingScheduler(async () => {
               </div>
             </el-tab-pane>
             <el-tab-pane label="eSIM" name="esim" lazy>
-              <DeviceEsimTab :device-id="selectedDevice.id" :device-imei="selectedDevice.modem?.imei || ''" :is-active="activeTab === 'esim'" :device-online="selectedDevice.running === true" />
+              <DeviceEsimTab :esim-switching="selectedDevice.esim_switching === true" :device-id="selectedDevice.id" :device-imei="selectedDevice.modem?.imei || ''" :is-active="activeTab === 'esim'" :device-online="selectedDevice.running === true" />
             </el-tab-pane>
             <el-tab-pane label="AT 终端" name="at" lazy>
               <DeviceAtTab

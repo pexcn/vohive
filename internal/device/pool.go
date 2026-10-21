@@ -111,6 +111,9 @@ type Worker struct {
 	stop             chan struct{}
 	stopOnce         sync.Once
 
+	// Serializes switch ownership and identity commits, including persistence.
+	simIdentityWriteMu sync.Mutex
+
 	cachedIP            string
 	cachedPublicIPv6    string
 	cacheTime           time.Time
