@@ -1076,6 +1076,34 @@ func TestSwitchProfileFailedCallbackReceivesOriginalError(t *testing.T) {
 	}
 }
 
+func TestProfileBusyRejectionDoesNotRunSwitchFailureCallbacks(t *testing.T) {
+	for _, disable := range []bool{false, true} {
+		mgr := newTestManagerWithOverviewLoader(nil)
+		mgr.switchSignal <- "active switch ready"
+		mgr.onBeforeSwitch = func(SwitchOperation, string) (uint64, error) {
+			return 0, ErrOperationInProgress
+		}
+		mgr.onSwitchFailed = func(SwitchOperation, uint64, error) {
+			t.Error("rejected operation ran failure cleanup")
+		}
+		mgr.onSwitchPhase = func(SwitchOperation, uint64, SwitchPhase) {
+			t.Error("rejected operation changed active switch phase")
+		}
+		var err error
+		if disable {
+			err = mgr.DisableProfile(context.Background(), "8986001234567890123", "0102")
+		} else {
+			_, err = mgr.SwitchProfileWithResult(context.Background(), "8986001234567890123", "0102")
+		}
+		if !errors.Is(err, ErrOperationInProgress) {
+			t.Fatalf("busy rejection err=%v", err)
+		}
+		if len(mgr.switchSignal) != 1 {
+			t.Fatal("rejected operation drained the active switch readiness signal")
+		}
+	}
+}
+
 func TestSwitchProfilePostSwitchHookStillRunsWhenBackendPowerWouldFail(t *testing.T) {
 	const aidHex = "A0000005591010FFFFFFFF8900000100"
 	const targetICCID = "8986001234567890123"

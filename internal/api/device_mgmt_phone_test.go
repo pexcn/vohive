@@ -378,6 +378,26 @@ func TestHandleEsimGetOverviewRefreshPreservesBusyContractOnRefreshFailure(t *te
 	}
 }
 
+func TestHandleEsimSwitchBusyReturnsConflict(t *testing.T) {
+	mgr := newTestEsimManager()
+	setNestedPrivateField(t, mgr, []string{"onBeforeSwitch"}, func(esim.SwitchOperation, string) (uint64, error) {
+		return 0, esim.ErrOperationInProgress
+	})
+	p := device.NewPool(&config.Config{})
+	setNestedPrivateField(t, p, []string{"workers"}, map[string]*device.Worker{
+		"dev-esim": {ID: "dev-esim", EsimMgr: mgr},
+	})
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: "dev-esim"}}
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/devices/dev-esim/esim/actions/switch", strings.NewReader(`{"iccid":"8986001234567890123","aid_hex":"0102"}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	(&Server{pool: p}).handleEsimSwitchProfile(ctx)
+	if recorder.Code != http.StatusConflict || !containsAll(recorder.Body.String(), `"busy":true`, `"code":"ESIM_BUSY"`) {
+		t.Fatalf("unexpected busy response: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestHandleEsimGetOverviewRefreshPreservesResponseSemanticsWhenGetFailsAfterRefresh(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

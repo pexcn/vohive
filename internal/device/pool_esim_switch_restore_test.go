@@ -334,6 +334,7 @@ func TestStalePostSwitchHookDoesNotClearNewSwitch(t *testing.T) {
 	p := NewPool(&config.Config{})
 	deviceID := "dev-1"
 	first := p.beginESIMSwitch(deviceID, "")
+	p.clearESIMSwitchIfToken(deviceID, first.SwitchToken) // The first task expired before its callback.
 	second := p.beginESIMSwitch(deviceID, "")
 
 	p.handleESIMSwitchAfter(deviceID, first.SwitchToken)
@@ -354,6 +355,7 @@ func TestStaleSwitchFailedDoesNotClearNewSwitch(t *testing.T) {
 	p := NewPool(&config.Config{})
 	deviceID := "dev-1"
 	first := p.beginESIMSwitch(deviceID, "")
+	p.clearESIMSwitchIfToken(deviceID, first.SwitchToken) // The first task expired before its callback.
 	second := p.beginESIMSwitch(deviceID, "")
 
 	p.handleESIMSwitchFailed(deviceID, first.SwitchToken)
@@ -389,6 +391,7 @@ func TestSwitchPhaseIgnoresStaleToken(t *testing.T) {
 	p := NewPool(&config.Config{})
 	deviceID := "dev-1"
 	first := p.beginESIMSwitch(deviceID, "")
+	p.clearESIMSwitchIfToken(deviceID, first.SwitchToken) // The first task expired before its callback.
 	second := p.beginESIMSwitch(deviceID, "")
 
 	if p.markESIMSwitchPhaseIfToken(deviceID, first.SwitchToken, esim.SwitchPhaseDone) {

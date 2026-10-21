@@ -56,6 +56,10 @@ func TestOverviewStreamEmitVersionTracksRuntimeBusinessState(t *testing.T) {
 		item deviceMgmtOverviewLiteItem
 	}{
 		{
+			name: "switch started",
+			item: deviceMgmtOverviewLiteItem{ESIMSwitching: true, VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "registering", TunnelReady: true}},
+		},
+		{
 			name: "phase changed",
 			item: deviceMgmtOverviewLiteItem{VoWiFiActive: true, VoWiFiRuntime: &voWiFiRuntimeDTO{Phase: "ready", TunnelReady: true}},
 		},
