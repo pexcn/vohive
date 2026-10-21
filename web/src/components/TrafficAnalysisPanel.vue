@@ -14,29 +14,6 @@ type TooltipParam = {
   color?: string
 }
 
-type EChartsCoreModule = {
-  use: (components: unknown[]) => void
-}
-
-type EChartsRendererModule = {
-  CanvasRenderer?: unknown
-}
-
-type EChartsChartsModule = {
-  LineChart?: unknown
-}
-
-type EChartsComponentsModule = {
-  GridComponent?: unknown
-  TooltipComponent?: unknown
-  LegendComponent?: unknown
-  DataZoomComponent?: unknown
-}
-
-type VueEChartsModule = {
-  default: unknown
-}
-
 const props = withDefaults(defineProps<{
   analysis: TrafficAnalysis
   loading?: boolean
@@ -94,27 +71,8 @@ async function ensureChartLoaded() {
       chartLoading.value = true
       chartLoadError.value = null
       chartInitPromise = (async () => {
-        const [core, renderers, charts, comps, vueEcharts] = await Promise.all([
-          import('echarts/core'),
-          import('echarts/renderers'),
-          import('echarts/charts'),
-          import('echarts/components'),
-          import('vue-echarts')
-        ])
-        const coreMod = core as unknown as EChartsCoreModule
-        const rendererMod = renderers as unknown as EChartsRendererModule
-        const chartMod = charts as unknown as EChartsChartsModule
-        const compMod = comps as unknown as EChartsComponentsModule
-        const vueEchartsMod = vueEcharts as unknown as VueEChartsModule
-        coreMod.use([
-          rendererMod.CanvasRenderer,
-          chartMod.LineChart,
-          compMod.GridComponent,
-          compMod.TooltipComponent,
-          compMod.LegendComponent,
-          compMod.DataZoomComponent
-        ])
-        VChartComp.value = vueEchartsMod.default
+        const { default: VChart } = await import('./trafficChart')
+        VChartComp.value = VChart
       })()
     }
 
