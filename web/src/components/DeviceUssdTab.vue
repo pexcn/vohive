@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Phone24Regular } from '@vicons/fluent'
+import Phone24Regular from '@vicons/fluent/es/Phone24Regular'
 import { devicesService } from '../services/devices'
 
 const props = defineProps<{

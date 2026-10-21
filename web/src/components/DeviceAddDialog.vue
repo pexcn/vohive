@@ -2,7 +2,8 @@
 import { computed, watch } from 'vue'
 import type { DeviceConfigDTO, DiscoveredDevice } from '../types/api'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
-import { ArrowSync24Regular, Save24Regular } from '@vicons/fluent'
+import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
+import Save24Regular from '@vicons/fluent/es/Save24Regular'
 
 const props = defineProps<{
   modelValue: boolean

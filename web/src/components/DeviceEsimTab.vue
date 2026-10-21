@@ -20,14 +20,12 @@ import {
   shouldShowEsimNotificationIcon,
   shouldShowEsimRefreshIcon
 } from './deviceEsimNotifications'
-import {
-  Add24Regular,
-  Alert24Regular,
-  ArrowDownload24Regular,
-  ArrowSync24Regular,
-  Eye24Regular,
-  EyeOff24Regular
-} from '@vicons/fluent'
+import Add24Regular from '@vicons/fluent/es/Add24Regular'
+import Alert24Regular from '@vicons/fluent/es/Alert24Regular'
+import ArrowDownload24Regular from '@vicons/fluent/es/ArrowDownload24Regular'
+import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
+import Eye24Regular from '@vicons/fluent/es/Eye24Regular'
+import EyeOff24Regular from '@vicons/fluent/es/EyeOff24Regular'
 
 const props = defineProps<{
   deviceId: string

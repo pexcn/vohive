@@ -32,10 +32,8 @@ import { toAppError } from '../services/http'
 import { devicesService } from '../services/devices'
 import { cardsService } from '../services/cards'
 import { createEmptyTrafficAnalysis, trafficService, type TrafficRange } from '../services/traffic'
-import {
-  ArrowSync24Regular,
-  Add24Regular
-} from '@vicons/fluent'
+import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
+import Add24Regular from '@vicons/fluent/es/Add24Regular'
 
 const router = useRouter()
 const route = useRoute()

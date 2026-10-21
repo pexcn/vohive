@@ -5,15 +5,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSettingsStore } from '../stores/settings'
 import PageHeader from '../components/PageHeader.vue'
 import FieldRow from '../components/FieldRow.vue'
-import { 
-  Key24Regular, 
-  Save24Regular,
-  Server24Regular,
-  Alert24Regular,
-  Add20Regular,
-  Delete20Regular,
-  DocumentText24Regular
-} from '@vicons/fluent'
+import Key24Regular from '@vicons/fluent/es/Key24Regular'
+import Save24Regular from '@vicons/fluent/es/Save24Regular'
+import Server24Regular from '@vicons/fluent/es/Server24Regular'
+import Alert24Regular from '@vicons/fluent/es/Alert24Regular'
+import Add20Regular from '@vicons/fluent/es/Add20Regular'
+import Delete20Regular from '@vicons/fluent/es/Delete20Regular'
+import DocumentText24Regular from '@vicons/fluent/es/DocumentText24Regular'
 
 const settingsStore = useSettingsStore()
 const { systemInfo, loadingNotifications, savingNotifications, testingWebhook, testingBark, testingEmail, changingPassword, passwordForm, telegramForm, feishuForm, qqForm, webhookSettings, barkSettings, emailForm, pushplusForm } = storeToRefs(settingsStore)

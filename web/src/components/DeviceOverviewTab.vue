@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Eye24Regular, EyeOff24Regular } from '@vicons/fluent'
+import Eye24Regular from '@vicons/fluent/es/Eye24Regular'
+import EyeOff24Regular from '@vicons/fluent/es/EyeOff24Regular'
 import type { DeviceOverviewItem } from '../types/api'
 import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
 import { activeEsimProfileDisplayName } from './deviceOverviewActiveEsim'
 import { isControlOnline, isRadioRegistered, isRecoveryPhase, lifecycleStatusLabel } from '../utils/deviceLifecycle'
 import StatusLight from './StatusLight.vue'
 import OperatorSelectionDialog from './OperatorSelectionDialog.vue'
-import { Settings24Regular } from '@vicons/fluent'
+import Settings24Regular from '@vicons/fluent/es/Settings24Regular'
 import type { StatusLightTone } from './statusLight'
 
 const props = defineProps<{

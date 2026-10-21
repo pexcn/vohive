@@ -15,17 +15,15 @@ import {
   upstreamProxyAddressWarning,
   upstreamProxyIPv6AddressHint
 } from '../utils/upstreamProxyAddress'
-import {
-  Add24Regular,
-  Play24Regular,
-  Stop24Regular,
-  ArrowSync24Regular,
-  Edit24Regular,
-  Delete24Regular,
-  Router24Regular,
-  Link24Regular,
-  Earth24Regular
-} from '@vicons/fluent'
+import Add24Regular from '@vicons/fluent/es/Add24Regular'
+import Play24Regular from '@vicons/fluent/es/Play24Regular'
+import Stop24Regular from '@vicons/fluent/es/Stop24Regular'
+import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
+import Edit24Regular from '@vicons/fluent/es/Edit24Regular'
+import Delete24Regular from '@vicons/fluent/es/Delete24Regular'
+import Router24Regular from '@vicons/fluent/es/Router24Regular'
+import Link24Regular from '@vicons/fluent/es/Link24Regular'
+import Earth24Regular from '@vicons/fluent/es/Earth24Regular'
 
 // ── Tab 控制 ──
 const activeTab = ref('upstream') // 默认展示前置代理

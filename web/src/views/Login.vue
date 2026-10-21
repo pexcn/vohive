@@ -2,7 +2,9 @@
 import { ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useRoute, useRouter } from 'vue-router'
-import { Person24Regular, LockClosed24Regular, ArrowRight24Regular } from '@vicons/fluent'
+import Person24Regular from '@vicons/fluent/es/Person24Regular'
+import LockClosed24Regular from '@vicons/fluent/es/LockClosed24Regular'
+import ArrowRight24Regular from '@vicons/fluent/es/ArrowRight24Regular'
 
 const auth = useAuthStore()
 const router = useRouter()

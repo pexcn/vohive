@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Code24Regular, Warning24Regular } from '@vicons/fluent'
+import Code24Regular from '@vicons/fluent/es/Code24Regular'
+import Warning24Regular from '@vicons/fluent/es/Warning24Regular'
 import { AT_TEMPLATES } from '../constants/atTemplates'
 import { devicesService } from '../services/devices'
 

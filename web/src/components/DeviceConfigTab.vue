@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
-import {
-  Router24Regular,
-  Delete24Regular,
-  Save24Regular
-} from '@vicons/fluent'
+import Router24Regular from '@vicons/fluent/es/Router24Regular'
+import Delete24Regular from '@vicons/fluent/es/Delete24Regular'
+import Save24Regular from '@vicons/fluent/es/Save24Regular'
 import type { DeviceConfigDTO, DeviceOverviewItem } from '../types/api'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
 

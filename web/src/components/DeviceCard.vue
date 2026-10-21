@@ -2,15 +2,13 @@
 import { computed } from 'vue'
 import type { DashboardDevice } from '../types/api'
 import StatusLight from './StatusLight.vue'
-import {
-  Cellular3G24Regular,
-  Cellular4G24Regular,
-  Cellular5G24Regular,
-  CellularData124Regular,
-  Wifi124Regular, 
-  Globe24Regular,
-  Sim24Regular
-} from '@vicons/fluent'
+import Cellular3G24Regular from '@vicons/fluent/es/Cellular3G24Regular'
+import Cellular4G24Regular from '@vicons/fluent/es/Cellular4G24Regular'
+import Cellular5G24Regular from '@vicons/fluent/es/Cellular5G24Regular'
+import CellularData124Regular from '@vicons/fluent/es/CellularData124Regular'
+import Wifi124Regular from '@vicons/fluent/es/Wifi124Regular'
+import Globe24Regular from '@vicons/fluent/es/Globe24Regular'
+import Sim24Regular from '@vicons/fluent/es/Sim24Regular'
 
 const props = defineProps<{ device: DashboardDevice }>()
 const emit = defineEmits<{

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowSync24Regular } from '@vicons/fluent'
+import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
 
 defineProps<{
   loading?: boolean

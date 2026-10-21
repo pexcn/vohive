@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { WeatherMoon24Regular, WeatherSunny24Regular } from '@vicons/fluent'
+import WeatherMoon24Regular from '@vicons/fluent/es/WeatherMoon24Regular'
+import WeatherSunny24Regular from '@vicons/fluent/es/WeatherSunny24Regular'
 
 const props = defineProps<{
   isDark: boolean

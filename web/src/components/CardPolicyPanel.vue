@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Sim24Regular } from '@vicons/fluent'
+import Sim24Regular from '@vicons/fluent/es/Sim24Regular'
 import { Loading } from '@element-plus/icons-vue'
 import type { CardPolicy } from '../types/api'
 import { devicesService } from '../services/devices'

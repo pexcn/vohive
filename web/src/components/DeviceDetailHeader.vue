@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { DeviceOverviewItem } from '../types/api'
-import { ArrowSync24Regular, Power24Regular, Mail24Regular } from '@vicons/fluent'
+import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
+import Power24Regular from '@vicons/fluent/es/Power24Regular'
+import Mail24Regular from '@vicons/fluent/es/Mail24Regular'
 
 defineProps<{
   device: DeviceOverviewItem

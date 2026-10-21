@@ -7,15 +7,13 @@ import LoadingScreen from '../components/LoadingScreen.vue'
 import ErrorBoundary from '../components/ErrorBoundary.vue'
 import SwitchDark from '../components/SwitchDark.vue'
 import { debugCollector } from '../debug/collector'
-import {
-  Mail24Regular,
-  Settings24Regular,
-  SignOut24Regular,
-  Board24Regular,
-  Phone24Regular,
-  Globe24Regular,
-  DocumentText24Regular
-} from '@vicons/fluent'
+import Mail24Regular from '@vicons/fluent/es/Mail24Regular'
+import Settings24Regular from '@vicons/fluent/es/Settings24Regular'
+import SignOut24Regular from '@vicons/fluent/es/SignOut24Regular'
+import Board24Regular from '@vicons/fluent/es/Board24Regular'
+import Phone24Regular from '@vicons/fluent/es/Phone24Regular'
+import Globe24Regular from '@vicons/fluent/es/Globe24Regular'
+import DocumentText24Regular from '@vicons/fluent/es/DocumentText24Regular'
 
 defineProps({
   isDark: {
