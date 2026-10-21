@@ -69,6 +69,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     StatusLight: typeof import('./components/StatusLight.vue')['default']
+    SvgIcon: typeof import('./components/SvgIcon.vue')['default']
     SwitchDark: typeof import('./components/SwitchDark.vue')['default']
     TrafficAnalysisPanel: typeof import('./components/TrafficAnalysisPanel.vue')['default']
   }

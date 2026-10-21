@@ -2,9 +2,10 @@
 import { ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useRoute, useRouter } from 'vue-router'
-import Person24Regular from '@vicons/fluent/es/Person24Regular'
-import LockClosed24Regular from '@vicons/fluent/es/LockClosed24Regular'
-import ArrowRight24Regular from '@vicons/fluent/es/ArrowRight24Regular'
+import person from '@material-symbols/svg-400/outlined/person.svg?raw'
+import lock from '@material-symbols/svg-400/outlined/lock.svg?raw'
+import arrowForward from '@material-symbols/svg-400/outlined/arrow_forward.svg?raw'
+import SvgIcon from '../components/SvgIcon.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -16,22 +17,35 @@ const form = ref({
 })
 
 const loading = ref(false)
+const loginError = ref('')
+
+function fieldValue(event: Event) {
+  return (event.target as HTMLInputElement).value
+}
+
+function submitOnEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  event.preventDefault()
+  if (!loading.value) {
+    (event.currentTarget as HTMLFormElement).requestSubmit()
+  }
+}
 
 async function handleLogin() {
-  const { ElMessage } = await import('element-plus')
+  if (loading.value) return
+  loginError.value = ''
   if (!form.value.username || !form.value.password) {
-    ElMessage.warning('请输入用户名和密码')
+    loginError.value = '请输入用户名和密码'
     return
   }
-  
-  loading.value = true
-  // Mock delay for feel
-  await new Promise<void>(r => setTimeout(r, 600))
-  const success = await auth.login(form.value.username, form.value.password)
-  loading.value = false
 
-  if (success) {
-    ElMessage.success('欢迎回来')
+  loading.value = true
+  try {
+    const success = await auth.login(form.value.username, form.value.password)
+    if (!success) {
+      loginError.value = '登录失败，请检查凭证'
+      return
+    }
     const q = typeof route.query.redirect === 'string' ? route.query.redirect : ''
     let redirect = q ? decodeURIComponent(q) : ''
     if (!redirect) {
@@ -47,79 +61,146 @@ async function handleLogin() {
       } catch {
         // Ignore sessionStorage delete failures.
       }
-      router.push(redirect)
+      await router.push(redirect)
     } else {
-      router.push('/')
+      await router.push('/')
     }
-  } else {
-    ElMessage.error('登录失败，请检查凭证')
+  } finally {
+    loading.value = false
   }
 }
 </script>
 
 <template>
-  <div class="relative w-full h-full flex items-center justify-center overflow-hidden">
-    <div class="absolute -top-32 -left-32 w-[520px] h-[520px] rounded-full bg-indigo-500/15 dark:bg-indigo-500/20 blur-[120px] animate-pulse-slow" />
-    <div class="absolute -bottom-32 -right-32 w-[520px] h-[520px] rounded-full bg-indigo-500/12 dark:bg-indigo-500/16 blur-[120px] animate-pulse-slow" style="animation-delay: 2s" />
+  <main class="login-page">
+    <section class="login-card" aria-labelledby="login-title">
+      <header class="login-heading">
+        <div class="login-mark" aria-hidden="true">VH</div>
+        <h1 id="login-title">登录 VoHive</h1>
+        <p>4G 模组管理后台</p>
+      </header>
 
-    <div class="relative w-full max-w-md p-1">
-      <div class="relative bg-white/70 dark:bg-[#141418]/70 backdrop-blur-xl border border-gray-100 dark:border-white/10 rounded-2xl p-8 shadow-2xl overflow-hidden group">
-        <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/8 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
-        <div class="text-center mb-10 relative z-10">
-          <div class="w-20 h-20 bg-[#5b5bd6] rounded-2xl mx-auto flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-indigo-500/20 mb-6 transform group-hover:scale-105 transition-transform duration-300">
-            VH
-          </div>
-          <h2 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400">
-            VoHive
-          </h2>
-          <p class="text-gray-500 dark:text-gray-400 text-sm mt-3 tracking-wide">4G 模组管理后台</p>
-        </div>
-
-        <form @submit.prevent="handleLogin" class="space-y-6 relative z-10">
-          <div class="space-y-2">
-            <div class="relative">
-              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 dark:text-gray-500">
-                <Person24Regular class="w-5 h-5" />
-              </div>
-              <input 
-                v-model="form.username" 
-                class="w-full bg-white/70 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-lg py-3 pl-10 pr-4 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500/40 transition-all font-mono text-sm"
-                placeholder="用户名"
-                type="text"
-              />
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <div class="relative">
-              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 dark:text-gray-500">
-                <LockClosed24Regular class="w-5 h-5" />
-              </div>
-              <input 
-                v-model="form.password" 
-                class="w-full bg-white/70 dark:bg-black/20 border border-gray-200 dark:border-white/10 rounded-lg py-3 pl-10 pr-4 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-500/40 transition-all font-mono text-sm"
-                placeholder="密码"
-                type="password"
-              />
-            </div>
-          </div>
-
-          <button 
-            type="submit" 
-            :disabled="loading"
-            class="w-full bg-[#5b5bd6] hover:bg-[#4a4ac2] text-white font-bold py-3 px-4 rounded-lg shadow-sm flex items-center justify-center gap-2 transform active:scale-95 transition-all duration-200 disabled:opacity-70 disabled:cursor-not-allowed"
-          >
-            <span v-if="loading" class="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-            <span v-else>登录</span>
-            <ArrowRight24Regular v-if="!loading" class="w-5 h-5" />
-          </button>
-        </form>
-      </div>
-      
-      <div class="text-center mt-6">
-        <p class="text-gray-500 text-xs">VoHive &copy; 2026</p>
-      </div>
-    </div>
-  </div>
+      <form @submit.prevent="handleLogin" @keydown.enter="submitOnEnter" class="login-form" :aria-busy="loading">
+        <md-outlined-text-field
+          :value="form.username"
+          label="用户名"
+          name="username"
+          autocomplete="username"
+          required
+          :disabled="loading"
+          @input="form.username = fieldValue($event)"
+        >
+          <SvgIcon :svg="person" slot="leading-icon" />
+        </md-outlined-text-field>
+        <md-outlined-text-field
+          :value="form.password"
+          label="密码"
+          type="password"
+          name="password"
+          autocomplete="current-password"
+          required
+          :disabled="loading"
+          @input="form.password = fieldValue($event)"
+        >
+          <SvgIcon :svg="lock" slot="leading-icon" />
+        </md-outlined-text-field>
+        <p v-if="loginError" class="login-error" role="alert">{{ loginError }}</p>
+        <md-filled-button type="submit" :disabled="loading" :aria-busy="loading" class="login-submit">
+          <md-circular-progress v-if="loading" slot="icon" indeterminate aria-hidden="true" />
+          <SvgIcon v-else :svg="arrowForward" slot="icon" />
+          {{ loading ? '正在登录…' : '登录' }}
+        </md-filled-button>
+      </form>
+    </section>
+    <footer class="login-footer">VoHive &copy; 2026</footer>
+  </main>
 </template>
+
+<style scoped>
+.login-page {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 72px 24px 32px;
+  overflow: auto;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--md-ref-typeface-plain);
+}
+
+.login-card {
+  flex: none;
+  width: 100%;
+  max-width: 420px;
+  margin: auto 0;
+  padding: 32px;
+  border-radius: 28px;
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.login-heading {
+  margin-bottom: 32px;
+}
+
+.login-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 24px;
+  border-radius: 16px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.login-heading h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 36px;
+}
+
+.login-heading p,
+.login-footer {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 14px;
+}
+
+.login-heading p {
+  margin-top: 8px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.login-submit {
+  width: 100%;
+}
+
+md-circular-progress {
+  --md-circular-progress-size: 18px;
+  --md-circular-progress-active-indicator-color: currentColor;
+}
+
+.login-error {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+  font-size: 14px;
+}
+
+.login-footer {
+  flex: none;
+  margin-top: 24px;
+  font-size: 12px;
+}
+</style>

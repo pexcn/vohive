@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
+import refresh from '@material-symbols/svg-400/outlined/refresh.svg?raw'
+import SvgIcon from './SvgIcon.vue'
 
 defineProps<{
   loading?: boolean
@@ -12,8 +13,21 @@ defineEmits<{
 </script>
 
 <template>
-  <el-button :loading="loading" :disabled="disabled" class="!border-0 !bg-white/70 dark:!bg-white/5 ui-action-btn" @click="$emit('click')">
-    <el-icon><ArrowSync24Regular /></el-icon>
+  <md-outlined-button type="button" :disabled="disabled || loading" :aria-busy="loading" @click="$emit('click')">
+    <md-circular-progress v-if="loading" slot="icon" indeterminate aria-hidden="true" />
+    <SvgIcon v-else :svg="refresh" slot="icon" class="refresh-icon" />
     刷新
-  </el-button>
+  </md-outlined-button>
 </template>
+
+<style scoped>
+.refresh-icon {
+  width: 18px;
+  height: 18px;
+}
+
+md-circular-progress {
+  --md-circular-progress-size: 18px;
+  --md-circular-progress-active-indicator-color: currentColor;
+}
+</style>

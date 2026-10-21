@@ -10,7 +10,13 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
-      vue(),
+      vue({
+        template: {
+          compilerOptions: {
+            isCustomElement: (tag) => tag.startsWith('md-')
+          }
+        }
+      }),
       AutoImport({
         dts: 'src/auto-imports.d.ts',
         imports: ['vue', 'vue-router', 'pinia'],

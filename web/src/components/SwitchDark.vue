@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import WeatherMoon24Regular from '@vicons/fluent/es/WeatherMoon24Regular'
-import WeatherSunny24Regular from '@vicons/fluent/es/WeatherSunny24Regular'
+import darkMode from '@material-symbols/svg-400/outlined/dark_mode.svg?raw'
+import lightMode from '@material-symbols/svg-400/outlined/light_mode.svg?raw'
+import SvgIcon from './SvgIcon.vue'
 
 const props = defineProps<{
   isDark: boolean
@@ -16,8 +17,7 @@ function onToggle() {
 </script>
 
 <template>
-  <el-button circle @click="onToggle" class="!border-0 !bg-gray-100/70 dark:!bg-white/5">
-    <el-icon v-if="isDark"><WeatherSunny24Regular /></el-icon>
-    <el-icon v-else><WeatherMoon24Regular /></el-icon>
-  </el-button>
+  <md-icon-button :aria-label="isDark ? '切换为浅色主题' : '切换为深色主题'" @click="onToggle">
+    <SvgIcon :svg="isDark ? lightMode : darkMode" />
+  </md-icon-button>
 </template>
