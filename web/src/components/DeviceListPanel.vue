@@ -31,17 +31,6 @@ const registrationText = (d: DeviceMgmtListItem) => {
   return '未驻网'
 }
 
-const dataNetworkText = (d: DeviceMgmtListItem) => {
-  if (d?.vowifi_enabled) return ''
-  if (!d?.network_enabled) return '数据未开启'
-  if (!d?.network_connected) return '数据网络未连接'
-  return ''
-}
-
-const secondaryStatus = (d: DeviceMgmtListItem) => {
-  if (d?.vowifi_enabled) return 'WiFi-Calling'
-  return [registrationText(d), dataNetworkText(d)].filter(Boolean).join(' · ')
-}
 </script>
 
 <template>
@@ -74,7 +63,15 @@ const secondaryStatus = (d: DeviceMgmtListItem) => {
           </span>
         </span>
         <span class="device-option-meta">{{ d.id }} · {{ d.interface || '--' }}</span>
-        <span class="device-option-meta">{{ secondaryStatus(d) }}</span>
+        <span class="device-option-meta">
+          <span v-if="d.vowifi_enabled" class="device-connected">Wi-Fi Calling</span>
+          <template v-else>
+            {{ registrationText(d) }}
+            <template v-if="d.network_enabled && d.network_connected">
+              · <span class="device-connected">数据已连接</span>
+            </template>
+          </template>
+        </span>
       </button>
     </div>
   </section>
@@ -150,5 +147,8 @@ const secondaryStatus = (d: DeviceMgmtListItem) => {
   color: var(--md-sys-color-on-surface-variant);
   font-size: 12px;
   line-height: 16px;
+}
+.device-connected {
+  color: var(--vh-success);
 }
 </style>
