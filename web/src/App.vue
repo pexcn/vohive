@@ -46,18 +46,27 @@ const shell = computed(() =>
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 24%, transparent);
+  background: var(--md-sys-color-outline-variant);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent);
+  background: var(--md-sys-color-outline);
+}
+::-webkit-scrollbar-thumb:active {
+  background: var(--md-sys-color-on-surface-variant);
+}
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--md-sys-color-outline-variant) transparent;
+  }
 }
 @media (max-width: 767px) {
   ::-webkit-scrollbar {
