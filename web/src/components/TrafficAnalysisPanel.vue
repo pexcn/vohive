@@ -486,7 +486,7 @@ function handleRangeChange(value: string | number | boolean | undefined) {
         </div>
       </div>
     </header>
-    <p v-if="disabled" class="traffic-empty m3-muted">网络已禁用，暂无流量分析</p>
+    <p v-if="disabled" class="traffic-empty m3-muted">数据网络未开启</p>
     <template v-else>
       <ErrorState
         v-if="error"

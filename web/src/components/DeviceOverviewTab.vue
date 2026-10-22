@@ -157,7 +157,7 @@ const cellularStatusText = computed(() => {
 })
 
 const networkPanelMessage = computed(() => {
-  if (!props.device?.network_enabled) return '数据未开启'
+  if (!props.device?.network_enabled) return '数据网络未开启'
   if (!props.device?.network_connected) return '数据网络未连接'
   return ''
 })
@@ -291,7 +291,7 @@ const networkPanelMessage = computed(() => {
     </section>
     <section class="m3-inset">
       <div class="m3-row">
-        <h2 class="m3-title">SIM 与设备</h2>
+        <h2 class="m3-title">设备信息</h2>
         <md-icon-button
           :aria-label="showSensitive ? '隐藏敏感信息' : '显示敏感信息'"
           :aria-pressed="showSensitive"
@@ -368,7 +368,7 @@ const networkPanelMessage = computed(() => {
       </div>
     </section>
     <section class="network-panel m3-inset">
-      <h2 class="m3-title">网络与流量</h2>
+      <h2 class="m3-title">数据网络</h2>
       <p v-if="networkPanelMessage" class="network-empty m3-muted">{{ networkPanelMessage }}</p>
       <div v-else class="overview-fields">
         <FieldRow label="内网 IPv4" :value="device?.private_ip" monospace copyable />
