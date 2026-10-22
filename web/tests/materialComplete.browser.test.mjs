@@ -218,10 +218,14 @@ import DeviceEsimTab from '/src/components/DeviceEsimTab.vue'
 import DeviceAtTab from '/src/components/DeviceAtTab.vue'
 import DeviceUssdTab from '/src/components/DeviceUssdTab.vue'
 import DeviceConfigTab from '/src/components/DeviceConfigTab.vue'
+import FieldRow from '/src/components/FieldRow.vue'
+import StatusLight from '/src/components/StatusLight.vue'
 import {notify,requestConfirmation} from '/src/stores/feedback'
 const config=ref({id:'fixture',name:'Fixture modem',device_backend:'qmi',control_device:'/dev/wwan0qmi0'})
 window.feedbackFixture={notify,requestConfirmation,results:[]}
-</script><template><main class="fixture m3-stack"><DeviceEsimTab device-id="fixture" :is-active="true" :device-online="true"/><DeviceAtTab device-id="fixture" :running="true" at-port="/dev/fixture-at" backend-mode="qmi"/><DeviceUssdTab device-id="fixture" :vowifi-active="true"/><DeviceConfigTab :edit-config="config" :saving="false" :deleting="false"/></main><MaterialFeedback/></template><style>.fixture{padding:24px;max-width:1000px;margin:auto}</style>`
+window.fieldSubmits=0
+const onFieldSubmit=()=>window.fieldSubmits++
+</script><template><main class="fixture m3-stack"><DeviceEsimTab device-id="fixture" :is-active="true" :device-online="true"/><DeviceAtTab device-id="fixture" :running="true" at-port="/dev/fixture-at" backend-mode="qmi"/><DeviceUssdTab device-id="fixture" :vowifi-active="true"/><DeviceConfigTab :edit-config="config" :saving="false" :deleting="false"/><form @submit.prevent="onFieldSubmit"><FieldRow id="field-copy" label="测试字段" value="fixture-copy" copyable/><FieldRow id="field-empty" label="空值" value="--" copyable/><FieldRow id="field-plain" label="文本" value="plain"/></form><StatusLight id="status-motion" tone="success"/></main><MaterialFeedback/></template><style>.fixture{padding:24px;max-width:1000px;margin:auto}</style>`
           },
           configureServer(dev) {
             dev.middlewares.use(async (req, res, next) => {
@@ -509,6 +513,41 @@ window.feedbackFixture={notify,requestConfirmation,results:[]}
       await click(confirm + ' [slot=actions] md-text-button')
       await wait(closed(confirm))
       assert.equal(calls.filter((c) => c.method === 'DELETE').length, 0)
+      // Long feedback remains keyboard-scrollable and does not cover the mobile composer.
+      await evaluate(
+        `(async()=>{const {notify}=await import('/src/stores/feedback.ts');notify({message:'Long failure '+('diagnostic detail\\n'.repeat(100)),tone:'error'})})()`
+      )
+      await wait(`document.querySelector('.snackbar-message')?.tabIndex===0`)
+      for (const height of [844, 480]) {
+        await send('Emulation.setDeviceMetricsOverride', {
+          width: 390,
+          height,
+          deviceScaleFactor: 1,
+          mobile: true
+        })
+        await evaluate(`document.querySelector('.sms-composer').scrollIntoView({block:'end'})`)
+        await wait(
+          `(()=>{const bar=document.querySelector('.snackbar').getBoundingClientRect(),anchor=document.querySelector('.sms-composer').getBoundingClientRect();return bar.bottom<=anchor.top-8 && bar.top>=0 && bar.right<=innerWidth})()`
+        )
+        assert.equal(
+          await evaluate(
+            `(()=>{const text=document.querySelector('.snackbar-message');return text.scrollHeight>text.clientHeight && text.clientHeight<=240})()`
+          ),
+          true
+        )
+      }
+      await evaluate(`document.querySelector('.snackbar-message').focus()`)
+      await key('PageDown', 'PageDown', 34)
+      await wait(`document.querySelector('.snackbar-message').scrollTop>0`)
+      await snapshot('sms-long-feedback-mobile')
+      await click('.snackbar md-text-button')
+      await wait(`!document.querySelector('.snackbar')`)
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 1,
+        mobile: true
+      })
       await noOverflow()
       await snapshot('sms-dark-mobile')
       await send('Emulation.setDeviceMetricsOverride', {
@@ -613,12 +652,69 @@ window.feedbackFixture={notify,requestConfirmation,results:[]}
         `window.progress=feedbackFixture.notify({message:'progress',duration:0});feedbackFixture.notify({message:'new result'});progress.close();void 0`
       )
       await wait('document.querySelector(".snackbar")?.textContent.includes("new result")')
+      // Copy controls retain native button keyboard semantics without submitting their form.
+      await evaluate(
+        `window.copies=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copies.push(text)}}});document.querySelector('#field-copy button').focus();void 0`
+      )
+      assert.equal(
+        await evaluate(`document.querySelector('#field-copy button').getAttribute('aria-label')`),
+        '复制测试字段：fixture-copy'
+      )
+      assert.equal(
+        await evaluate(`document.activeElement===document.querySelector('#field-copy button')`),
+        true,
+        'Copy button receives focus'
+      )
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13,
+        text: '\r'
+      })
+      await send('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key: 'Enter',
+        code: 'Enter',
+        windowsVirtualKeyCode: 13
+      })
+      await until(() => evaluate('window.copies.length===1'), 'Enter copies the field')
+      await key(' ', 'Space', 32)
+      await until(() => evaluate('window.copies.length===2'), 'Space copies the field')
+      assert.deepEqual(await evaluate('window.copies'), ['fixture-copy', 'fixture-copy'])
+      assert.equal(await evaluate('window.fieldSubmits'), 0)
+      assert.equal(
+        await evaluate(
+          `document.querySelectorAll('#field-empty button,#field-plain button').length`
+        ),
+        0
+      )
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }]
+      })
+      assert.equal(
+        await evaluate(`getComputedStyle(document.querySelector('#status-motion')).animationName`),
+        'none'
+      )
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }]
+      })
+      assert.notEqual(
+        await evaluate(`getComputedStyle(document.querySelector('#status-motion')).animationName`),
+        'none'
+      )
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 600,
+        deviceScaleFactor: 1,
+        mobile: true
+      })
       await evaluate(
         `feedbackFixture.requestConfirmation({title:'First',message:'one'}).catch(v=>feedbackFixture.results.push(v));feedbackFixture.requestConfirmation({title:'Second',message:'<img src=x onerror=alert(1)>',alert:true}).then(()=>feedbackFixture.results.push('accepted'));void 0`
       )
       await wait(`document.querySelector('${deviceConfirm}').open`)
       await evaluate(
-        `window.previousFocus=document.activeElement;feedbackFixture.notify({message:'Modal failure',tone:'error'});void 0`
+        `window.previousFocus=document.activeElement;feedbackFixture.notify({message:'Modal failure '+('diagnostic details\\n'.repeat(100)),tone:'error'});void 0`
       )
       await wait('document.querySelector(".snackbar")?.textContent.includes("Modal failure")')
       assert.equal(
@@ -626,6 +722,10 @@ window.feedbackFixture={notify,requestConfirmation,results:[]}
         true,
         'Showing a notice must not steal modal focus'
       )
+      await wait(
+        `(()=>{const bar=document.querySelector('.snackbar').getBoundingClientRect(),actions=document.querySelector('#fixture > md-dialog [slot=actions]').getBoundingClientRect();return bar.bottom<=actions.top-8 && bar.top>=0})()`
+      )
+      await snapshot('modal-long-feedback-mobile')
       await click('.snackbar md-text-button')
       await wait('!document.querySelector(".snackbar")')
       await key('Escape', 'Escape', 27)
@@ -641,6 +741,12 @@ window.feedbackFixture={notify,requestConfirmation,results:[]}
       await click(deviceConfirm + ' md-filled-button')
       await wait(closed(deviceConfirm))
       assert.deepEqual(await evaluate('feedbackFixture.results'), ['cancel', 'accepted'])
+      await send('Emulation.setDeviceMetricsOverride', {
+        width: 1440,
+        height: 1000,
+        deviceScaleFactor: 1,
+        mobile: false
+      })
       await evaluate('document.documentElement.classList.remove("dark");window.scrollTo(0,0)')
       await snapshot('esim-light-desktop')
       await send('Emulation.setDeviceMetricsOverride', {
@@ -656,7 +762,10 @@ window.feedbackFixture={notify,requestConfirmation,results:[]}
       if (debugEvaluate)
         console.error(
           (await debugEvaluate('document.body.innerText')).slice(0, 3000),
-          JSON.stringify(exceptions)
+          JSON.stringify(exceptions),
+          await debugEvaluate(
+            `({copies:window.copies,submits:window.fieldSubmits,active:document.activeElement?.outerHTML})`
+          )
         )
       if (debugSend)
         await writeFile(
