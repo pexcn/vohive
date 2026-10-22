@@ -161,16 +161,18 @@ const networkPanelMessage = computed(() => {
       <template v-if="device?.vowifi_enabled">
         <div class="runtime-status" :data-tone="vowifiStatusTone">
           <StatusLight :tone="vowifiStatusTone" :animated="vowifiStatus !== 'off'" />
-          <span v-if="vowifiStatus === 'ok'">Wi-Fi Calling · 全部就绪</span>
-          <span v-else-if="vowifiStatus === 'partial'">{{ notReadyNames.join(' · ') }} 未就绪</span>
-          <span v-else>VoWiFi 未连接</span>
+          <div class="runtime-status-content">
+            <span v-if="vowifiStatus === 'ok'">Wi-Fi Calling · 全部就绪</span>
+            <span v-else-if="vowifiStatus === 'partial'">{{ notReadyNames.join(' · ') }} 未就绪</span>
+            <span v-else>VoWiFi 未连接</span>
+            <p
+              v-if="vowifiStatus === 'partial' && device.vowifi_runtime?.last_reason"
+              class="runtime-reason"
+            >
+              {{ device.vowifi_runtime.last_reason }}
+            </p>
+          </div>
         </div>
-        <p
-          v-if="vowifiStatus === 'partial' && device.vowifi_runtime?.last_reason"
-          class="m3-muted runtime-reason"
-        >
-          {{ device.vowifi_runtime.last_reason }}
-        </p>
         <ol class="readiness-steps" aria-label="VoWiFi 连接进度">
           <li
             v-for="item in readinessItems"
@@ -407,8 +409,14 @@ const networkPanelMessage = computed(() => {
   color: var(--md-sys-color-on-error-container);
   background: var(--md-sys-color-error-container);
 }
+.runtime-status-content {
+  min-width: 0;
+}
 .runtime-reason {
-  margin-top: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
   overflow-wrap: anywhere;
 }
 .readiness-steps {
@@ -429,7 +437,7 @@ const networkPanelMessage = computed(() => {
   line-height: 16px;
 }
 .readiness-track {
-  height: 6px;
+  height: 5px;
   border-radius: 3px;
   background: var(--md-sys-color-outline-variant);
 }
