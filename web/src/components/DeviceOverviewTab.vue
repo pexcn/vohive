@@ -524,27 +524,36 @@ const networkPanelMessage = computed(() => {
   gap: 8px;
   margin-top: 8px;
   text-align: center;
-  font-size: 12px;
-  line-height: 16px;
-}
-.signal-detail dt {
   color: var(--md-sys-color-on-surface-variant);
-}
-.signal-detail dd {
-  margin: 4px 0 0;
   font-size: 14px;
   line-height: 20px;
+}
+.signal-detail > div {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 4px;
+}
+.signal-detail > div:first-child {
+  justify-content: flex-start;
+}
+.signal-detail > div:nth-child(3) {
+  justify-content: flex-end;
+}
+.signal-detail > div:nth-child(2)::before,
+.signal-detail > div:nth-child(3)::before {
+  content: '·';
+  position: absolute;
+  left: -4px;
+  transform: translateX(-50%);
+}
+.signal-detail dd {
+  margin: 0;
   font-variant-numeric: tabular-nums;
 }
 .signal-detail-extra {
   grid-column: 1 / -1;
-  display: flex;
-  justify-content: center;
-  align-items: baseline;
-  gap: 8px;
-}
-.signal-detail-extra dd {
-  margin: 0;
 }
 .network-empty {
   margin-top: 12px;
