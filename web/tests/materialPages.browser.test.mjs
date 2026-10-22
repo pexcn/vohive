@@ -143,7 +143,7 @@ try {
   await evaluate('location.hash="#/devices"')
   await wait('document.querySelector(".devices-layout")')
   await expectPageTitle('设备管理')
-  assert.equal(await evaluate('document.querySelectorAll(".page-heading md-outlined-button,.page-heading md-filled-button").length'),2)
+  assert.equal(await evaluate('document.querySelectorAll(".page-heading md-text-button,.page-heading md-filled-button").length'),2)
   await snapshot('devices-toolbar-dark')
   await evaluate('location.hash="#/"')
   await wait('document.querySelectorAll(".traffic-table tbody tr").length === 24')
@@ -205,7 +205,8 @@ try {
   await snapshot('navigation-rail-dark')
   await click('md-icon-button[aria-label="展开导航"]')
   await wait(`${navWidth} > 80 && ${navWidth} < 240`)
-  await click('md-icon-button[aria-label="收起导航"]')
+  // Trigger the moving toggle directly so animation timing cannot invalidate pointer coordinates.
+  await evaluate(`Array.from(document.querySelectorAll('md-icon-button')).find(el=>el.ariaLabel==='收起导航').click()`)
   await settledNavigation(80)
   await click('md-icon-button[aria-label="展开导航"]')
   await wait(`${navWidth} > 80 && ${navWidth} < 240`)

@@ -56,6 +56,7 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: {
       include: [
         '@material/web/button/filled-button.js',
+        '@material/web/button/filled-tonal-button.js',
         '@material/web/button/outlined-button.js',
         '@material/web/button/text-button.js',
         '@material/web/dialog/dialog.js',

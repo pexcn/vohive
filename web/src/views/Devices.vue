@@ -1196,7 +1196,7 @@ usePollingScheduler(async () => {
     <PageHeader>
       <template #actions>
         <div class="m3-actions">
-          <md-outlined-button
+          <md-text-button
             type="button"
             :disabled="rescanning"
             :aria-busy="rescanning"
@@ -1205,7 +1205,7 @@ usePollingScheduler(async () => {
             <md-circular-progress v-if="rescanning" slot="icon" class="m3-progress" indeterminate />
             <SvgIcon v-else slot="icon" :svg="scanIcon" />
             重新扫描
-          </md-outlined-button>
+          </md-text-button>
           <md-filled-button type="button" @click="openAddDialog">
             <SvgIcon slot="icon" :svg="addIcon" />
             添加设备

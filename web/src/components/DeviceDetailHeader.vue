@@ -42,7 +42,7 @@ const emit = defineEmits<{
       </div>
     </div>
     <div class="m3-actions">
-      <md-outlined-button
+      <md-text-button
         v-if="device.vowifi_enabled"
         type="button"
         :disabled="reconnectingVoWiFi"
@@ -57,8 +57,8 @@ const emit = defineEmits<{
         />
         <SvgIcon v-else slot="icon" :svg="refreshIcon" />
         重连 VoWiFi
-      </md-outlined-button>
-      <md-outlined-button
+      </md-text-button>
+      <md-text-button
         v-else
         type="button"
         :disabled="rotating || !device.network_connected"
@@ -68,8 +68,8 @@ const emit = defineEmits<{
         <md-circular-progress v-if="rotating" slot="icon" class="m3-progress" indeterminate />
         <SvgIcon v-else slot="icon" :svg="refreshIcon" />
         切换 IP
-      </md-outlined-button>
-      <md-outlined-button
+      </md-text-button>
+      <md-text-button
         type="button"
         :disabled="rebooting"
         :aria-busy="rebooting"
@@ -78,11 +78,11 @@ const emit = defineEmits<{
         <md-circular-progress v-if="rebooting" slot="icon" class="m3-progress" indeterminate />
         <SvgIcon v-else slot="icon" :svg="rebootIcon" />
         重启模组
-      </md-outlined-button>
-      <md-filled-button type="button" @click="emit('open-sms')">
+      </md-text-button>
+      <md-filled-tonal-button type="button" @click="emit('open-sms')">
         <SvgIcon slot="icon" :svg="smsIcon" />
         短信
-      </md-filled-button>
+      </md-filled-tonal-button>
     </div>
   </section>
 </template>
