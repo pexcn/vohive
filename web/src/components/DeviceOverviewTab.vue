@@ -160,11 +160,13 @@ const networkPanelMessage = computed(() => {
       </div>
       <template v-if="device?.vowifi_enabled">
         <div class="runtime-status" :data-tone="vowifiStatusTone">
-          <StatusLight :tone="vowifiStatusTone" :animated="vowifiStatus !== 'off'" />
           <div class="runtime-status-content">
-            <span v-if="vowifiStatus === 'ok'">Wi-Fi Calling · 全部就绪</span>
-            <span v-else-if="vowifiStatus === 'partial'">{{ notReadyNames.join(' · ') }} 未就绪</span>
-            <span v-else>VoWiFi 未连接</span>
+            <div class="runtime-status-label">
+              <StatusLight :tone="vowifiStatusTone" :animated="vowifiStatus !== 'off'" />
+              <span v-if="vowifiStatus === 'ok'">Wi-Fi Calling · 全部就绪</span>
+              <span v-else-if="vowifiStatus === 'partial'">{{ notReadyNames.join(' · ') }} 未就绪</span>
+              <span v-else>VoWiFi 未连接</span>
+            </div>
             <p
               v-if="vowifiStatus === 'partial' && device.vowifi_runtime?.last_reason"
               class="runtime-reason"
@@ -203,8 +205,10 @@ const networkPanelMessage = computed(() => {
       </template>
       <template v-else>
         <div class="runtime-status" :data-tone="cellularStatusTone">
-          <StatusLight :tone="cellularStatusTone" :animated="isRegistered" />
-          <span>{{ isRegistered ? device?.modem?.operator || '--' : cellularStatusText }}</span>
+          <div class="runtime-status-label">
+            <StatusLight :tone="cellularStatusTone" :animated="isRegistered" />
+            <span>{{ isRegistered ? device?.modem?.operator || '--' : cellularStatusText }}</span>
+          </div>
         </div>
         <div class="signal-reading" :data-signal="signalColor">
           <strong>
@@ -220,13 +224,24 @@ const networkPanelMessage = computed(() => {
             />
           </div>
         </div>
-        <p class="m3-muted signal-detail">
-          RSRP {{ device?.modem?.signal_rsrp ?? '--' }} · RSRQ
-          {{ device?.modem?.signal_rsrq ?? '--' }} · SINR {{ device?.modem?.signal_sinr ?? '--' }}
-          <template v-if="device?.modem?.nr5g_signal_sinr !== undefined">
-            · NR5G SINR {{ device.modem.nr5g_signal_sinr }}
-          </template>
-        </p>
+        <dl class="signal-detail">
+          <div>
+            <dt>RSRP</dt>
+            <dd>{{ device?.modem?.signal_rsrp ?? '--' }}</dd>
+          </div>
+          <div>
+            <dt>RSRQ</dt>
+            <dd>{{ device?.modem?.signal_rsrq ?? '--' }}</dd>
+          </div>
+          <div>
+            <dt>SINR</dt>
+            <dd>{{ device?.modem?.signal_sinr ?? '--' }}</dd>
+          </div>
+          <div v-if="device?.modem?.nr5g_signal_sinr !== undefined" class="signal-detail-extra">
+            <dt>NR5G SINR</dt>
+            <dd>{{ device.modem.nr5g_signal_sinr }}</dd>
+          </div>
+        </dl>
         <div class="overview-fields">
           <FieldRow
             label="网络模式"
@@ -388,7 +403,8 @@ const networkPanelMessage = computed(() => {
 .runtime-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  text-align: center;
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 12px;
@@ -410,6 +426,16 @@ const networkPanelMessage = computed(() => {
   background: var(--md-sys-color-error-container);
 }
 .runtime-status-content {
+  min-width: 0;
+}
+.runtime-status-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+.runtime-status-label > span {
   min-width: 0;
 }
 .runtime-reason {
@@ -481,7 +507,8 @@ const networkPanelMessage = computed(() => {
   align-items: flex-end;
   gap: 3px;
   height: 24px;
-  margin-left: 16px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .signal-bars span {
   width: 5px;
@@ -492,7 +519,32 @@ const networkPanelMessage = computed(() => {
   background: currentColor;
 }
 .signal-detail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
   margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+}
+.signal-detail dt {
+  color: var(--md-sys-color-on-surface-variant);
+}
+.signal-detail dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.signal-detail-extra {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+}
+.signal-detail-extra dd {
+  margin: 0;
 }
 .network-empty {
   margin-top: 12px;
