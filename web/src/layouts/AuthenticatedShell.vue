@@ -363,7 +363,7 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
   margin: 0 12px;
   padding: 0;
   border-radius: 28px;
-  overflow: hidden;
+  overflow: visible;
 }
 .navigation .navigation-link[aria-current='page'] {
   background: transparent;
@@ -401,10 +401,10 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
 }
 .navigation-label {
   position: absolute;
-  pointer-events: none;
 }
 .navigation-label-expanded {
   inset: 18px 16px auto 56px;
+  overflow: hidden;
   font-size: 14px;
   line-height: 20px;
 }

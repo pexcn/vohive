@@ -147,6 +147,20 @@ try {
   await wait(`${navWidth} > 80 && ${navWidth} < 240`)
   assert.equal(await evaluate(iconX),anchorX,'Icons do not jump horizontally during collapse')
   await settledNavigation(80)
+  const railEdges = await evaluate(`Array.from(document.querySelectorAll('.navigation-link[id]')).map(link => {
+    const pill = link.querySelector('.navigation-indicator').getBoundingClientRect()
+    const label = link.querySelector('.navigation-label-rail').getBoundingClientRect()
+    const hitsLink = (x, y) => document.elementFromPoint(x, y)?.closest('a') === link
+    return {
+      label: link.ariaLabel,
+      pill: [hitsLink(pill.left + 1, pill.top + pill.height / 2), hitsLink(pill.right - 1, pill.top + pill.height / 2)],
+      text: [hitsLink(label.left + 4, label.top + 12), hitsLink(label.right - 4, label.top + 12)]
+    }
+  })`)
+  for (const edges of railEdges) {
+    assert.deepEqual(edges.pill,[true,true],edges.label+' indicator edges must not be clipped')
+    assert.deepEqual(edges.text,[true,true],edges.label+' label edges must remain clickable')
+  }
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".navigation-label-rail")).opacity'),'1')
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".navigation-label-expanded")).opacity'),'0')
   await snapshot('navigation-rail-dark')
