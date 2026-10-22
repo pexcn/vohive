@@ -655,6 +655,7 @@ function handleRangeChange(value: string | number | boolean | undefined) {
 table {
   width: 100%;
   min-width: 480px;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 14px;
   line-height: 20px;
@@ -674,11 +675,15 @@ th:first-child {
   text-align: left;
 }
 thead th {
+  width: 22%;
   position: sticky;
   top: 0;
   z-index: 1;
   background: var(--md-sys-color-surface-container-low);
   color: var(--md-sys-color-on-surface-variant);
+}
+thead th:first-child {
+  width: 34%;
 }
 .table-empty {
   text-align: center;
@@ -693,7 +698,6 @@ thead th {
   }
   table {
     min-width: 0;
-    table-layout: fixed;
     font-size: 12px;
     line-height: 16px;
   }
@@ -702,9 +706,6 @@ thead th {
     padding: 4px;
     white-space: normal;
     overflow-wrap: anywhere;
-  }
-  th:first-child {
-    width: 34%;
   }
 }
 </style>
