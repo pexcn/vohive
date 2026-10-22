@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import SvgIcon from './SvgIcon.vue'
 import FieldRow from './FieldRow.vue'
+import CountryFlag from './CountryFlag.vue'
 import visibleIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
 import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
 import settingsIcon from '@material-symbols/svg-400/outlined/tune.svg?raw'
@@ -16,6 +17,7 @@ import type { StatusLightTone } from './statusLight'
 const props = defineProps<{
   device: DeviceOverviewItem | null
   simOperatorDisplay: string
+  simOperatorCountry?: string
   trafficSpeedRx: string
   trafficSpeedTx: string
   trafficMinuteRx: string
@@ -321,7 +323,9 @@ const networkPanelMessage = computed(() => {
           :value="activeEsimProfileName"
           monospace
         />
-        <FieldRow label="原运营商" :value="simOperatorDisplay" copyable />
+        <FieldRow label="原运营商" :value="simOperatorDisplay" copyable>
+          <CountryFlag :iso="simOperatorCountry" />{{ simOperatorDisplay }}
+        </FieldRow>
         <FieldRow label="固件版本" :value="device?.modem?.firmware" monospace copyable />
         <FieldRow label="飞行模式" :value="flightModeStatusText" />
         <FieldRow

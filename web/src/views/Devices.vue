@@ -23,7 +23,7 @@ import { useDevicesStore } from '../stores/devices'
 import { debugCollector } from '../debug/collector'
 import { copyToClipboard } from '../utils/clipboard'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
-import { getMccMncIndex, isoToFlagEmoji, type MccMncRow } from '../utils/mcc-mnc'
+import { getMccMncIndex, type MccMncRow } from '../utils/mcc-mnc'
 import type { CardPolicy, CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
 import type { AppError } from '../types/domain'
 import { toAppError } from '../services/http'
@@ -223,15 +223,8 @@ function pnnNameFromOPL(modem: ModemStatus | undefined): string {
   return ''
 }
 
-function flagForMccMnc(code: string): string {
-  const row = mccMncIndex.value?.get(code)
-  return row ? isoToFlagEmoji(row.iso) : ''
-}
-
 function formatNamedOperator(name: string, code: string): string {
-  const flag = flagForMccMnc(code)
-  if (!code) return flag ? `${flag} ${name}` : name
-  return `${flag ? flag + ' ' : ''}${name} (${code})`
+  return code ? `${name} (${code})` : name
 }
 
 function formatMccMncOperator(code: string): string {
@@ -344,6 +337,11 @@ const selectedSimOperatorDisplay = computed(() => {
   if (spn) return formatNamedOperator(spn, mccmnc)
   if (pnn) return formatNamedOperator(pnn, mccmnc)
   return mccmnc ? formatMccMncOperator(mccmnc) : '--'
+})
+
+const selectedSimOperatorCountry = computed(() => {
+  const code = nativeMccMnc(selectedDevice.value?.modem)
+  return mccMncIndex.value?.get(code)?.iso || ''
 })
 
 function formatBytesPerSecond(bps: unknown) {
@@ -1276,6 +1274,7 @@ usePollingScheduler(async () => {
               <DeviceOverviewTab
                 :device="selectedDevice"
                 :sim-operator-display="selectedSimOperatorDisplay"
+                :sim-operator-country="selectedSimOperatorCountry"
                 :traffic-speed-rx="trafficSpeedRx"
                 :traffic-speed-tx="trafficSpeedTx"
                 :traffic-minute-rx="rollingMinuteRx"
