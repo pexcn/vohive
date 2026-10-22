@@ -1430,7 +1430,7 @@ usePollingScheduler(async () => {
 }
 @container (min-width: 1060px) {
   .devices-layout {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 }
 </style>
