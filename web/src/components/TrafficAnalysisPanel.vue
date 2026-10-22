@@ -381,7 +381,7 @@ const chartOption = computed(() => {
           </div>`
         })
         if (otherItems.length > 0) {
-          res += `<div class="flex justify-between gap-4 text-xs text-gray-500">
+          res += `<div class="flex justify-between gap-4 text-xs" style="color:${colors.muted}">
             <span>其他（${otherItems.length}）</span>
             <span class="font-mono">${otherSum.toFixed(unit.decimals)} ${unit.label}</span>
           </div>`

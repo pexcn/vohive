@@ -53,26 +53,16 @@ const shell = computed(() =>
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 24%, transparent);
   border-radius: 4px;
 }
-.dark ::-webkit-scrollbar-thumb {
-  background: #334155;
-}
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent);
 }
 @media (max-width: 767px) {
   ::-webkit-scrollbar {
     width: 3px;
     height: 3px;
-  }
-  ::-webkit-scrollbar-thumb,
-  .dark ::-webkit-scrollbar-thumb {
-    background: color-mix(in srgb, var(--md-sys-color-on-surface) 24%, transparent);
   }
 }
 </style>

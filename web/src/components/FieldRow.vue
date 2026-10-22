@@ -39,22 +39,30 @@ async function copy() {
 <template>
   <div class="flex w-full min-w-0 items-center justify-between gap-3 overflow-hidden">
     <span class="field-label shrink-0 whitespace-nowrap">{{ label }}</span>
-    <span
-      class="block min-w-0 max-w-full flex-1 truncate text-right"
+    <component
+      :is="canCopy ? 'button' : 'span'"
+      :type="canCopy ? 'button' : undefined"
+      :aria-label="canCopy ? (sensitive ? `复制${label}` : `复制${label}：${displayValue}`) : undefined"
+      class="field-value block min-w-0 max-w-full flex-1 truncate text-right"
       :class="[
         monospace ? 'font-mono' : '',
         canCopy ? 'cursor-pointer hover:underline' : '',
-        sensitive ? 'blur-sm select-none transition-all' : '',
+        sensitive ? 'blur-sm select-none motion-safe:transition-all' : ''
       ]"
       :title="titleValue"
       @click="copy"
     >
       <slot>{{ displayValue }}</slot>
-    </span>
+    </component>
   </div>
 </template>
 
 <style scoped>
+.field-value:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
 .field-label {
   color: var(--md-sys-color-on-surface-variant);
 }

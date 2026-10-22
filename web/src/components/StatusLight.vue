@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<{
 })
 
 const classes = computed(() => [
-  'rounded-full inline-block flex-shrink-0',
+  'status-light rounded-full inline-block flex-shrink-0',
   statusLightToneClass(props.tone),
   statusLightSizeClass(props.size),
   statusLightAnimatedClass(props.animated)
@@ -28,3 +28,11 @@ const classes = computed(() => [
 <template>
   <span aria-hidden="true" :class="classes" />
 </template>
+
+<style scoped>
+@media (prefers-reduced-motion: reduce) {
+  .status-light {
+    animation: none;
+  }
+}
+</style>
