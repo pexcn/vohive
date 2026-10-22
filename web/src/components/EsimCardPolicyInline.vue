@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
+import { fieldSelected } from '../utils/material'
 import { computed, onMounted, ref } from 'vue'
-import { Loading } from '@element-plus/icons-vue'
 import type { CardPolicy } from '../types/api'
 import { cardsService } from '../services/cards'
 import { devicesService } from '../services/devices'
@@ -104,60 +105,52 @@ const {
     emit('policyChanged')
   }
 })
+
+function changePolicy(field: keyof PolicyMirror, event: Event) {
+  const enabled = fieldSelected(event)
+  local.value[field] = enabled
+  if (field === 'network_enabled') void onNetworkToggle(enabled)
+  else if (field === 'vowifi_enabled') void onVoWiFiToggle(enabled)
+  else void onAirplaneToggle(enabled)
+}
 </script>
 
 <template>
-  <div class="px-4 py-3 bg-gray-50/60 dark:bg-white/5 rounded-lg space-y-3">
-    <div v-if="loading" class="text-xs text-gray-400 flex items-center gap-1">
-      <el-icon class="animate-spin"><Loading /></el-icon> 正在加载策略...
+  <section class="m3-inset m3-stack" aria-label="此 Profile 的卡策略">
+    <p v-if="loading" class="m3-muted" role="status">正在加载策略…</p>
+    <div v-else-if="loadFailed" class="m3-row">
+      <span class="m3-error">策略加载失败</span
+      ><md-text-button @click="loadPolicy">重试</md-text-button>
     </div>
-    <div v-else-if="loadFailed" class="text-xs text-orange-500 flex items-center gap-2">
-      策略加载失败
-      <el-button size="small" text @click="loadPolicy">重试</el-button>
-    </div>
-    <template v-else>
-      <div v-if="hint" class="text-[11px] text-amber-600 dark:text-amber-400">{{ hint }}</div>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <!-- 网络 -->
-        <div class="flex items-center justify-between rounded-lg px-3 py-2 bg-white dark:bg-white/5">
-          <span class="text-sm text-gray-700 dark:text-gray-200">网络</span>
-          <div class="flex items-center gap-2">
-            <span v-if="networkFailed" class="text-xs text-orange-500">未生效</span>
-            <el-icon v-if="networkPending" class="animate-spin text-gray-400"><Loading /></el-icon>
-            <el-switch
-              v-model="local.network_enabled"
-              :disabled="local.vowifi_enabled || local.airplane_enabled || networkPending"
-              @change="onNetworkToggle"
-            />
-          </div>
-        </div>
-        <!-- VoWiFi -->
-        <div class="flex items-center justify-between rounded-lg px-3 py-2 bg-white dark:bg-white/5">
-          <span class="text-sm text-gray-700 dark:text-gray-200">VoWiFi</span>
-          <div class="flex items-center gap-2">
-            <span v-if="vowifiFailed" class="text-xs text-orange-500">未生效</span>
-            <el-icon v-if="vowifiPending" class="animate-spin text-gray-400"><Loading /></el-icon>
-            <el-switch
-              v-model="local.vowifi_enabled"
-              :disabled="vowifiPending"
-              @change="onVoWiFiToggle"
-            />
-          </div>
-        </div>
-        <!-- 飞行 -->
-        <div class="flex items-center justify-between rounded-lg px-3 py-2 bg-white dark:bg-white/5">
-          <span class="text-sm text-gray-700 dark:text-gray-200">飞行</span>
-          <div class="flex items-center gap-2">
-            <span v-if="airplaneFailed" class="text-xs text-orange-500">未生效</span>
-            <el-icon v-if="airplanePending" class="animate-spin text-gray-400"><Loading /></el-icon>
-            <el-switch
-              v-model="local.airplane_enabled"
-              :disabled="local.vowifi_enabled || airplanePending"
-              @change="onAirplaneToggle"
-            />
-          </div>
-        </div>
-      </div>
+    <template v-else
+      ><p v-if="hint" class="m3-notice">{{ hint }}</p>
+      <label class="m3-switch-row"
+        ><span>开启网络 <small v-if="networkFailed" class="m3-error">未生效，请重试</small></span
+        ><md-switch
+          v-sync-switch
+          aria-label="此卡开启网络"
+          :selected="local.network_enabled"
+          :disabled="local.vowifi_enabled || local.airplane_enabled || networkPending"
+          @change="changePolicy('network_enabled', $event)"
+      /></label>
+      <label class="m3-switch-row"
+        ><span>VoWiFi <small v-if="vowifiFailed" class="m3-error">未生效，请重试</small></span
+        ><md-switch
+          v-sync-switch
+          aria-label="此卡 VoWiFi"
+          :selected="local.vowifi_enabled"
+          :disabled="vowifiPending"
+          @change="changePolicy('vowifi_enabled', $event)"
+      /></label>
+      <label class="m3-switch-row"
+        ><span>飞行模式 <small v-if="airplaneFailed" class="m3-error">未生效，请重试</small></span
+        ><md-switch
+          v-sync-switch
+          aria-label="此卡飞行模式"
+          :selected="local.airplane_enabled"
+          :disabled="local.vowifi_enabled || airplanePending"
+          @change="changePolicy('airplane_enabled', $event)"
+      /></label>
     </template>
-  </div>
+  </section>
 </template>

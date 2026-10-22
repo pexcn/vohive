@@ -4,7 +4,7 @@ import { storeToRefs } from 'pinia'
 import PageHeader from '../components/PageHeader.vue'
 import SvgIcon from '../components/SvgIcon.vue'
 import ErrorState from '../components/ErrorState.vue'
-import MaterialSnackbar from '../components/MaterialSnackbar.vue'
+import { notify } from '../stores/feedback'
 import StatusLight from '../components/StatusLight.vue'
 import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
 import downloadIcon from '@material-symbols/svg-400/outlined/download.svg?raw'
@@ -25,7 +25,6 @@ const autoScroll = ref(true)
 const levelFilter = ref<'all' | 'debug' | 'info' | 'warn' | 'error'>('all')
 const searchQuery = ref('')
 const maxLogs = 1000 // 最大保留日志条数
-const notice = ref('')
 let disposed = false
 const levels = ['all', 'debug', 'info', 'warn', 'error'] as const
 
@@ -116,7 +115,7 @@ function exportLogs() {
   a.download = `logs-${new Date().toISOString().slice(0, 10)}.txt`
   a.click()
   URL.revokeObjectURL(url)
-  notice.value = '已导出日志'
+  notify({ message: '已导出日志', tone: 'success' })
 }
 
 // 格式化日期时间
@@ -256,7 +255,6 @@ watch(levelFilter, () => {
         </div>
       </div>
     </section>
-    <MaterialSnackbar :message="notice" @dismiss="notice = ''" />
   </div>
 </template>
 

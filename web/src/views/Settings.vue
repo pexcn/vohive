@@ -1,23 +1,35 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { notify, requestConfirmation } from '../stores/feedback'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSettingsStore } from '../stores/settings'
 import PageHeader from '../components/PageHeader.vue'
 import FieldRow from '../components/FieldRow.vue'
-import Key24Regular from '@vicons/fluent/es/Key24Regular'
-import Save24Regular from '@vicons/fluent/es/Save24Regular'
-import Server24Regular from '@vicons/fluent/es/Server24Regular'
-import Alert24Regular from '@vicons/fluent/es/Alert24Regular'
-import Add20Regular from '@vicons/fluent/es/Add20Regular'
-import Delete20Regular from '@vicons/fluent/es/Delete20Regular'
-import DocumentText24Regular from '@vicons/fluent/es/DocumentText24Regular'
+import { fieldValue, fieldSelected } from '../utils/material'
+import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
+import SvgIcon from '../components/SvgIcon.vue'
+import visibilityIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
+import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
 
 const settingsStore = useSettingsStore()
-const { systemInfo, loadingNotifications, savingNotifications, testingWebhook, testingBark, testingEmail, changingPassword, passwordForm, telegramForm, feishuForm, qqForm, webhookSettings, barkSettings, emailForm, pushplusForm } = storeToRefs(settingsStore)
+const {
+  systemInfo,
+  loadingNotifications,
+  savingNotifications,
+  testingWebhook,
+  testingBark,
+  testingEmail,
+  changingPassword,
+  passwordForm,
+  telegramForm,
+  feishuForm,
+  qqForm,
+  webhookSettings,
+  barkSettings,
+  emailForm,
+  pushplusForm
+} = storeToRefs(settingsStore)
 const activeNotifyTab = ref('telegram')
-
-
 
 const hasValidWebhookURLs = computed(() => {
   if (!Array.isArray(webhookSettings.value.urls)) {
@@ -44,20 +56,20 @@ const hasValidEmailConfig = computed(() => {
   )
 })
 
-
 async function changePassword() {
+  if (changingPassword.value) return
   if (passwordForm.value.new_password !== passwordForm.value.confirm_password) {
-    ElMessage.error('两次输入的新密码不一致')
+    notify({ tone: 'error', message: '两次输入的新密码不一致' })
     return
   }
-  
+
   try {
-     const result = await settingsStore.changePasswordFromForm()
-     if (!result.ok) throw new Error(result.error.message || '更新失败')
-     ElMessage.success('密码已更新')
-     settingsStore.resetPasswordForm()
+    const result = await settingsStore.changePasswordFromForm()
+    if (!result.ok) throw new Error(result.error.message || '更新失败')
+    notify({ tone: 'success', message: '密码已更新' })
+    settingsStore.resetPasswordForm()
   } catch {
-     ElMessage.error('失败：后端尚未实现该功能或请求失败')
+    notify({ tone: 'error', message: '失败：后端尚未实现该功能或请求失败' })
   }
 }
 
@@ -68,39 +80,45 @@ async function loadSystemInfo() {
   }
 }
 
-
 async function loadNotifications() {
   try {
     const result = await settingsStore.fetchNotifications()
     if (!result.ok) throw new Error(result.error.message || '通知配置加载失败')
     syncWebhookHeaderRowsFromSettings()
   } catch {
-    ElMessage.error('通知配置加载失败')
+    notify({ tone: 'error', message: '通知配置加载失败' })
   }
 }
 
 function openAPIDocs() {
   const docsURL = String(systemInfo.value.docs?.swagger_ui || '').trim()
   if (!docsURL) {
-    ElMessage.warning('API 文档入口暂不可用')
+    notify({ tone: 'warning', message: 'API 文档入口暂不可用' })
     return
   }
   window.open(docsURL, '_blank', 'noopener,noreferrer')
 }
 
 async function saveNotifications() {
+  if (loadingNotifications.value || savingNotifications.value) return
   try {
     const result = await settingsStore.saveNotificationsFromForms()
     if (!result.ok) throw new Error(result.error.message || '通知配置保存失败')
     const applied = result.data.applied
     const warning = result.data.warning
     if (applied === false && warning) {
-      ElMessage.warning(warning)
+      notify({ tone: 'warning', message: warning })
     } else {
-      ElMessage.success('通知配置已保存（已写入 config.yaml）')
+      notify({
+        tone: 'success',
+        message: '通知配置已保存（已写入 config.yaml）'
+      })
     }
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : '通知配置保存失败')
+    notify({
+      tone: 'error',
+      message: e instanceof Error ? e.message : '通知配置保存失败'
+    })
   }
 }
 
@@ -112,22 +130,28 @@ async function testWebhookNotification() {
     }
     const data = result.data
     if (data.ok) {
-      ElMessage.success(data.message || '测试通知已发送')
+      notify({ tone: 'success', message: data.message || '测试通知已发送' })
       return
     }
     if (Array.isArray(data.failed_urls) && data.failed_urls.length > 0) {
-      ElMessage.error(`${data.message}\n失败 URL: ${data.failed_urls.join(', ')}`)
+      notify({
+        tone: 'error',
+        message: `${data.message}\n失败 URL: ${data.failed_urls.join(', ')}`
+      })
       return
     }
-    ElMessage.error(data.message || 'Webhook 测试失败')
+    notify({ tone: 'error', message: data.message || 'Webhook 测试失败' })
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : 'Webhook 测试失败')
+    notify({
+      tone: 'error',
+      message: e instanceof Error ? e.message : 'Webhook 测试失败'
+    })
   }
 }
 
 function addWebhookUrl() {
   if (!webhookSettings.value.urls) {
-     webhookSettings.value.urls = []
+    webhookSettings.value.urls = []
   }
   webhookSettings.value.urls.push('')
 }
@@ -139,7 +163,7 @@ function removeWebhookUrl(index: number) {
 // 自定义请求头以「行」形式编辑（rows 为唯一编辑源），保存时单向回写为 map。
 // 受保护的系统头由后端强制覆盖。
 const PROTECTED_WEBHOOK_HEADERS = new Set(['content-type', 'x-vohive-signature'])
-// 常用请求头预设，下拉可选；filterable + allow-create 也允许自行输入其它名称
+// 常用请求头可从预设选择，也可编辑名称输入框。
 const COMMON_WEBHOOK_HEADERS = [
   'Authorization',
   'X-Api-Key',
@@ -150,7 +174,7 @@ const COMMON_WEBHOOK_HEADERS = [
   'Accept',
   'User-Agent'
 ]
-// 每行带稳定 id，避免用数组下标作 v-for key 时，删除中间行后 el-select 复用实例残留选项
+// 每行带稳定 id，避免删除中间行后复用其它行的编辑状态。
 let webhookHeaderUid = 0
 const webhookHeaderRows = ref<{ id: number; key: string; value: string }[]>([])
 
@@ -195,16 +219,22 @@ async function testBarkNotification() {
     }
     const data = result.data
     if (data.ok) {
-      ElMessage.success(data.message || '测试通知已发送')
+      notify({ tone: 'success', message: data.message || '测试通知已发送' })
       return
     }
     if (Array.isArray(data.failed_urls) && data.failed_urls.length > 0) {
-      ElMessage.error(`${data.message}\n失败 URL: ${data.failed_urls.join(', ')}`)
+      notify({
+        tone: 'error',
+        message: `${data.message}\n失败 URL: ${data.failed_urls.join(', ')}`
+      })
       return
     }
-    ElMessage.error(data.message || 'Bark 测试失败')
+    notify({ tone: 'error', message: data.message || 'Bark 测试失败' })
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : 'Bark 测试失败')
+    notify({
+      tone: 'error',
+      message: e instanceof Error ? e.message : 'Bark 测试失败'
+    })
   }
 }
 
@@ -216,18 +246,21 @@ async function testEmailNotification() {
     }
     const data = result.data
     if (data.ok) {
-      ElMessage.success(data.message || '测试邮件已发送')
+      notify({ tone: 'success', message: data.message || '测试邮件已发送' })
       return
     }
-    ElMessage.error(data.message || 'Email 测试失败')
+    notify({ tone: 'error', message: data.message || 'Email 测试失败' })
   } catch (e: unknown) {
-    ElMessage.error(e instanceof Error ? e.message : 'Email 测试失败')
+    notify({
+      tone: 'error',
+      message: e instanceof Error ? e.message : 'Email 测试失败'
+    })
   }
 }
 
 function addBarkUrl() {
   if (!barkSettings.value.urls) {
-     barkSettings.value.urls = []
+    barkSettings.value.urls = []
   }
   barkSettings.value.urls.push('')
 }
@@ -236,15 +269,14 @@ function removeBarkUrl(index: number) {
   barkSettings.value.urls.splice(index, 1)
 }
 
-
-
-watch(() => emailForm.value.smtp_port, (newPort) => {
-  if (Number(newPort) === 465) {
-    emailForm.value.use_ssl = true
+watch(
+  () => emailForm.value.smtp_port,
+  (newPort) => {
+    if (Number(newPort) === 465) {
+      emailForm.value.use_ssl = true
+    }
   }
-})
-
-
+)
 
 import { systemService, type UpdateInfo } from '../services/system'
 
@@ -259,10 +291,10 @@ async function doCheckUpdate() {
     if (!res.ok) throw new Error(res.error.message || '检查更新失败')
     updateInfo.value = res.data
     if (!res.data.has_update) {
-      ElMessage.success('当前已是最新版本')
+      notify({ tone: 'success', message: '当前已是最新版本' })
     }
   } catch (e: any) {
-    ElMessage.error(e.message || '检查更新失败')
+    notify({ tone: 'error', message: e.message || '检查更新失败' })
   } finally {
     checkingUpdate.value = false
   }
@@ -272,30 +304,32 @@ async function doApplyUpdate() {
   if (!updateInfo.value) return
 
   if (updateInfo.value.is_docker) {
-    ElMessageBox.alert(
-      '检测到当前系统运行在 Docker 环境下。<br><br>不建议在 Docker 容器内直接执行文件热替换。请直接通过拉取最新镜像（如 <code>docker pull iniwex5/vohive:latest</code>）并重启容器来完成升级！',
-      '环境警告',
-      { dangerouslyUseHTMLString: true, type: 'warning' }
-    )
+    void requestConfirmation({
+      title: 'Docker 环境更新',
+      message: '请通过拉取最新镜像并重启容器完成升级。容器内不执行程序文件热替换。',
+      alert: true
+    })
     return
   }
 
   try {
-    await ElMessageBox.confirm(
-      `最新版本：${updateInfo.value.latest_version}，确定要现在更新并重启服务吗？<br><br><pre style="white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow-y: auto; background: var(--el-fill-color-light); padding: 8px; border-radius: 4px; margin-top: 8px;">${updateInfo.value.release_note}</pre>`,
-      '应用更新',
-      { dangerouslyUseHTMLString: true, confirmButtonText: '立即更新', cancelButtonText: '取消', type: 'warning' }
-    )
+    await requestConfirmation({
+      title: '应用更新',
+      message: `最新版本：${updateInfo.value.latest_version}。确定更新并重启服务吗？`,
+      details: updateInfo.value.release_note,
+      confirmLabel: '立即更新',
+      danger: true
+    })
     applyingUpdate.value = true
     const res = await systemService.applyUpdate()
     if (!res.ok) throw new Error(res.error.message || '请求应用更新失败')
-    ElMessage.success(res.data?.message || '正在更新...')
+    notify({ tone: 'success', message: res.data?.message || '正在更新...' })
     setTimeout(() => {
       window.location.reload()
     }, 5000)
   } catch (e: any) {
     if (e !== 'cancel') {
-      ElMessage.error(e.message || '应用更新失败')
+      notify({ tone: 'error', message: e.message || '应用更新失败' })
     }
   } finally {
     applyingUpdate.value = false
@@ -307,577 +341,431 @@ onMounted(() => {
   loadSystemInfo()
 })
 
-onBeforeUnmount(() => {
-})
+const passwordFields = [
+  { key: 'old_password', label: '当前密码' },
+  { key: 'new_password', label: '新密码' },
+  { key: 'confirm_password', label: '确认新密码' }
+] as const
+const revealed = reactive(new Set<string>())
+function toggleSecret(key: string) {
+  if (revealed.has(key)) revealed.delete(key)
+  else revealed.add(key)
+}
+type SettingField = {
+  key: string
+  label: string
+  type?: 'number' | 'password' | 'select' | 'textarea'
+  hint?: string
+  options?: string[]
+  min?: string
+  max?: string
+}
+const channels: Array<{ key: string; label: string; fields: SettingField[] }> = [
+  {
+    key: 'telegram',
+    label: 'Telegram Bot',
+    fields: [
+      { key: 'bot_token', label: 'Bot Token', type: 'password' },
+      { key: 'chat_id', label: 'Chat ID', type: 'number' },
+      { key: 'admin_id', label: '管理员 ID', type: 'number' },
+      { key: 'base_url', label: 'API 地址', hint: '留空直连 api.telegram.org；也可填写反代地址' },
+      { key: 'proxy', label: 'HTTP 代理（可选）' }
+    ]
+  },
+  {
+    key: 'feishu',
+    label: '飞书 Bot',
+    fields: [
+      { key: 'app_id', label: 'App ID' },
+      { key: 'app_secret', label: 'App Secret', type: 'password' },
+      { key: 'chat_ids', label: '群组 ID', hint: '多个群组以英文逗号分隔' }
+    ]
+  },
+  {
+    key: 'qq',
+    label: 'QQ Bot',
+    fields: [
+      { key: 'app_id', label: 'App ID' },
+      { key: 'app_secret', label: 'App Secret', type: 'password' },
+      { key: 'group_ids', label: '群聊 OpenID', hint: '多个群聊以英文逗号分隔' },
+      { key: 'direct_ids', label: '用户 OpenID', hint: '多个用户以英文逗号分隔' }
+    ]
+  },
+  {
+    key: 'bark',
+    label: 'Bark',
+    fields: [
+      { key: 'group', label: '通知分组' },
+      {
+        key: 'level',
+        label: '通知级别',
+        type: 'select',
+        options: ['timeSensitive', 'active', 'passive']
+      },
+      { key: 'icon', label: '图标 URL（可选）' }
+    ]
+  },
+  {
+    key: 'email',
+    label: 'Email',
+    fields: [
+      { key: 'smtp_host', label: 'SMTP 主机' },
+      { key: 'smtp_port', label: 'SMTP 端口', type: 'number', min: '1', max: '65535' },
+      { key: 'username', label: '账号' },
+      { key: 'password', label: '密码或授权码', type: 'password' },
+      { key: 'from_address', label: '发件地址' },
+      { key: 'to_addresses', label: '收件地址', hint: '多个收件人以英文逗号分隔' }
+    ]
+  },
+  {
+    key: 'pushplus',
+    label: 'Pushplus',
+    fields: [
+      { key: 'token', label: 'Token', type: 'password' },
+      { key: 'topic', label: '群组编码（可选）' },
+      {
+        key: 'channel',
+        label: '通知渠道',
+        type: 'select',
+        options: ['wechat', 'webhook', 'cp', 'mail']
+      }
+    ]
+  },
+  {
+    key: 'webhook',
+    label: 'Webhook',
+    fields: [
+      { key: 'secret', label: '签名密钥（可选）', type: 'password' },
+      { key: 'text_template', label: '文本模板', type: 'textarea' },
+      { key: 'timeout_ms', label: '超时（毫秒）', type: 'number', min: '0' },
+      { key: 'retry_max', label: '最大重试次数', type: 'number', min: '0', max: '10' }
+    ]
+  }
+]
+const channelForms = computed(
+  () =>
+    ({
+      telegram: telegramForm.value,
+      feishu: feishuForm.value,
+      qq: qqForm.value,
+      bark: barkSettings.value,
+      email: emailForm.value,
+      pushplus: pushplusForm.value,
+      webhook: webhookSettings.value
+    }) as unknown as Record<string, Record<string, unknown>>
+)
+const activeChannel = computed(() =>
+  channels.find((channel) => channel.key === activeNotifyTab.value)!
+)
+const activeForm = computed(() => channelForms.value[activeNotifyTab.value]!)
+const notificationBusy = computed(() => loadingNotifications.value || savingNotifications.value)
+const testing = computed(() => testingWebhook.value || testingBark.value || testingEmail.value)
+const canTest = computed(
+  () =>
+    !!activeForm.value.enabled &&
+    (activeNotifyTab.value === 'webhook'
+      ? hasValidWebhookURLs.value
+      : activeNotifyTab.value === 'bark'
+        ? hasValidBarkURLs.value
+        : activeNotifyTab.value === 'email' && hasValidEmailConfig.value)
+)
+function updateField(field: SettingField, event: Event) {
+  const value = fieldValue(event)
+  activeForm.value[field.key] =
+    field.type === 'number' ? (value === '' ? null : Number(value)) : value
+}
+function testActiveChannel() {
+  if (testing.value || !canTest.value) return
+  if (activeNotifyTab.value === 'webhook') void testWebhookNotification()
+  else if (activeNotifyTab.value === 'bark') void testBarkNotification()
+  else if (activeNotifyTab.value === 'email') void testEmailNotification()
+}
+watch(activeNotifyTab, () => revealed.clear())
 </script>
 
 <template>
-  <div class="max-w-5xl mx-auto">
-    <PageHeader title="系统设置" subtitle="管理网关参数与运行信息" />
-
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-      <!-- Security Card -->
-      <div class="ui-card p-8 relative overflow-hidden group">
-         <div class="absolute top-0 right-0 w-40 h-40 bg-indigo-500/5 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
-         
-         <div class="flex items-center gap-3 mb-6 relative z-10">
-            <div class="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-               <el-icon size="24"><Key24Regular /></el-icon>
-            </div>
-            <div>
-               <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100">安全</h3>
-               <p class="text-xs text-gray-500">更新访问凭证</p>
-            </div>
-         </div>
-
-         <div class="space-y-4 relative z-10">
-             <div class="space-y-1">
-                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">当前密码</label>
-                <el-input v-model="passwordForm.old_password" type="password" show-password placeholder="••••••••" size="large" />
-             </div>
-             <div class="space-y-1">
-                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">新密码</label>
-                <el-input v-model="passwordForm.new_password" type="password" show-password placeholder="••••••••" size="large" />
-             </div>
-             <div class="space-y-1">
-                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">确认新密码</label>
-                <el-input v-model="passwordForm.confirm_password" type="password" show-password placeholder="••••••••" size="large" />
-             </div>
-             
-             <div class="pt-4">
-                 <el-button type="primary" :loading="changingPassword" @click="changePassword" size="large" class="w-full !border-0">
-                   <el-icon><Save24Regular /></el-icon>
-                   更新凭证
-                 </el-button>
-             </div>
-         </div>
-      </div>
-
-      <!-- System Info Card -->
-      <div class="ui-card p-8 relative overflow-hidden group">
-         <div class="absolute top-0 right-0 w-40 h-40 bg-indigo-500/5 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
-
-         <div class="flex items-center gap-3 mb-6 relative z-10">
-            <div class="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-               <el-icon size="24"><Server24Regular /></el-icon>
-            </div>
-            <div>
-               <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100">系统信息</h3>
-               <p class="text-xs text-gray-500">运行环境</p>
-            </div>
-         </div>
-
-         <div class="space-y-4 text-sm relative z-10">
-            <div class="p-3 bg-gray-50 dark:bg-white/5 rounded-lg">
-              <FieldRow label="版本" :value="systemInfo.version" monospace>
-                <div class="flex items-center justify-end gap-3">
-                  <el-button size="small" type="primary" class="!border-0" :loading="checkingUpdate" @click.stop="doCheckUpdate">
-                    检查更新
-                  </el-button>
-                  <span>{{ systemInfo.version || 'Unknown' }}</span>
-                </div>
-              </FieldRow>
-            </div>
-            
-            <div v-if="updateInfo?.has_update" class="p-4 bg-amber-50 dark:bg-amber-500/10 rounded-lg border border-amber-200 dark:border-amber-500/20">
-               <div class="flex items-center gap-2 text-amber-800 dark:text-amber-200 mb-2 font-bold text-[13px]">
-                 <el-icon><Alert24Regular /></el-icon>发现新版本: {{ updateInfo.latest_version }}
-               </div>
-               <div class="text-xs text-amber-700 dark:text-amber-300/80 mb-4 whitespace-pre-wrap max-h-32 overflow-y-auto pr-2 custom-scrollbar">
-                 {{ updateInfo.release_note || '暂无更新说明' }}
-               </div>
-               <el-button type="warning" :loading="applyingUpdate" @click="doApplyUpdate" class="w-full !border-0">
-                 立即更新并重启
-               </el-button>
-            </div>
-            <div class="p-3 bg-gray-50 dark:bg-white/5 rounded-lg">
-              <FieldRow label="构建时间" :value="systemInfo.build_time" monospace />
-            </div>
-            <div class="p-3 bg-gray-50 dark:bg-white/5 rounded-lg">
-              <FieldRow label="配置路径" :value="systemInfo.config" monospace copyable />
-            </div>
-            <div class="p-3 bg-gray-50 dark:bg-white/5 rounded-lg">
-              <FieldRow label="交流群" value="https://t.me/vohive" monospace copyable />
-            </div>
-            <div class="ui-panel-muted px-4 py-4">
-              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div class="min-w-0">
-                  <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                      <el-icon size="18"><DocumentText24Regular /></el-icon>
-                    </div>
-                    <div>
-                      <div class="text-sm font-bold text-gray-800 dark:text-gray-100">API 文档</div>
-                      <div class="text-xs text-gray-500">打开后端直出的 OpenAPI 页面</div>
-                    </div>
-                  </div>
-
-                </div>
-                <el-button
-                  type="primary"
-                  class="self-start sm:self-center shrink-0 !border-0"
-                  :disabled="!systemInfo.docs?.swagger_ui"
-                  @click="openAPIDocs"
-                >
-                  <el-icon><DocumentText24Regular /></el-icon>
-                  打开 API 文档
-                </el-button>
-              </div>
-            </div>
-         </div>
-      </div>
-
-      <div class="notify-card ui-card p-8 relative overflow-hidden group lg:col-span-2">
-         <div class="absolute top-0 right-0 w-40 h-40 bg-indigo-500/5 rounded-bl-full -mr-10 -mt-10 transition-transform group-hover:scale-110"></div>
-
-         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 relative z-10">
-            <div class="flex items-center gap-3">
-               <div class="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-                  <el-icon size="24"><Alert24Regular /></el-icon>
-               </div>
-               <div>
-                  <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100">通知</h3>
-                  <p class="text-xs text-gray-500">Telegram / 飞书 / QQ / Webhook</p>
-               </div>
-            </div>
-            <el-button type="primary" :loading="savingNotifications" :disabled="loadingNotifications" @click="saveNotifications" class="!border-0">
-              <el-icon><Save24Regular /></el-icon>
-              保存通知配置
-            </el-button>
-         </div>
-
-         <div v-if="loadingNotifications" class="p-6 text-sm text-gray-500 dark:text-gray-400">正在加载通知配置…</div>
-
-         <div v-else class="relative z-10 w-full overflow-hidden">
-            <el-tabs v-model="activeNotifyTab" class="settings-notify-tabs">
-              <!-- Telegram -->
-              <el-tab-pane label="Telegram Bot" name="telegram" class="pt-2">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-2">
-                    <div class="font-bold text-gray-800 dark:text-gray-100">启用 Telegram 机器人</div>
-                  </div>
-                  <el-switch v-model="telegramForm.enabled" />
-                </div>
-
-                <div class="space-y-4">
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Bot Token</label>
-                    <el-input v-model="telegramForm.bot_token" :disabled="!telegramForm.enabled" placeholder="xxxx:yyyy" />
-                  </div>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Chat ID</label>
-                      <el-input v-model="telegramForm.chat_id" :disabled="!telegramForm.enabled" type="number" inputmode="numeric" placeholder="例如 123456" />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Admin ID</label>
-                      <el-input v-model="telegramForm.admin_id" :disabled="!telegramForm.enabled" type="number" inputmode="numeric" placeholder="例如 123456" />
-                    </div>
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">TG API 反代（可选）</label>
-                    <el-input v-model="telegramForm.base_url" :disabled="!telegramForm.enabled" placeholder="留空直连 api.telegram.org；需要反代时填写" />
-                    <div class="text-[10px] text-gray-400 mt-1">反向代理地址 (例如 https://api.telegram.org/bot%s/%s)</div>
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">HTTP 代理（可选）</label>
-                    <el-input v-model="telegramForm.proxy" :disabled="!telegramForm.enabled" placeholder="例如 http://127.0.0.1:7890" />
-                    <div class="text-[10px] text-gray-400 mt-1">用于连接 API 服务器的 HTTP 代理</div>
-                  </div>
-                </div>
-              </el-tab-pane>
-
-              <!-- 飞书 -->
-              <el-tab-pane label="飞书 Bot" name="feishu" class="pt-2">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-2">
-                    <div class="font-bold text-gray-800 dark:text-gray-100">启用飞书机器人</div>
-                  </div>
-                  <el-switch v-model="feishuForm.enabled" />
-                </div>
-
-                <div class="space-y-4">
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">App ID</label>
-                      <el-input v-model="feishuForm.app_id" :disabled="!feishuForm.enabled" placeholder="cli_xxxx" />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">App Secret</label>
-                      <el-input v-model="feishuForm.app_secret" :disabled="!feishuForm.enabled" type="password" show-password placeholder="••••••••" />
-                    </div>
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Chat IDs</label>
-                    <el-input v-model="feishuForm.chat_ids" :disabled="!feishuForm.enabled" placeholder="多个群组用英文逗号分隔" />
-                    <div class="text-[10px] text-gray-400 mt-1">飞书群聊的 Chat ID (oc_xxxx)，可通过飞书开放平台 API 获取，支持逗号分隔多个群组。</div>
-                  </div>
-                  <div class="p-3 rounded-xl bg-indigo-50/50 dark:bg-indigo-500/5 text-xs text-indigo-600 dark:text-indigo-400/80 leading-relaxed border border-indigo-100/50 dark:border-indigo-500/10">
-                    <strong>配置说明：</strong>
-                    <ol class="list-decimal ml-4 mt-1 space-y-1">
-                      <li>在<a href="https://open.feishu.cn" target="_blank" class="underline hover:text-indigo-700">飞书开放平台</a>创建自建应用，启用「机器人」能力</li>
-                      <li>在「事件与回调 → 事件配置」中选择「使用长连接接收事件」</li>
-                      <li>添加 <code>im:message</code> 和 <code>im:message:send_as_bot</code> 权限</li>
-                    </ol>
-                  </div>
-                </div>
-              </el-tab-pane>
-
-              <!-- QQ -->
-              <el-tab-pane label="QQ Bot" name="qq" class="pt-2">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-2">
-                    <div class="font-bold text-gray-800 dark:text-gray-100">启用 QQ 机器人</div>
-                  </div>
-                  <el-switch v-model="qqForm.enabled" />
-                </div>
-
-                <div class="space-y-4">
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">App ID</label>
-                      <el-input v-model="qqForm.app_id" :disabled="!qqForm.enabled" placeholder="QQ Bot App ID" />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">App Secret</label>
-                      <el-input v-model="qqForm.app_secret" :disabled="!qqForm.enabled" type="password" show-password placeholder="••••••••" />
-                    </div>
-                  </div>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Group IDs (群聊)</label>
-                      <el-input v-model="qqForm.group_ids" :disabled="!qqForm.enabled" placeholder="群聊 OpenID，多个使用逗号分隔" />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">User IDs (私聊)</label>
-                      <el-input v-model="qqForm.direct_ids" :disabled="!qqForm.enabled" placeholder="用户 OpenID，多个使用逗号分隔" />
-                    </div>
-                  </div>
-                  <div class="p-3 rounded-xl bg-amber-50/50 dark:bg-amber-500/5 text-xs text-amber-700 dark:text-amber-400/80 leading-relaxed border border-amber-100/50 dark:border-amber-500/10">
-                    <ol class="list-decimal ml-4 mt-1 space-y-1">
-                      <li>QQbot申请地址：<a href="https://q.qq.com/qqbot/openclaw/index.html" target="_blank" class="underline hover:text-amber-800">官方控制台</a></li>
-                      <li>向机器人发送消息后，去系统日志查看 OpenID，填入后 Bot 只对匹配的会话进行回复和推送。</li>
-                    </ol>
-                  </div>
-                </div>
-              </el-tab-pane>
-
-                            <!-- Bark -->
-              <el-tab-pane label="Bark" name="bark" class="pt-2">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-2">
-                    <div class="font-bold text-gray-800 dark:text-gray-100">启用 Bark 推送</div>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <el-button
-                      size="small"
-                      type="primary"
-                      plain
-                      :loading="testingBark"
-                      :disabled="!barkSettings.enabled || !hasValidBarkURLs"
-                      @click="testBarkNotification"
-                    >
-                      测试通知
-                    </el-button>
-                    <el-switch v-model="barkSettings.enabled" />
-                  </div>
-                </div>
-
-                <div class="space-y-4">
-                  <div class="space-y-2">
-                    <div class="flex items-center justify-between">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">目标 URLs</label>
-                      <el-button size="small" type="primary" plain @click="addBarkUrl" :disabled="!barkSettings.enabled">
-                         <el-icon><Add20Regular /></el-icon>
-                         <span class="ml-1">添加 URL</span>
-                      </el-button>
-                    </div>
-                    
-                    <div v-if="barkSettings.urls && barkSettings.urls.length === 0" class="text-xs text-gray-400 py-2 border border-dashed border-gray-200 dark:border-white/10 rounded-lg text-center bg-gray-50/30 dark:bg-white/5">
-                      尚未配置任何 Bark URL，点击右侧添加按钮。
-                    </div>
-
-                    <div v-for="(url, index) in barkSettings.urls" :key="index" class="flex items-center gap-2">
-                       <el-input v-model="barkSettings.urls[index]" :disabled="!barkSettings.enabled" placeholder="https://api.day.app/YOUR_KEY/" class="flex-1" />
-                       <el-button type="danger" plain @click="removeBarkUrl(index)" :disabled="!barkSettings.enabled">
-                          <el-icon><Delete20Regular /></el-icon>
-                       </el-button>
-                    </div>
-                  </div>
-
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">分组 (Group)</label>
-                    <el-input v-model="barkSettings.group" :disabled="!barkSettings.enabled" placeholder="例如 vohive" />
-                    <div class="text-[10px] text-gray-400 mt-1">iOS 设备上的通知分组。</div>
-                  </div>
-
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">通知级别 (Level)</label>
-                    <el-select v-model="barkSettings.level" :disabled="!barkSettings.enabled" placeholder="选择通知级别" class="w-full">
-                      <el-option label="时效性 (timeSensitive)" value="timeSensitive" />
-                      <el-option label="积极 (active)" value="active" />
-                      <el-option label="被动 (passive)" value="passive" />
-                    </el-select>
-                    <div class="text-[10px] text-gray-400 mt-1">iOS 的专注模式/打扰规则会根据此级别决定是否亮屏。</div>
-                  </div>
-
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">图标 (Icon)</label>
-                    <el-input v-model="barkSettings.icon" :disabled="!barkSettings.enabled" placeholder="图标 URL，可选" />
-                  </div>
-                </div>
-              </el-tab-pane>
-
-              <!-- Email -->
-              <el-tab-pane label="Email" name="email" class="pt-2">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-2">
-                    <div class="font-bold text-gray-800 dark:text-gray-100">启用 Email 推送</div>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <el-button
-                      size="small"
-                      type="primary"
-                      plain
-                      :loading="testingEmail"
-                      :disabled="!emailForm.enabled || !hasValidEmailConfig"
-                      @click="testEmailNotification"
-                    >
-                      测试通知
-                    </el-button>
-                    <el-switch v-model="emailForm.enabled" />
-                  </div>
-                </div>
-
-                <div class="space-y-4">
-                  <div class="grid grid-cols-1 sm:grid-cols-10 gap-4">
-                    <div class="space-y-1 sm:col-span-5">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">SMTP 主机</label>
-                      <el-input v-model="emailForm.smtp_host" :disabled="!emailForm.enabled" placeholder="smtp.example.com" />
-                    </div>
-                    <div class="space-y-1 sm:col-span-3">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">SMTP 端口</label>
-                      <el-input v-model="emailForm.smtp_port" :disabled="!emailForm.enabled" type="number" inputmode="numeric" placeholder="465 / 587" />
-                    </div>
-                    <div class="space-y-1 sm:col-span-2">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider block">使用 SSL/TLS </label>
-                      <div class="h-10 flex items-center">
-                        <el-switch v-model="emailForm.use_ssl" :disabled="!emailForm.enabled" />
-                      </div>
-                    </div>
-                  </div>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">用户名 (Username)</label>
-                      <el-input v-model="emailForm.username" :disabled="!emailForm.enabled" placeholder="邮箱账号" />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">密码 (Password)</label>
-                      <el-input v-model="emailForm.password" :disabled="!emailForm.enabled" type="password" show-password placeholder="邮箱密码或授权码" />
-                    </div>
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">发件人地址 (From)</label>
-                    <el-input v-model="emailForm.from_address" :disabled="!emailForm.enabled" placeholder="例如 noreply@example.com" />
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">收件人地址 (To)</label>
-                    <el-input v-model="emailForm.to_addresses" :disabled="!emailForm.enabled" placeholder="多个收件人请用英文逗号分隔" />
-                  </div>
-                </div>
-              </el-tab-pane>
-
-              <!-- Pushplus -->
-              <el-tab-pane label="Pushplus" name="pushplus" class="pt-2">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-2">
-                    <div class="font-bold text-gray-800 dark:text-gray-100">启用 Pushplus 推送</div>
-                  </div>
-                  <el-switch v-model="pushplusForm.enabled" />
-                </div>
-
-                <div class="space-y-4">
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Token</label>
-                    <el-input v-model="pushplusForm.token" :disabled="!pushplusForm.enabled" placeholder="Pushplus 用户的 Token" />
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">群组编码 (Topic)</label>
-                    <el-input v-model="pushplusForm.topic" :disabled="!pushplusForm.enabled" placeholder="群组编码，不填则发给个人" />
-                  </div>
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">渠道 (Channel)</label>
-                    <el-select v-model="pushplusForm.channel" :disabled="!pushplusForm.enabled" placeholder="选择渠道" class="w-full">
-                      <el-option label="微信 (wechat)" value="wechat" />
-                      <el-option label="Webhook (webhook)" value="webhook" />
-                      <el-option label="企业微信 (cp)" value="cp" />
-                      <el-option label="邮件 (mail)" value="mail" />
-                    </el-select>
-                  </div>
-                </div>
-              </el-tab-pane>
-
-              <!-- Webhook -->
-              <el-tab-pane label="Webhook" name="webhook" class="pt-2">
-                <div class="flex items-center justify-between mb-4">
-                  <div class="flex items-center gap-2">
-                    <div class="font-bold text-gray-800 dark:text-gray-100">启用 Webhook 推送</div>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    <el-button
-                      size="small"
-                      type="primary"
-                      plain
-                      :loading="testingWebhook"
-                      :disabled="!webhookSettings.enabled || !hasValidWebhookURLs"
-                      @click="testWebhookNotification"
-                    >
-                      测试通知
-                    </el-button>
-                    <el-switch v-model="webhookSettings.enabled" />
-                  </div>
-                </div>
-
-                <div class="space-y-4">
-                  <div class="space-y-2">
-                    <div class="flex items-center justify-between">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">目标 URLs</label>
-                      <el-button size="small" type="primary" plain @click="addWebhookUrl" :disabled="!webhookSettings.enabled">
-                         <el-icon><Add20Regular /></el-icon>
-                         <span class="ml-1">添加 URL</span>
-                      </el-button>
-                    </div>
-                    
-                    <div v-if="webhookSettings.urls && webhookSettings.urls.length === 0" class="text-xs text-gray-400 py-2 border border-dashed border-gray-200 dark:border-white/10 rounded-lg text-center bg-gray-50/30 dark:bg-white/5">
-                      尚未配置任何 Webhook URL，点击右侧添加按钮。
-                    </div>
-
-                    <div v-for="(url, index) in webhookSettings.urls" :key="index" class="flex items-center gap-2">
-                       <!-- 注意：el-input v-model="webhookSettings.urls[index]" 处理基本类型数组在 Vue3 中可能会有失去焦点问题。
-                            但在这里作为简单的响应式数组依然可用，或者用更复杂的方式包裹。 -->
-                       <el-input v-model="webhookSettings.urls[index]" :disabled="!webhookSettings.enabled" placeholder="https://..." class="flex-1" />
-                       <el-button type="danger" plain @click="removeWebhookUrl(index)" :disabled="!webhookSettings.enabled">
-                          <el-icon><Delete20Regular /></el-icon>
-                       </el-button>
-                    </div>
-                  </div>
-
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">数字签名密钥 (Secret)</label>
-                    <el-input v-model="webhookSettings.secret" :disabled="!webhookSettings.enabled" placeholder="用于 HMAC-SHA256 签名，选填" />
-                    <div class="text-[10px] text-gray-400 mt-1">若配置，将通过请求头 X-Vohive-Signature 提供 payload 验证。</div>
-                  </div>
-
-                  <div class="space-y-2">
-                    <div class="flex items-center justify-between">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">自定义请求头 (Headers)</label>
-                      <el-button size="small" type="primary" plain @click="addWebhookHeader" :disabled="!webhookSettings.enabled">
-                        <el-icon><Add20Regular /></el-icon>
-                        <span class="ml-1">添加 Header</span>
-                      </el-button>
-                    </div>
-
-                    <div v-if="webhookHeaderRows.length === 0" class="text-xs text-gray-400 py-2 border border-dashed border-gray-200 dark:border-white/10 rounded-lg text-center bg-gray-50/30 dark:bg-white/5">
-                      尚未配置自定义请求头，例如 Authorization、X-Api-Key 等。
-                    </div>
-
-                    <div v-for="(row, index) in webhookHeaderRows" :key="row.id" class="flex items-center gap-2">
-                      <el-select
-                        v-model="row.key"
-                        :disabled="!webhookSettings.enabled"
-                        filterable
-                        allow-create
-                        default-first-option
-                        placeholder="选择或输入 Header 名"
-                        class="flex-1"
-                      >
-                        <el-option v-for="name in COMMON_WEBHOOK_HEADERS" :key="name" :label="name" :value="name" />
-                      </el-select>
-                      <el-input v-model="row.value" :disabled="!webhookSettings.enabled" placeholder="值，如 Bearer xxx" class="flex-1" />
-                      <el-button type="danger" plain @click="removeWebhookHeader(index)" :disabled="!webhookSettings.enabled">
-                        <el-icon><Delete20Regular /></el-icon>
-                      </el-button>
-                    </div>
-                    <div class="text-[10px] text-gray-400 mt-1">
-                      Content-Type 与 X-Vohive-Signature 为系统保留头，自定义同名头会被忽略。
-                    </div>
-                  </div>
-
-                  <div class="space-y-1">
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">文本模板 (Text Template)</label>
-                    <el-input
-                      v-model="webhookSettings.text_template"
-                      :disabled="!webhookSettings.enabled"
-                      type="textarea"
-                      :rows="2"
-                      placeholder="{{device_label}} {{text}}"
-                    />
-                    <div class="text-[10px] text-gray-400 mt-1">
-                      支持占位符：<code v-pre>{{text}}</code>、<code v-pre>{{event}}</code>、<code v-pre>{{timestamp}}</code>、<code v-pre>{{device_id}}</code>、<code v-pre>{{device_name}}</code>、<code v-pre>{{device_label}}</code>。留空则直接发送原始 text。
-                    </div>
-                  </div>
-                  
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">请求超时 (ms)</label>
-                      <el-input-number v-model="webhookSettings.timeout_ms" :min="1000" :max="60000" :disabled="!webhookSettings.enabled" class="w-full !w-full" controls-position="right" />
-                    </div>
-                    <div class="space-y-1">
-                      <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">最大重试次数</label>
-                      <el-input-number v-model="webhookSettings.retry_max" :min="0" :max="10" :disabled="!webhookSettings.enabled" class="w-full !w-full" controls-position="right" />
-                    </div>
-                  </div>
-                </div>
-              </el-tab-pane>
-            </el-tabs>
-         </div>
-      </div>
+  <div class="m3-page settings-page">
+    <PageHeader title="系统设置" subtitle="账号安全、通知渠道与系统信息" />
+    <div class="settings-top">
+      <section class="m3-card m3-stack">
+        <h2 class="m3-title">账号安全</h2>
+        <form class="m3-form" @submit.prevent="changePassword">
+          <md-outlined-text-field
+            v-for="field in passwordFields"
+            :key="field.key"
+            :name="field.key"
+            :label="field.label"
+            :type="revealed.has(field.key) ? 'text' : 'password'"
+            :autocomplete="field.key === 'old_password' ? 'current-password' : 'new-password'"
+            required
+            :disabled="changingPassword"
+            :value="passwordForm[field.key]"
+            @input="passwordForm[field.key] = fieldValue($event)"
+            ><md-icon-button
+              type="button"
+              slot="trailing-icon"
+              :aria-label="revealed.has(field.key) ? '隐藏密码' : '显示密码'"
+              @click="toggleSecret(field.key)"
+              ><SvgIcon
+                :svg="revealed.has(field.key) ? hiddenIcon : visibilityIcon" /></md-icon-button
+          ></md-outlined-text-field>
+          <div class="m3-actions">
+            <md-filled-button type="submit" :disabled="changingPassword">{{
+              changingPassword ? '更新中…' : '更新密码'
+            }}</md-filled-button>
+          </div>
+        </form>
+      </section>
+      <section class="m3-card m3-stack">
+        <h2 class="m3-title">系统信息</h2>
+        <FieldRow label="版本" :value="systemInfo.version" monospace /><FieldRow
+          label="构建时间"
+          :value="systemInfo.build_time"
+          monospace
+        /><FieldRow label="配置路径" :value="systemInfo.config" monospace copyable /><FieldRow
+          label="交流群"
+          value="https://t.me/vohive"
+          copyable
+        />
+        <div class="m3-actions">
+          <md-outlined-button :disabled="checkingUpdate || applyingUpdate" @click="doCheckUpdate">{{
+            checkingUpdate ? '检查中…' : '检查更新'
+          }}</md-outlined-button
+          ><md-text-button :disabled="!systemInfo.docs?.swagger_ui" @click="openAPIDocs"
+            >API 文档</md-text-button
+          >
+        </div>
+        <div v-if="updateInfo?.has_update" class="m3-inset m3-stack">
+          <p>发现新版本 {{ updateInfo.latest_version }}</p>
+          <pre class="release-notes">{{ updateInfo.release_note }}</pre>
+          <md-filled-button :disabled="applyingUpdate" @click="doApplyUpdate">{{
+            applyingUpdate ? '更新中…' : '更新程序'
+          }}</md-filled-button>
+        </div>
+        <div class="m3-actions">
+          <a
+            v-if="systemInfo.docs?.openapi_yaml"
+            :href="systemInfo.docs.openapi_yaml"
+            target="_blank"
+            rel="noopener noreferrer"
+            >OpenAPI YAML</a
+          ><a
+            v-if="systemInfo.docs?.openapi_json"
+            :href="systemInfo.docs.openapi_json"
+            target="_blank"
+            rel="noopener noreferrer"
+            >OpenAPI JSON</a
+          >
+        </div>
+      </section>
     </div>
+    <section class="m3-card m3-stack" aria-label="通知设置">
+      <div class="m3-row">
+        <div>
+          <h2 class="m3-title">通知渠道</h2>
+          <p class="m3-muted">设置会统一保存；测试通知仅在点击时发送。</p>
+        </div>
+        <md-filled-button :disabled="notificationBusy" @click="saveNotifications">{{
+          savingNotifications ? '保存中…' : '保存通知设置'
+        }}</md-filled-button>
+      </div>
+      <div class="m3-form">
+        <md-outlined-select
+          label="通知渠道"
+          name="notification-channel"
+          :value="activeNotifyTab"
+          @change="activeNotifyTab = fieldValue($event)"
+          ><md-select-option
+            v-for="channel in channels"
+            :key="channel.key"
+            :value="channel.key"
+            :selected="activeNotifyTab === channel.key"
+            ><div slot="headline">{{ channel.label }}</div></md-select-option
+          ></md-outlined-select
+        >
+        <label class="m3-switch-row"
+          ><span>启用 {{ activeChannel.label }}</span
+          ><md-switch
+            v-sync-switch
+            :aria-label="`启用 ${activeChannel.label}`"
+            :selected="!!activeForm.enabled"
+            :disabled="notificationBusy"
+            @change="activeForm.enabled = fieldSelected($event)"
+        /></label>
+        <div v-if="activeNotifyTab === 'bark' || activeNotifyTab === 'webhook'" class="m3-stack">
+          <div class="m3-row">
+            <h3>目标 URL</h3>
+            <md-text-button
+              :disabled="!activeForm.enabled || notificationBusy"
+              @click="activeNotifyTab === 'bark' ? addBarkUrl() : addWebhookUrl()"
+              >添加 URL</md-text-button
+            >
+          </div>
+          <p
+            v-if="!(activeNotifyTab === 'bark' ? barkSettings.urls : webhookSettings.urls).length"
+            class="m3-muted"
+          >
+            尚未配置目标地址
+          </p>
+          <div
+            v-for="(_url, index) in activeNotifyTab === 'bark'
+              ? barkSettings.urls
+              : webhookSettings.urls"
+            :key="activeNotifyTab + index"
+            class="settings-list-row"
+          >
+            <md-outlined-text-field
+              :label="`URL ${index + 1}`"
+              :value="String((activeForm.urls as string[])[index] || '')"
+              :disabled="!activeForm.enabled || notificationBusy"
+              @input="(activeForm.urls as string[])[index] = fieldValue($event)"
+            /><md-text-button
+              class="danger"
+              :disabled="!activeForm.enabled || notificationBusy"
+              @click="activeNotifyTab === 'bark' ? removeBarkUrl(index) : removeWebhookUrl(index)"
+              >删除</md-text-button
+            >
+          </div>
+        </div>
+        <div :key="activeNotifyTab" class="m3-form-grid">
+          <template v-for="field in activeChannel.fields" :key="field.key">
+            <md-outlined-select
+              v-if="field.type === 'select'"
+              :label="field.label"
+              :name="field.key"
+              :value="String(activeForm[field.key] ?? '')"
+              :disabled="!activeForm.enabled || notificationBusy"
+              @change="updateField(field, $event)"
+              ><md-select-option
+                v-for="option in field.options"
+                :key="option"
+                :value="option"
+                :selected="activeForm[field.key] === option"
+                ><div slot="headline">{{ option }}</div></md-select-option
+              ></md-outlined-select
+            >
+            <md-outlined-text-field
+              v-else
+              :label="field.label"
+              :name="field.key"
+              :type="
+                field.type === 'password'
+                  ? revealed.has(field.key)
+                    ? 'text'
+                    : 'password'
+                  : field.type || 'text'
+              "
+              :min="field.min"
+              :max="field.max"
+              :supporting-text="field.hint"
+              :rows="field.type === 'textarea' ? 4 : undefined"
+              :value="String(activeForm[field.key] ?? '')"
+              :disabled="!activeForm.enabled || notificationBusy"
+              @input="updateField(field, $event)"
+              ><md-icon-button
+                v-if="field.type === 'password'"
+                slot="trailing-icon"
+                type="button"
+                :aria-label="revealed.has(field.key) ? '隐藏密码' : '显示密码'"
+                :disabled="!activeForm.enabled"
+                @click="toggleSecret(field.key)"
+                ><SvgIcon
+                  :svg="revealed.has(field.key) ? hiddenIcon : visibilityIcon" /></md-icon-button
+            ></md-outlined-text-field>
+          </template>
+        </div>
+        <label v-if="activeNotifyTab === 'email'" class="m3-switch-row"
+          ><span>SSL 连接<small>选择 465 端口时自动开启</small></span
+          ><md-switch
+            v-sync-switch
+            aria-label="SMTP SSL"
+            :selected="emailForm.use_ssl"
+            :disabled="!emailForm.enabled || notificationBusy"
+            @change="emailForm.use_ssl = fieldSelected($event)"
+        /></label>
+        <section v-if="activeNotifyTab === 'webhook'" class="m3-stack">
+          <div class="m3-row">
+            <h3>自定义请求头</h3>
+            <md-text-button
+              :disabled="!webhookSettings.enabled || notificationBusy"
+              @click="addWebhookHeader"
+              >添加请求头</md-text-button
+            >
+          </div>
+          <p class="m3-muted">Content-Type 与 X-VoHive-Signature 由系统管理，不接受自定义覆盖。</p>
+          <div v-for="(row, index) in webhookHeaderRows" :key="row.id" class="m3-inset m3-stack">
+            <div class="m3-form-grid">
+              <md-outlined-select
+                label="常用请求头"
+                :value="COMMON_WEBHOOK_HEADERS.includes(row.key) ? row.key : ''"
+                :disabled="!webhookSettings.enabled || notificationBusy"
+                @change="row.key = fieldValue($event)"
+                ><md-select-option value="" :selected="!COMMON_WEBHOOK_HEADERS.includes(row.key)"
+                  ><div slot="headline">自定义</div></md-select-option
+                ><md-select-option
+                  v-for="name in COMMON_WEBHOOK_HEADERS"
+                  :key="name"
+                  :value="name"
+                  :selected="row.key === name"
+                  ><div slot="headline">{{ name }}</div></md-select-option
+                ></md-outlined-select
+              ><md-outlined-text-field
+                label="名称"
+                :value="row.key"
+                :disabled="!webhookSettings.enabled || notificationBusy"
+                @input="row.key = fieldValue($event)"
+              /><md-outlined-text-field
+                label="值"
+                :value="row.value"
+                :disabled="!webhookSettings.enabled || notificationBusy"
+                @input="row.value = fieldValue($event)"
+              />
+            </div>
+            <md-text-button
+              class="danger"
+              :disabled="!webhookSettings.enabled || notificationBusy"
+              @click="removeWebhookHeader(index)"
+              >删除请求头</md-text-button
+            >
+          </div>
+        </section>
+        <div v-if="['bark', 'webhook', 'email'].includes(activeNotifyTab)" class="m3-actions">
+          <md-outlined-button
+            :disabled="!canTest || testing || notificationBusy"
+            @click="testActiveChannel"
+            >{{ testing ? '测试中…' : '发送测试通知' }}</md-outlined-button
+          >
+        </div>
+      </div>
+    </section>
   </div>
 </template>
-
 <style scoped>
-:deep(.notify-card .el-input-number) {
-  width: 100%;
+.settings-top {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 24px;
 }
-:deep(.settings-notify-tabs) {
-  border: none;
-  background: transparent;
+.settings-list-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
-:deep(.settings-notify-tabs .el-tabs__header) {
-  margin-bottom: 24px;
-  background-color: var(--el-fill-color-light);
-  border-radius: 12px;
-  border-bottom: none;
-  display: inline-flex;
-  padding: 4px;
+.settings-list-row md-outlined-text-field {
+  flex: 1;
 }
-:deep(.settings-notify-tabs .el-tabs__nav-wrap::after) {
-  display: none;
+.release-notes {
+  max-height: 180px;
+  overflow: auto;
+  font: 12px/20px var(--vh-typeface-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-:deep(.settings-notify-tabs .el-tabs__active-bar) {
-  display: none;
+a {
+  color: var(--md-sys-color-primary);
 }
-:deep(.settings-notify-tabs .el-tabs__item) {
-  height: 38px;
-  line-height: 38px;
-  padding: 0 20px !important;
-  border-radius: 8px;
-  margin-right: 4px;
-  color: var(--el-text-color-regular);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+h3 {
+  font-size: 16px;
   font-weight: 500;
-}
-:deep(.settings-notify-tabs .el-tabs__item:last-child) {
-  margin-right: 0;
-}
-:deep(.settings-notify-tabs .el-tabs__item:hover) {
-  color: var(--el-color-primary);
-}
-:deep(.settings-notify-tabs .el-tabs__item.is-active) {
-  background-color: var(--el-bg-color);
-  color: var(--el-color-primary);
-  font-weight: 600;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.03);
 }
 </style>

@@ -1,8 +1,6 @@
 <script setup lang="ts">
+import { fieldValue } from '../utils/material'
 import { computed, watch } from 'vue'
-import Router24Regular from '@vicons/fluent/es/Router24Regular'
-import Delete24Regular from '@vicons/fluent/es/Delete24Regular'
-import Save24Regular from '@vicons/fluent/es/Save24Regular'
 import type { DeviceConfigDTO, DeviceOverviewItem } from '../types/api'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
 
@@ -40,80 +38,79 @@ watch(
 </script>
 
 <template>
-  <div>
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
-      <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-          <el-icon size="22"><Router24Regular /></el-icon>
-        </div>
-        <div>
-          <div class="text-lg font-bold text-gray-900 dark:text-white">设备配置</div>
-          <div class="text-xs text-gray-500 dark:text-gray-400">配置存储在数据库中，部分字段可能需要重启生效</div>
-        </div>
+  <section class="m3-stack">
+    <div class="m3-row">
+      <div>
+        <h2 class="m3-title">设备配置</h2>
+        <p class="m3-muted">部分变更需要重启后生效</p>
       </div>
-      <div class="flex items-center gap-2">
-        <el-button type="danger" :loading="deleting" @click="emit('delete')" class="!border-0">
-          <el-icon><Delete24Regular /></el-icon>
-          删除设备
-        </el-button>
-        <el-button type="primary" :loading="saving" @click="emit('save')" class="!border-0">
-          <el-icon><Save24Regular /></el-icon>
-          保存配置
-        </el-button>
+      <div class="m3-actions">
+        <md-text-button class="danger" :disabled="saving || deleting" @click="emit('delete')"
+          >删除设备</md-text-button
+        ><md-filled-button :disabled="saving || deleting" @click="emit('save')">{{
+          saving ? '保存中…' : '保存配置'
+        }}</md-filled-button>
       </div>
     </div>
-
-    <div v-if="editConfig" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">ID</label>
-        <el-input v-model="editConfig.id" disabled />
-      </div>
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">名称</label>
-        <el-input v-model="editConfig.name" placeholder="显示名称" />
-      </div>
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">IMEI 绑定</label>
-        <el-input v-model="editConfig.modem_imei" disabled placeholder="自动识别（添加时绑定）" />
-      </div>
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">设备路径</label>
-        <el-input :model-value="activeUsbPath || ''" disabled placeholder="由系统自动探测" />
-      </div>
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">网卡接口</label>
-        <el-input :model-value="activeInterface || ''" disabled placeholder="由系统自动探测" />
-      </div>
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">AT 端口</label>
-        <el-input :model-value="activeATPort || ''" disabled placeholder="由系统自动探测" />
-      </div>
-      <div class="space-y-1">
-        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">控制设备</label>
-        <el-input :model-value="activeControlDevice || ''" disabled placeholder="由系统自动探测" />
-      </div>
-      <div class="ui-panel-muted p-3 space-y-2">
-        <div class="flex items-center justify-between">
-          <div>
-            <div class="text-sm font-bold text-gray-800 dark:text-gray-100">设备运行模式</div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">
-              {{ isQMIBackendOnly ? '此类设备固定 QMI，AT 口仅用于终端'
-                 : (isMBIMBackendOnly ? '此类设备固定 MBIM，AT 口仅用于终端'
-                 : 'AT=传统串口 / QMI=纯 QMI') }}
-            </div>
-          </div>
-          <el-select
-            v-model="editConfig.device_backend"
-            style="width: 120px"
-            placeholder="AT"
-            :disabled="isQMIBackendOnly || isMBIMBackendOnly"
+    <div v-if="editConfig" class="m3-form">
+      <div class="m3-form-grid">
+        <md-outlined-text-field label="ID" :value="editConfig.id" disabled /><md-outlined-text-field
+          label="名称"
+          :value="editConfig.name"
+          :disabled="saving || deleting"
+          @input="editConfig.name = fieldValue($event)"
+        />
+        <md-outlined-text-field
+          label="IMEI 绑定"
+          :value="editConfig.modem_imei || ''"
+          disabled
+        /><md-outlined-text-field
+          label="设备路径"
+          :value="activeUsbPath || ''"
+          disabled
+        /><md-outlined-text-field
+          label="网卡接口"
+          :value="activeInterface || ''"
+          disabled
+        /><md-outlined-text-field
+          label="AT 端口"
+          :value="activeATPort || ''"
+          disabled
+        /><md-outlined-text-field label="控制设备" :value="activeControlDevice || ''" disabled />
+        <md-outlined-select
+          label="运行后端"
+          :value="editConfig.device_backend || 'at'"
+          :disabled="isQMIBackendOnly || isMBIMBackendOnly || saving || deleting"
+          @change="editConfig.device_backend = fieldValue($event) as DeviceConfigDTO['device_backend']"
+        >
+          <md-select-option
+            v-if="!isMBIMBackendOnly"
+            value="at"
+            :selected="editConfig.device_backend === 'at'"
+            :disabled="isQMIBackendOnly"
+            ><div slot="headline">AT</div></md-select-option
           >
-            <el-option v-if="!isMBIMBackendOnly" label="AT" value="at" :disabled="isQMIBackendOnly" />
-            <el-option v-if="!isMBIMBackendOnly" label="QMI" value="qmi" :disabled="!activeControlDevice && editConfig.device_backend !== 'qmi'" />
-            <el-option v-if="isMBIMBackendOnly" label="MBIM" value="mbim" />
-          </el-select>
-        </div>
+          <md-select-option
+            v-if="!isMBIMBackendOnly"
+            value="qmi"
+            :selected="editConfig.device_backend === 'qmi'"
+            :disabled="!activeControlDevice && editConfig.device_backend !== 'qmi'"
+            ><div slot="headline">QMI</div></md-select-option
+          >
+          <md-select-option v-if="isMBIMBackendOnly" value="mbim" selected
+            ><div slot="headline">MBIM</div></md-select-option
+          >
+        </md-outlined-select>
       </div>
+      <p class="m3-muted">
+        {{
+          isQMIBackendOnly
+            ? '此类设备固定 QMI，AT 口仅用于终端'
+            : isMBIMBackendOnly
+              ? '此类设备固定 MBIM，AT 口仅用于终端'
+              : 'AT 使用串口，QMI 使用控制设备'
+        }}
+      </p>
     </div>
-  </div>
+  </section>
 </template>

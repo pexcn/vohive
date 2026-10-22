@@ -1,8 +1,5 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import AutoImport from 'unplugin-auto-import/vite'
-import Components from 'unplugin-vue-components/vite'
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -16,43 +13,47 @@ export default defineConfig(({ mode }) => {
             isCustomElement: (tag) => tag.startsWith('md-')
           }
         }
-      }),
-      AutoImport({
-        dts: 'src/auto-imports.d.ts',
-        imports: ['vue', 'vue-router', 'pinia'],
-        resolvers: [ElementPlusResolver({ importStyle: false })]
-      }),
-      Components({
-        dts: 'src/components.d.ts',
-        resolvers: [
-          ElementPlusResolver({
-            importStyle: false
-          })
-        ]
       })
     ],
     build: {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (id.includes('/src/views/Proxy.vue') || id.includes('/src/stores/proxy') || id.includes('/src/services/proxy')) return 'route-proxy'
-            if (id.includes('/src/views/Devices.vue') || id.includes('/src/stores/devices') || id.includes('/src/services/devices')) return 'route-devices'
-            if (id.includes('/src/views/Sms.vue') || id.includes('/src/stores/sms') || id.includes('/src/services/sms')) return 'route-sms'
-            if (id.includes('/src/views/Logs.vue') || id.includes('/src/stores/logs') || id.includes('/src/services/logs')) return 'route-logs'
+            if (
+              id.includes('/src/views/Proxy.vue') ||
+              id.includes('/src/stores/proxy') ||
+              id.includes('/src/services/proxy')
+            )
+              return 'route-proxy'
+            if (
+              id.includes('/src/views/Devices.vue') ||
+              id.includes('/src/stores/devices') ||
+              id.includes('/src/services/devices')
+            )
+              return 'route-devices'
+            if (
+              id.includes('/src/views/Sms.vue') ||
+              id.includes('/src/stores/sms') ||
+              id.includes('/src/services/sms')
+            )
+              return 'route-sms'
+            if (
+              id.includes('/src/views/Logs.vue') ||
+              id.includes('/src/stores/logs') ||
+              id.includes('/src/services/logs')
+            )
+              return 'route-logs'
             if (!id.includes('node_modules')) return
-            if (id.includes('echarts') || id.includes('zrender') || id.includes('vue-echarts')) return 'echarts'
-            if (id.includes('element-plus')) return 'element-plus'
-            if (id.includes('@element-plus/icons-vue')) return 'ep-icons'
-            if (id.includes('@vicons')) return 'vicons'
-            if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/')) return 'vue-core'
-            if (id.includes('dayjs')) return 'dayjs'
+            if (id.includes('echarts') || id.includes('zrender') || id.includes('vue-echarts'))
+              return 'echarts'
+            if (id.includes('vue-router') || id.includes('pinia') || id.includes('/vue/'))
+              return 'vue-core'
             return 'vendor'
           }
         }
       }
     },
     optimizeDeps: {
-      exclude: ['@vicons/fluent', '@vicons/ionicons5'],
       include: [
         '@material/web/button/filled-button.js',
         '@material/web/button/outlined-button.js',
@@ -60,6 +61,7 @@ export default defineConfig(({ mode }) => {
         '@material/web/dialog/dialog.js',
         '@material/web/iconbutton/icon-button.js',
         '@material/web/progress/circular-progress.js',
+        '@material/web/progress/linear-progress.js',
         '@material/web/ripple/ripple.js',
         '@material/web/select/outlined-select.js',
         '@material/web/select/select-option.js',
@@ -67,23 +69,11 @@ export default defineConfig(({ mode }) => {
         '@material/web/tabs/tabs.js',
         '@material/web/tabs/primary-tab.js',
         '@material/web/textfield/outlined-text-field.js',
-        '@element-plus/icons-vue',
-        'element-plus',
-        'element-plus/es',
         'echarts/core',
         'echarts/renderers',
         'echarts/charts',
         'echarts/components',
-        'vue-echarts',
-        'dayjs',
-        'dayjs/plugin/localeData.js',
-        'dayjs/plugin/customParseFormat.js',
-        'dayjs/plugin/advancedFormat.js',
-        'dayjs/plugin/weekOfYear.js',
-        'dayjs/plugin/weekYear.js',
-        'dayjs/plugin/dayOfYear.js',
-        'dayjs/plugin/isSameOrAfter.js',
-        'dayjs/plugin/isSameOrBefore.js'
+        'vue-echarts'
       ]
     },
     server: {

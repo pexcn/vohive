@@ -1,22 +1,22 @@
 <script setup lang="ts">
+import { notify, requestConfirmation } from '../stores/feedback'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
 import { useSMSStore } from '../stores/sms'
 import { usePollingScheduler } from '../composables/usePollingScheduler'
 import { useSmsThreadReadState } from '../composables/useSmsThreadReadState'
 import { toAppError } from '../services/http'
 import type { SmsThreadQueryParams } from '../services/sms'
 import PageHeader from '../components/PageHeader.vue'
+import SvgIcon from '../components/SvgIcon.vue'
+import deleteIcon from '@material-symbols/svg-400/outlined/delete.svg?raw'
+import sendIcon from '@material-symbols/svg-400/outlined/send.svg?raw'
+import { fieldValue, guardDialogCancel } from '../utils/material'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
 import RefreshButton from '../components/RefreshButton.vue'
 import type { DeviceMgmtListItem, SMSMessage } from '../types/api'
-import Delete24Regular from '@vicons/fluent/es/Delete24Regular'
-import Mail24Regular from '@vicons/fluent/es/Mail24Regular'
-import Send24Regular from '@vicons/fluent/es/Send24Regular'
 import { RecycleScroller } from 'vue-virtual-scroller'
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css'
 
@@ -123,7 +123,6 @@ const showSendModal = ref(false)
 const sending = ref(false)
 const deletingMessageId = ref<number | null>(null)
 const deletingThreadKey = ref<string | null>(null)
-const supportsHover = ref(false)
 const showActionSheet = ref(false)
 const actionSheetTarget = ref<{ type: 'thread'; thread: SmsThread } | { type: 'message'; message: SMSMessage } | null>(null)
 const composer = ref('')
@@ -535,9 +534,6 @@ watch(
 )
 
 onMounted(async () => {
-  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
-    supportsHover.value = window.matchMedia('(hover: hover) and (pointer: fine)').matches
-  }
   syncSmsPageWidth()
   if (typeof ResizeObserver !== 'undefined') {
     smsPageResizeObserver = new ResizeObserver(() => {
@@ -572,8 +568,9 @@ function openSendModal() {
 }
 
 async function handleSendModal() {
+  if (sending.value) return
   if (!selectedSendDeviceId.value || !sendForm.value.phone || !sendForm.value.message) {
-    ElMessage.warning('请填写完整信息')
+    notify({ tone: 'warning', message: '请填写完整信息' })
     return
   }
   sending.value = true
@@ -585,27 +582,34 @@ async function handleSendModal() {
     })
     if (!result.ok) throw new Error(result.error.message || '发送失败')
     const parts = result.data.partsTotal
-    ElMessage.success(`短信已发送${parts > 1 ? `（${parts}段）` : ''}`)
+    notify({
+      tone: 'success',
+      message: `短信已发送${parts > 1 ? `（${parts}段）` : ''}`
+    })
     showSendModal.value = false
     setTimeout(async () => {
       await fetchMessagesAndThread()
     }, 800)
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error('发送失败：' + (err.message || '未知错误'))
+    notify({
+      tone: 'error',
+      message: '发送失败：' + (err.message || '未知错误')
+    })
   } finally {
     sending.value = false
   }
 }
 
 async function sendToCurrentThread() {
+  if (sending.value) return
   const t = selectedThread.value
   if (!t) return
   const text = String(composer.value || '').trim()
   if (!text) return
   const resolvedDeviceId = selectedDevice.value !== 'all' ? selectedDevice.value : (t.deviceId || devices.value[0]?.id || '')
   if (!resolvedDeviceId) {
-    ElMessage.warning('暂无可用设备')
+    notify({ tone: 'warning', message: '暂无可用设备' })
     return
   }
   sending.value = true
@@ -624,7 +628,10 @@ async function sendToCurrentThread() {
     }, 800)
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error('发送失败：' + (err.message || '未知错误'))
+    notify({
+      tone: 'error',
+      message: '发送失败：' + (err.message || '未知错误')
+    })
   } finally {
     sending.value = false
   }
@@ -633,15 +640,13 @@ async function sendToCurrentThread() {
 async function confirmDeleteMessage(message: SMSMessage) {
   if (!message.id || deletingMessageId.value === message.id) return
   try {
-    await ElMessageBox.confirm(
-      '删除后无法恢复。仅删除短信中心历史记录。',
-      '删除这条短信？',
-      {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
+    await requestConfirmation({
+      message: '删除后无法恢复。仅删除短信中心历史记录。',
+      title: '删除这条短信？',
+      confirmLabel: '删除',
+      cancelLabel: '取消',
+      danger: true
+    })
   } catch {
     return
   }
@@ -650,14 +655,17 @@ async function confirmDeleteMessage(message: SMSMessage) {
   try {
     const result = await smsStore.deleteMessage(message.id)
     if (!result.ok) throw new Error(result.error.message || '删除失败')
-    ElMessage.success('已删除短信')
+    notify({ tone: 'success', message: '已删除短信' })
     await fetchMessagesAndThread()
     if (result.data.thread_empty) {
       clearSelectedThread(true)
     }
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error('删除失败：' + (err.message || '未知错误'))
+    notify({
+      tone: 'error',
+      message: '删除失败：' + (err.message || '未知错误')
+    })
   } finally {
     deletingMessageId.value = null
   }
@@ -666,15 +674,13 @@ async function confirmDeleteMessage(message: SMSMessage) {
 async function confirmDeleteThread(thread: SmsThread) {
   if (deletingThreadKey.value === thread.key) return
   try {
-    await ElMessageBox.confirm(
-      `将删除与 ${thread.peer} 的全部短信历史，无法恢复。仅删除短信中心历史记录。`,
-      '永久删除整个对话？',
-      {
-        confirmButtonText: '删除对话',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
+    await requestConfirmation({
+      message: `将删除与 ${thread.peer} 的全部短信历史，无法恢复。仅删除短信中心历史记录。`,
+      title: '永久删除整个对话？',
+      confirmLabel: '删除对话',
+      cancelLabel: '取消',
+      danger: true
+    })
   } catch {
     return
   }
@@ -686,37 +692,43 @@ async function confirmDeleteThread(thread: SmsThread) {
       : { device_id: 'all', imsi: thread.imsi, peer: thread.peer }
     const result = await smsStore.deleteThread(payload)
     if (!result.ok) throw new Error(result.error.message || '删除失败')
-    ElMessage.success('已删除对话')
+    notify({ tone: 'success', message: '已删除对话' })
     const deletingCurrent = selectedThreadKey.value === thread.key
     if (deletingCurrent) clearSelectedThread(true)
     await fetchMessages(false)
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error('删除失败：' + (err.message || '未知错误'))
+    notify({
+      tone: 'error',
+      message: '删除失败：' + (err.message || '未知错误')
+    })
   } finally {
     deletingThreadKey.value = null
   }
 }
 
+
+function onComposerKeydown(event: KeyboardEvent) {
+  if (event.key === 'Enter' && !event.isComposing && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    event.preventDefault()
+    void sendToCurrentThread()
+  }
+}
 </script>
 
 <template>
-  <div ref="smsPageRef" class="sms-page h-[calc(100vh-140px)] flex flex-col">
-    <PageHeader title="短信中心" subtitle="按联系人聚合，点击进入会话明细">
-      <template #actions>
-        <div class="flex items-center gap-2">
-          <RefreshButton :loading="loading" @click="refreshAll" />
-          <el-button type="primary" @click="openSendModal" class="font-bold !border-0">
-            <el-icon><Send24Regular /></el-icon>
-            新建短信
-          </el-button>
-        </div>
-      </template>
+  <div ref="smsPageRef" class="m3-page sms-page">
+    <PageHeader title="短信中心" subtitle="按联系人聚合，查看与管理短信会话">
+      <template #actions
+        ><RefreshButton :loading="loading" @click="refreshAll" /><md-filled-button
+          :disabled="sending"
+          @click="openSendModal"
+          ><SvgIcon slot="icon" :svg="sendIcon" />新建短信</md-filled-button
+        ></template
+      >
     </PageHeader>
-
     <ErrorState
       v-if="devicesError"
-      class="mb-4"
       title="设备列表加载失败"
       :message="devicesError.message"
       :status-code="devicesError.status"
@@ -726,10 +738,8 @@ async function confirmDeleteThread(thread: SmsThread) {
       retry-text="重试"
       @retry="fetchDevices"
     />
-
     <ErrorState
       v-if="messagesError"
-      class="mb-6"
       title="短信加载失败"
       :message="messagesError.message"
       :status-code="messagesError.status"
@@ -739,465 +749,495 @@ async function confirmDeleteThread(thread: SmsThread) {
       retry-text="重试"
       @retry="refreshAll"
     />
-
-    <div class="flex-1 ui-card overflow-hidden relative">
-      <div v-if="loading && threads.length === 0" class="absolute inset-0 z-20 flex items-center justify-center bg-white/50 dark:bg-black/20 backdrop-blur-sm">
-        <el-icon class="is-loading" size="28"><Loading /></el-icon>
-      </div>
-
-      <div class="sms-main-layout">
-        <div v-if="showDeviceSidebar" class="flex flex-col border-r border-gray-100 dark:border-white/10">
-          <div class="p-4 border-b border-gray-100 dark:border-white/10">
-            <div class="text-xs font-bold text-gray-500 uppercase tracking-wider">设备</div>
-          </div>
-          <div class="p-3 space-y-1 overflow-auto">
-            <button
-              v-for="d in deviceSidebarItems"
-              :key="d.id"
-              type="button"
-              class="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl border text-left transition-all"
-              :class="selectedDevice === d.id
-                ? 'border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/70 dark:bg-indigo-500/10'
-                : 'border-transparent hover:bg-gray-50/60 dark:hover:bg-white/5'"
-              @click="void handleSelectDevice(d.id)"
-            >
-              <div class="min-w-0">
-                <div class="text-sm font-bold text-gray-800 dark:text-gray-100 truncate">{{ d.label }}</div>
-                <div class="text-xs text-gray-400 truncate">{{ d.id === 'all' ? '汇总所有设备短信' : d.id }}</div>
-              </div>
-              <span v-if="d.id !== 'all'" class="w-2 h-2 rounded-full" :class="d.healthy ? 'bg-green-500' : 'bg-red-500'" />
-            </button>
-          </div>
-        </div>
-
-        <div v-if="showListPane" class="flex flex-col min-h-0 min-w-0" :class="showDeviceSidebar ? 'border-r border-gray-100 dark:border-white/10' : ''">
-          <div class="p-4 border-b border-gray-100 dark:border-white/10">
-            <div class="space-y-3">
-              <el-select v-if="isNarrowLayout" :model-value="selectedDevice" placeholder="选择设备" filterable @change="handleNarrowDeviceChange">
-                <el-option v-for="d in deviceSidebarItems" :key="d.id" :label="d.label" :value="d.id" />
-              </el-select>
-              <el-input v-model="searchQuery" placeholder="搜索联系人/内容" clearable />
-            </div>
-          </div>
-
-          <ListSkeleton v-if="loading && filteredThreads.length === 0" :rows="10" />
-
-          <div v-else-if="filteredThreads.length === 0" class="flex-1 flex items-center justify-center p-6">
-            <EmptyState title="暂无会话" subtitle="等待设备收到短信或点击“新建短信”">
-              <template #icon>
-                <el-icon size="28"><Mail24Regular /></el-icon>
-              </template>
-            </EmptyState>
-          </div>
-
-          <RecycleScroller v-else :items="filteredThreads" :item-size="78" key-field="key" class="flex-1 min-h-0 overflow-auto">
-            <template #default="{ item: t }">
-              <div
-                class="border-b border-gray-100 dark:border-white/10 sms-thread-item-shell"
-                :class="{ 'sms-thread-item-shell-active': selectedThreadKey === t.key }"
-              >
-                <div
-                  class="sms-thread-row group flex items-start gap-2 px-4 py-3 transition-all"
-                  :class="selectedThreadKey === t.key ? 'sms-thread-row-active' : 'hover:bg-gray-50/60 dark:hover:bg-white/5'"
-                  @pointerdown="(e) => openThreadActionSheet(t, e)"
-                  @pointermove="moveLongPress"
-                  @pointerup="clearLongPress"
-                  @pointercancel="clearLongPress"
-                >
-                  <button
-                    type="button"
-                    class="min-w-0 flex-1 text-left"
-                    @click="void selectThread(t.key)"
-                  >
-                    <div class="flex items-start justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="flex items-center gap-2">
-                          <div class="font-extrabold text-gray-900 dark:text-white truncate">{{ t.peer }}</div>
-                          <span v-if="isUnread(t)" class="w-2 h-2 rounded-full bg-indigo-500" />
-                        </div>
-                        <div class="text-xs text-gray-500 dark:text-gray-400 truncate mt-1">{{ t.lastMessage }}</div>
-                      </div>
-                      <div class="text-right sms-thread-meta">
-                        <div class="text-[11px] text-gray-400 font-mono">{{ formatClock(t.lastTs) }}</div>
-                        <div v-if="t.localPhone || t.lastDeviceName" class="text-[10px] text-gray-400 mt-1 truncate">
-                          {{ t.localPhone || t.lastDeviceName }}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                  <el-button
-                    v-if="!isNarrowLayout"
-                    text
-                    class="sms-danger-ghost-btn sms-delete-trigger sms-thread-delete-btn"
-                    size="small"
-                    :class="{ 'sms-delete-visible': !supportsHover }"
-                    :loading="deletingThreadKey === t.key"
-                    :aria-label="`删除与 ${t.peer} 的对话`"
-                    title="删除对话"
-                    @click.stop="void confirmDeleteThread(t)"
-                  >
-                    <el-icon><Delete24Regular /></el-icon>
-                  </el-button>
-                </div>
-              </div>
-            </template>
-          </RecycleScroller>
-        </div>
-
-        <div v-if="showDetailPane" class="flex flex-col min-w-0 min-h-0">
-          <div class="p-4 border-b border-gray-100 dark:border-white/10 flex items-center justify-between gap-3">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <el-button v-if="isNarrowLayout && selectedThreadKey" text @click="backToList">返回</el-button>
-                <div class="text-sm font-extrabold text-gray-900 dark:text-white truncate">
-                  {{ selectedThread?.peer || '请选择会话' }}
-                </div>
-              </div>
-              <div class="text-xs text-gray-400 mt-1">
-                {{
-                  selectedDevice === 'all'
-                    ? (selectedThread?.localPhone || selectedThread?.lastDeviceName
-                        ? `本机：${selectedThread?.localPhone || selectedThread?.lastDeviceName}`
-                        : '全部设备')
-                    : `设备：${selectedDevice}`
-                }}
-              </div>
-            </div>
-            <div v-if="selectedThread" class="flex items-center gap-2">
-
-              <el-button text @click="scrollThreadToBottom">最新</el-button>
-            </div>
-          </div>
-
-          <div v-if="!selectedThread" class="flex-1 flex items-center justify-center p-6">
-            <EmptyState title="请选择一个会话" subtitle="从左侧联系人列表进入短信明细" />
-          </div>
-
-          <div v-else ref="detailScrollbar" class="flex-1 min-h-0 overflow-y-auto sms-detail-scroll" @scroll="onDetailScroll">
-            <div class="p-5 space-y-5">
-              <div v-if="canLoadMoreHistory" class="flex justify-center">
-                <el-button text type="primary" :loading="loadingHistoryMore" @click="loadMoreHistory">加载更多</el-button>
-              </div>
-              <div v-for="g in selectedThreadGroups" :key="g.date" class="space-y-4">
-                <div class="flex justify-center">
-                  <div class="text-[11px] font-bold text-gray-500 dark:text-gray-300 bg-gray-100/80 dark:bg-white/5 border border-gray-200/60 dark:border-white/10 px-3 py-1 rounded-full">
-                    {{ g.date }}
-                  </div>
-                </div>
-                <div v-for="m in g.items" :key="m.id" class="flex" :class="m.type === 1 ? 'justify-start' : 'justify-end'">
-                  <div
-                    class="sms-msg-wrapper group"
-                    @pointerdown="(e) => openMessageActionSheet(m, e)"
-                    @pointermove="moveLongPress"
-                    @pointerup="clearLongPress"
-                    @pointercancel="clearLongPress"
-                  >
-                    <div class="flex items-center gap-2 mb-1" :class="m.type === 1 ? '' : 'justify-end'">
-                      <span v-if="m.type === 1" class="text-xs font-bold text-gray-700 dark:text-gray-200">{{ m.sender }}</span>
-                      <el-button
-                        v-if="!isNarrowLayout && m.type === 2 && m.device_name"
-                        text
-                        class="sms-danger-ghost-btn sms-delete-trigger sms-message-delete-btn"
-                        size="small"
-                        :class="{ 'sms-delete-visible': !supportsHover }"
-                        :loading="deletingMessageId === m.id"
-                        :aria-label="`删除短信 ${m.id}`"
-                        title="删除短信"
-                        @click="void confirmDeleteMessage(m)"
-                      >
-                        <el-icon><Delete24Regular /></el-icon>
-                      </el-button>
-                      <span v-if="m.device_name" class="text-[10px] font-bold text-gray-400 bg-gray-100 dark:bg-white/5 px-1.5 py-0.5 rounded">
-                        {{ m.device_name }}
-                      </span>
-                      <span class="text-[11px] text-gray-400 font-mono">{{ new Date(m.timestamp).toLocaleString() }}</span>
-                      <span v-if="m.type === 2 && m.status === 2" class="text-green-500 text-xs" title="发送成功">✓</span>
-                      <span v-else-if="m.type === 2 && m.status === 3" class="text-red-500 text-xs" title="发送失败">✗</span>
-                      <el-button
-                        v-if="!isNarrowLayout && (m.type !== 2 || !m.device_name)"
-                        text
-                        class="sms-danger-ghost-btn sms-delete-trigger sms-message-delete-btn"
-                        size="small"
-                        :class="{ 'sms-delete-visible': !supportsHover }"
-                        :loading="deletingMessageId === m.id"
-                        :aria-label="`删除短信 ${m.id}`"
-                        title="删除短信"
-                        @click="void confirmDeleteMessage(m)"
-                      >
-                        <el-icon><Delete24Regular /></el-icon>
-                      </el-button>
-                    </div>
-                    <div
-                      class="px-5 py-4 rounded-2xl text-sm leading-[1.75] shadow-sm border"
-                      :class="m.type === 1
-                        ? 'bg-white/90 dark:bg-white/5 text-gray-700 dark:text-gray-200 border-gray-100 dark:border-white/10'
-                        : 'bg-indigo-50 dark:bg-indigo-500/10 text-gray-800 dark:text-gray-100 border-indigo-100 dark:border-indigo-500/20'"
-                    >
-                      {{ m.content }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div class="h-2" />
-            </div>
-          </div>
-
-          <div v-if="selectedThread" class="p-4 border-t border-gray-100 dark:border-white/10">
-            <div class="text-[11px] text-gray-400 text-left mb-2">
-              {{ composerEstimate.encoding }} · 预计 {{ composerEstimate.parts }} 段 · {{ composerLen }} 字
-            </div>
-            <div class="flex items-end gap-3">
-              <el-input
-                ref="composerInput"
-                v-model="composer"
-                type="textarea"
-                :autosize="{ minRows: 1, maxRows: 6 }"
-                resize="none"
-                placeholder="回复（Enter 发送）"
-                @keydown.enter.exact.prevent="sendToCurrentThread"
-              />
-              <el-button type="primary" :loading="sending" @click="sendToCurrentThread" class="!border-0 self-end">
-                <el-icon><Send24Regular /></el-icon>
-                发送
-              </el-button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <transition name="sms-sheet-fade">
-      <div v-if="showActionSheet && isNarrowLayout" class="sms-action-sheet-mask" @click="closeActionSheet">
-        <div class="sms-action-sheet" @click.stop>
-          <div class="sms-action-sheet-title">操作</div>
-          <el-button class="sms-danger-ghost-btn !w-full !justify-center" @click="void onActionSheetDelete()">
-            <el-icon><Delete24Regular /></el-icon>
-            {{ actionSheetTarget?.type === 'thread' ? '删除对话' : '删除短信' }}
-          </el-button>
-          <el-button class="!w-full !justify-center" @click="closeActionSheet">取消</el-button>
-        </div>
-      </div>
-    </transition>
-
-    <!-- Send Modal -->
-    <el-dialog v-model="showSendModal" title="发送短信" width="min(520px, 92vw)" class="glass-modal">
-      <el-form label-position="top" class="mt-2">
-        <el-form-item label="发送设备">
-          <el-select v-model="selectedSendDeviceId" placeholder="选择设备">
-            <el-option v-for="opt in sendDeviceOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="目标号码">
-          <el-input v-model="sendForm.phone" placeholder="+86138..." />
-        </el-form-item>
-        <el-form-item label="短信内容">
-          <el-input
-            v-model="sendForm.message"
-            type="textarea"
-            placeholder="输入短信内容..."
-            :autosize="{ minRows: 4, maxRows: 10 }"
-            resize="none"
+    <div class="sms-workspace" :class="{ narrow: isNarrowLayout }">
+      <aside v-if="showDeviceSidebar" class="sms-devices">
+        <h2 class="m3-label">设备</h2>
+        <button
+          v-for="device in deviceSidebarItems"
+          :key="device.id"
+          type="button"
+          class="m3-option"
+          :aria-pressed="selectedDevice === device.id"
+          @click="handleSelectDevice(device.id)"
+        >
+          <md-ripple /><span>{{ device.label }}</span
+          ><span
+            v-if="device.id !== 'all'"
+            class="sms-device-dot"
+            :class="{ online: device.healthy }"
           />
-          <div class="mt-2 text-xs flex justify-end text-gray-400">
-            {{ sendEstimate.encoding }} · 预计 {{ sendEstimate.parts }} 段 · {{ Array.from(String(sendForm.message || '')).length }} 字
-          </div>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <el-button @click="showSendModal = false">取消</el-button>
-          <el-button type="primary" :loading="sending" @click="handleSendModal">
-            <el-icon><Send24Regular /></el-icon>
-            发送
-          </el-button>
+        </button>
+      </aside>
+      <section v-if="showListPane" class="sms-list-pane" aria-label="短信会话列表">
+        <div class="sms-search m3-form">
+          <md-outlined-select
+            v-if="isNarrowLayout"
+            label="设备"
+            :value="selectedDevice"
+            @change="handleNarrowDeviceChange(fieldValue($event))"
+            ><md-select-option
+              v-for="device in deviceSidebarItems"
+              :key="device.id"
+              :value="device.id"
+              :selected="selectedDevice === device.id"
+              ><div slot="headline">{{ device.label }}</div></md-select-option
+            ></md-outlined-select
+          ><md-outlined-text-field
+            label="搜索联系人或内容"
+            name="sms-search"
+            :value="searchQuery"
+            @input="searchQuery = fieldValue($event)"
+          />
         </div>
-      </template>
-    </el-dialog>
+        <ListSkeleton v-if="loading && !threads.length" :rows="4" />
+        <EmptyState
+          v-else-if="!filteredThreads.length"
+          :title="searchQuery ? '没有匹配的会话' : '暂无短信'"
+          subtitle="收到短信后会显示在这里"
+        />
+        <RecycleScroller
+          v-else
+          :items="filteredThreads"
+          :item-size="88"
+          key-field="key"
+          class="sms-thread-list"
+        >
+          <template #default="{ item: thread }"
+            ><div
+              class="sms-thread"
+              :class="{ selected: selectedThreadKey === thread.key }"
+              @pointerdown="openThreadActionSheet(thread, $event)"
+              @pointermove="moveLongPress"
+              @pointerup="clearLongPress"
+              @pointercancel="clearLongPress"
+            >
+              <button
+                type="button"
+                class="sms-thread-main"
+                :aria-pressed="selectedThreadKey === thread.key"
+                @click="selectThread(thread.key)"
+              >
+                <md-ripple /><span class="sms-thread-heading"
+                  ><strong>{{ thread.peer }}</strong
+                  ><span v-if="isUnread(thread)" class="sms-unread" aria-label="未读" /><time>{{
+                    formatClock(thread.lastTs)
+                  }}</time></span
+                ><span class="sms-preview">{{ thread.lastMessage }}</span
+                ><span class="sms-local-phone">{{
+                  thread.localPhone || thread.lastDeviceName || ''
+                }}</span>
+              </button>
+              <md-icon-button
+                class="danger"
+                :aria-label="`删除与 ${thread.peer} 的对话`"
+                :disabled="deletingThreadKey === thread.key"
+                @click.stop="confirmDeleteThread(thread)"
+                ><SvgIcon :svg="deleteIcon"
+              /></md-icon-button></div
+          ></template>
+        </RecycleScroller>
+      </section>
+      <section v-if="showDetailPane" class="sms-detail" aria-label="会话详情">
+        <header class="sms-detail-heading">
+          <md-text-button v-if="isNarrowLayout && selectedThreadKey" @click="backToList"
+            >返回</md-text-button
+          >
+          <div class="sms-peer">
+            <h2>{{ selectedThread?.peer || '会话详情' }}</h2>
+            <p v-if="selectedThread?.localPhone" class="m3-muted">
+              本机：{{ selectedThread.localPhone }}
+            </p>
+          </div>
+          <md-text-button v-if="selectedThread" @click="scrollThreadToBottom">最新</md-text-button>
+        </header>
+        <EmptyState
+          v-if="!selectedThread"
+          title="请选择一个会话"
+          subtitle="从联系人列表进入短信明细"
+        />
+        <div
+          v-else
+          ref="detailScrollbar"
+          class="sms-detail-scroll"
+          :aria-busy="threadLoading"
+          @scroll="onDetailScroll"
+        >
+          <div class="sms-message-groups">
+            <div v-if="canLoadMoreHistory" class="sms-history-action">
+              <md-text-button :disabled="loadingHistoryMore" @click="loadMoreHistory">{{
+                loadingHistoryMore ? '加载中…' : '加载更多历史'
+              }}</md-text-button>
+            </div>
+            <section v-for="group in selectedThreadGroups" :key="group.date" class="sms-date-group">
+              <h3 class="sms-date">{{ group.date }}</h3>
+              <article
+                v-for="message in group.items"
+                :key="message.id"
+                class="sms-message"
+                :class="{ outgoing: message.type === 2 }"
+                @pointerdown="openMessageActionSheet(message, $event)"
+                @pointermove="moveLongPress"
+                @pointerup="clearLongPress"
+                @pointercancel="clearLongPress"
+              >
+                <div class="sms-message-meta">
+                  <span v-if="message.type === 1">{{ message.sender }}</span
+                  ><span v-if="message.device_name" class="m3-badge">{{ message.device_name }}</span
+                  ><time :datetime="message.timestamp">{{
+                    new Date(message.timestamp).toLocaleString()
+                  }}</time
+                  ><span v-if="message.type === 2 && message.status === 2" class="sms-sent"
+                    >发送成功</span
+                  ><span v-else-if="message.type === 2 && message.status === 3" class="m3-error"
+                    >发送失败</span
+                  ><md-icon-button
+                    class="danger"
+                    :aria-label="`删除短信 ${message.id}`"
+                    :disabled="deletingMessageId === message.id"
+                    @click="confirmDeleteMessage(message)"
+                    ><SvgIcon :svg="deleteIcon"
+                  /></md-icon-button>
+                </div>
+                <div class="sms-bubble">{{ message.content }}</div>
+              </article>
+            </section>
+          </div>
+        </div>
+        <form
+          v-if="selectedThread"
+          class="sms-composer m3-form"
+          @submit.prevent="sendToCurrentThread"
+        >
+          <p class="m3-label">
+            {{ composerEstimate.encoding }} · 预计 {{ composerEstimate.parts }} 段 ·
+            {{ composerLen }} 字
+          </p>
+          <div class="sms-compose-row">
+            <md-outlined-text-field
+              ref="composerInput"
+              name="sms-reply"
+              type="textarea"
+              rows="2"
+              label="回复短信"
+              supporting-text="Enter 发送，Shift + Enter 换行"
+              :value="composer"
+              :disabled="sending"
+              @input="composer = fieldValue($event)"
+              @keydown="onComposerKeydown"
+            /><md-filled-button type="submit" :disabled="sending || !composer.trim()">{{
+              sending ? '发送中…' : '发送'
+            }}</md-filled-button>
+          </div>
+        </form>
+      </section>
+    </div>
+    <md-dialog class="m3-dialog sms-action-sheet" :open="showActionSheet" @closed="closeActionSheet"
+      ><div slot="headline">
+        {{ actionSheetTarget?.type === 'thread' ? '会话操作' : '短信操作' }}
+      </div>
+      <div slot="content">
+        <md-text-button class="danger" @click="onActionSheetDelete">{{
+          actionSheetTarget?.type === 'thread' ? '删除对话' : '删除短信'
+        }}</md-text-button>
+      </div>
+      <div slot="actions">
+        <md-text-button @click="closeActionSheet">取消</md-text-button>
+      </div></md-dialog
+    >
+    <md-dialog
+      class="m3-dialog"
+      :open="showSendModal"
+      @cancel="guardDialogCancel($event, sending)"
+      @closed="showSendModal = false"
+    >
+      <div slot="headline">发送短信</div>
+      <form id="sms-send-form" slot="content" class="m3-form" @submit.prevent="handleSendModal">
+        <md-outlined-select
+          label="发送设备"
+          name="sms-device"
+          required
+          :value="selectedSendDeviceId"
+          :disabled="sending"
+          @change="selectedSendDeviceId = fieldValue($event)"
+          ><md-select-option
+            v-for="device in sendDeviceOptions"
+            :key="device.value"
+            :value="device.value"
+            :selected="selectedSendDeviceId === device.value"
+            ><div slot="headline">{{ device.label }}</div></md-select-option
+          ></md-outlined-select
+        >
+        <md-outlined-text-field
+          label="目标号码"
+          name="sms-phone"
+          type="tel"
+          required
+          :value="sendForm.phone"
+          :disabled="sending"
+          @input="sendForm.phone = fieldValue($event)"
+        />
+        <md-outlined-text-field
+          label="短信内容"
+          name="sms-body"
+          type="textarea"
+          rows="5"
+          required
+          :value="sendForm.message"
+          :disabled="sending"
+          @input="sendForm.message = fieldValue($event)"
+        />
+        <p class="m3-muted">
+          {{ sendEstimate.encoding }} · 预计 {{ sendEstimate.parts }} 段 ·
+          {{ Array.from(sendForm.message).length }} 字
+        </p>
+      </form>
+      <div slot="actions">
+        <md-text-button :disabled="sending" @click="showSendModal = false">取消</md-text-button
+        ><md-filled-button type="submit" form="sms-send-form" :disabled="sending">{{
+          sending ? '发送中…' : '发送'
+        }}</md-filled-button>
+      </div>
+    </md-dialog>
   </div>
 </template>
 
 <style scoped>
 .sms-page {
-  container-type: inline-size;
+  height: calc(100dvh - 112px);
+  min-height: 480px;
+  gap: 16px;
 }
-
-.sms-main-layout {
+.sms-workspace {
+  flex: 1;
+  min-height: 320px;
+  min-width: 0;
   display: grid;
+  grid-template-columns: 180px 300px minmax(0, 1fr);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--md-sys-color-surface-container-low);
+}
+.sms-workspace.narrow {
   grid-template-columns: minmax(0, 1fr);
-  height: 100%;
-  min-height: 0;
 }
-
-.sms-msg-wrapper {
-  width: 100%;
-  max-width: min(620px, 88%);
-}
-
-.sms-delete-trigger {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-}
-
-.sms-thread-row {
-  position: relative;
-}
-
-.sms-thread-item-shell {
-  transition: background-color 0.16s ease, border-color 0.16s ease;
-}
-
-.sms-thread-item-shell-active {
-  background: color-mix(in srgb, var(--color-primary, #6366f1) 10%, transparent);
-  position: relative;
-  z-index: 1;
-}
-
-.sms-thread-item-shell-active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -1px;
-  height: 1px;
-  background: color-mix(in srgb, var(--color-primary, #6366f1) 10%, transparent);
-}
-
-.sms-thread-row-active {
-  background: transparent;
-}
-
-.sms-thread-delete-btn {
-  position: absolute;
-  right: 16px;
-  top: 50%;
-  transform: translate(10px, -50%);
-  z-index: 3;
-}
-
-.sms-thread-meta {
-  transition: transform 0.2s ease;
-}
-
-.sms-message-delete-btn {
-  flex: 0 0 auto;
-}
-
-.sms-delete-visible {
-  opacity: 1 !important;
-  pointer-events: auto !important;
-}
-
-.sms-action-sheet-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 2200;
-  background: rgba(15, 23, 42, 0.36);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.sms-action-sheet {
-  width: min(520px, 100%);
-  background: color-mix(in srgb, var(--color-surface, #fff) 92%, transparent);
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--color-border, #e5e7eb) 90%, transparent);
-  border-bottom: none;
-  backdrop-filter: blur(14px);
-  padding: 12px;
+.sms-devices {
+  padding: 16px 8px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  border-right: 1px solid var(--md-sys-color-outline-variant);
+  overflow: auto;
 }
-
-.sms-action-sheet-title {
-  font-size: 12px;
-  font-weight: 700;
-  color: rgb(107 114 128);
-  text-align: center;
-  letter-spacing: 0.03em;
+.sms-devices h2 {
+  padding: 0 8px 8px;
 }
-
-.sms-sheet-fade-enter-active,
-.sms-sheet-fade-leave-active {
-  transition: opacity 0.18s ease;
+.sms-devices .m3-option {
+  border: 0;
+  min-height: 48px;
 }
-
-.sms-sheet-fade-enter-from,
-.sms-sheet-fade-leave-to {
-  opacity: 0;
+.sms-device-dot,
+.sms-unread {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-sys-color-outline);
 }
-
-:deep(.sms-danger-ghost-btn.el-button) {
-  color: rgb(185 28 28);
-  border-color: rgba(239, 68, 68, 0.24);
-  background: rgba(239, 68, 68, 0.09);
+.sms-device-dot.online {
+  background: var(--vh-success);
 }
-
-:deep(.sms-danger-ghost-btn.el-button:hover) {
-  color: rgb(153 27 27);
-  border-color: rgba(239, 68, 68, 0.38);
-  background: rgba(239, 68, 68, 0.15);
+.sms-unread {
+  background: var(--md-sys-color-primary);
 }
-
-:deep(.sms-danger-ghost-btn.el-button:focus-visible) {
-  outline: 2px solid rgba(239, 68, 68, 0.25);
-  outline-offset: 2px;
+.sms-list-pane,
+.sms-detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
 }
-
-@container (min-width: 980px) {
-  .sms-main-layout {
-    grid-template-columns: 260px 340px minmax(0, 1fr);
-  }
-
-  .sms-delete-trigger {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.18s ease, transform 0.2s ease;
-  }
-
-  .group:hover .sms-delete-trigger,
-  .group:focus-within .sms-delete-trigger {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .sms-thread-row:hover .sms-thread-meta,
-  .sms-thread-row:focus-within .sms-thread-meta {
-    transform: translateX(-36px);
-  }
-
-  .sms-thread-row:hover .sms-thread-delete-btn,
-  .sms-thread-row:focus-within .sms-thread-delete-btn {
-    transform: translate(0, -50%);
-  }
+.sms-list-pane {
+  border-right: 1px solid var(--md-sys-color-outline-variant);
 }
-
-@container (max-width: 979px) {
-  .sms-msg-wrapper {
-    max-width: 96%;
-  }
+.narrow .sms-list-pane {
+  border-right: 0;
 }
-
-/* 消息详情区域原生滚动条样式 */
-.sms-detail-scroll::-webkit-scrollbar {
-  width: 6px;
+.sms-search {
+  padding: 16px;
+  gap: 12px;
 }
-.sms-detail-scroll::-webkit-scrollbar-track {
-  background: transparent;
+.sms-thread-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
-.sms-detail-scroll::-webkit-scrollbar-thumb {
-  background: rgba(144, 147, 153, 0.3);
-  border-radius: 3px;
+.sms-thread {
+  display: flex;
+  align-items: center;
+  height: 88px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
-.sms-detail-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(144, 147, 153, 0.5);
+.sms-thread.selected {
+  background: var(--md-sys-color-secondary-container);
 }
-/* Firefox */
+.sms-thread-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 10px 12px;
+  overflow: hidden;
+  text-align: left;
+}
+.sms-thread-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 16px;
+  line-height: 24px;
+}
+.sms-thread-heading strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.sms-thread-heading time {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.sms-preview,
+.sms-local-phone {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.sms-preview {
+  font-size: 13px;
+  line-height: 20px;
+}
+.sms-local-phone {
+  font-size: 11px;
+  line-height: 16px;
+}
+.sms-detail-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
+}
+.sms-peer {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sms-peer h2 {
+  font-size: 18px;
+  font-weight: 500;
+}
 .sms-detail-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(144, 147, 153, 0.3) transparent;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.sms-message-groups {
+  padding: 20px;
+}
+.sms-history-action {
+  text-align: center;
+}
+.sms-date-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.sms-date {
+  align-self: center;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sms-message {
+  max-width: 90%;
+  align-self: flex-start;
+}
+.sms-message.outgoing {
+  align-self: flex-end;
+}
+.sms-message-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.sms-message-meta md-icon-button {
+  --md-icon-button-state-layer-height: 32px;
+  --md-icon-button-state-layer-width: 32px;
+}
+.sms-bubble {
+  padding: 12px 16px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container-high);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 24px;
+}
+.outgoing .sms-bubble {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.sms-sent {
+  color: var(--vh-success);
+}
+.sms-composer {
+  padding: 16px;
+  gap: 8px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+.sms-compose-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.sms-compose-row md-outlined-text-field {
+  flex: 1;
+}
+.sms-composer md-filled-button {
+  flex-shrink: 0;
+}
+.sms-action-sheet {
+  margin: auto auto 0;
+  width: min(560px, 100vw);
+  max-width: 100vw;
+  --md-dialog-container-shape-end-start: 0px;
+  --md-dialog-container-shape-end-end: 0px;
+}
+@media (max-width: 599px) {
+  .sms-message-groups {
+    padding: 12px;
+  }
+  .sms-message {
+    max-width: 100%;
+  }
+  .sms-compose-row {
+    flex-wrap: wrap;
+  }
+  .sms-compose-row md-outlined-text-field {
+    flex-basis: 100%;
+  }
 }
 </style>

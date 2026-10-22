@@ -41,6 +41,8 @@ export default [
       'no-empty': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
       'vue/no-mutating-props': 'off',
+      // Material Web components use native named slots.
+      'vue/no-deprecated-slot-attribute': 'off',
       'vue/multi-word-component-names': 'off'
     }
   },

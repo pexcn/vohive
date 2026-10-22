@@ -11,19 +11,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@element-plus/icons-vue": "^2.3.2",
     "@fontsource/roboto": "^5.3.0",
     "@fontsource/roboto-mono": "^5.3.0",
     "@material-symbols/svg-400": "^0.45.10",
     "@material/web": "^2.5.0",
-    "@vicons/fluent": "^0.13.0",
-    "@vicons/ionicons5": "^0.13.0",
     "axios": "^1.13.2",
     "echarts": "^6.0.0",
-    "element-plus": "^2.11.0",
     "pinia": "^3.0.4",
     "qrcode.vue": "^3.6.0",
-    "vfonts": "^0.0.3",
     "vue": "^3.5.24",
     "vue-echarts": "^8.0.1",
     "vue-router": "^4.6.4",
@@ -43,8 +38,6 @@
     "tailwindcss": "^3.3.0",
     "tsx": "^4.22.4",
     "typescript": "^5.8.2",
-    "unplugin-auto-import": "^21.0.0",
-    "unplugin-vue-components": "^31.0.0",
     "vite": "^5.4.21",
     "vue-tsc": "^2.2.12"
   }

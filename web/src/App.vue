@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, provide } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import LoadingScreen from './components/LoadingScreen.vue'
+import MaterialFeedback from './components/MaterialFeedback.vue'
 import { useTheme } from './composables/useTheme'
 
 const route = useRoute()
@@ -28,6 +29,7 @@ const shell = computed(() =>
         <LoadingScreen />
       </template>
     </Suspense>
+    <MaterialFeedback />
   </div>
 </template>
 

@@ -1,8 +1,8 @@
 <script setup lang="ts">
+import { notify, requestConfirmation } from '../stores/feedback'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import PageHeader from '../components/PageHeader.vue'
 import ErrorState from '../components/ErrorState.vue'
 import RefreshButton from '../components/RefreshButton.vue'
@@ -674,7 +674,10 @@ async function refreshListOnly() {
     debugCollector.recordApiError(e)
     if (listPollFailCount.value >= 3 && !listPollWarned.value) {
       listPollWarned.value = true
-      ElMessage.warning('设备列表刷新异常，已自动降低刷新频率')
+      notify({
+        tone: 'warning',
+        message: '设备列表刷新异常，已自动降低刷新频率'
+      })
     }
     throw e
   }
@@ -693,7 +696,10 @@ async function refreshSelectedDetailOnly() {
     debugCollector.recordApiError(e)
     if (detailPollFailCount.value >= 3 && !detailPollWarned.value) {
       detailPollWarned.value = true
-      ElMessage.warning('设备详情刷新异常，已自动降低刷新频率')
+      notify({
+        tone: 'warning',
+        message: '设备详情刷新异常，已自动降低刷新频率'
+      })
     }
     throw e
   }
@@ -742,26 +748,28 @@ async function rotateIP() {
   const id = String(selectedId.value || '').trim()
   if (!id) return
   if (!selectedListItem.value?.network_connected) {
-    ElMessage.warning('设备网络未连接，请先启动网络')
+    notify({ tone: 'warning', message: '设备网络未连接，请先启动网络' })
     return
   }
-  const confirmed = await ElMessageBox.confirm(
-    `确定对设备 ${id} 执行 IP 轮换？`,
-    '确认操作',
-    { confirmButtonText: '立即轮换', cancelButtonText: '取消', type: 'warning' }
-  ).then(() => true).catch(() => false)
+  const confirmed = await requestConfirmation({
+    message: `确定对设备 ${id} 执行 IP 轮换？`,
+    title: '确认操作',
+    confirmLabel: '立即轮换',
+    cancelLabel: '取消',
+    danger: true
+  }).then(() => true).catch(() => false)
   if (!confirmed) return
 
   rotating.value = true
   try {
     const result = await devicesService.rotateIP(id)
     if (!result.ok) throw new Error(result.error.message || '轮换失败')
-    ElMessage.success('轮换请求已发送')
+    notify({ tone: 'success', message: '轮换请求已发送' })
     await refreshDeviceViews()
     scheduleRefreshDeviceViews(1500)
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '轮换失败')
+    notify({ tone: 'error', message: err.message || '轮换失败' })
   } finally {
     rotating.value = false
   }
@@ -770,15 +778,18 @@ async function rotateIP() {
 async function reconnectVoWiFi() {
   const id = String(selectedId.value || '').trim()
   if (!id) return
-  const confirmed = await ElMessageBox.confirm(
-    `确定对设备 ${id} 发起 VoWiFi 环境的重新连接拨号？这将在后台重新注册 IMS 链路。`,
-    '重连 VoWiFi',
-    { confirmButtonText: '确定重连', cancelButtonText: '取消', type: 'info' }
-  ).then(() => true).catch(() => false)
+  const confirmed = await requestConfirmation({
+    message: `确定对设备 ${id} 发起 VoWiFi 环境的重新连接拨号？这将在后台重新注册 IMS 链路。`,
+    title: '重连 VoWiFi',
+    confirmLabel: '确定重连',
+    cancelLabel: '取消',
+    danger: false
+  }).then(() => true).catch(() => false)
   if (!confirmed) return
 
   reconnectingVoWiFi.value = true
-  const progressMessage = ElMessage.info({
+  const progressMessage = notify({
+    tone: 'info',
     message: '正在重启 VoWiFi 服务，请稍候...',
     duration: 0
   })
@@ -789,7 +800,7 @@ async function reconnectVoWiFi() {
     scheduleRefreshDeviceViews(4000)
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '重连命令下发失败')
+    notify({ tone: 'error', message: err.message || '重连命令下发失败' })
   } finally {
     progressMessage.close()
     reconnectingVoWiFi.value = false
@@ -808,7 +819,10 @@ async function openE911Websheet() {
     e911WebsheetOpen.value = true
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || 'E911地址设置页面打开失败')
+    notify({
+      tone: 'error',
+      message: err.message || 'E911地址设置页面打开失败'
+    })
   } finally {
     e911Starting.value = false
   }
@@ -824,24 +838,26 @@ const rebooting = ref(false)
 async function rebootModem() {
   const id = String(selectedId.value || '').trim()
   if (!id) return
-  const confirmed = await ElMessageBox.confirm(
-    `确定对设备 ${id} 发送重启模组指令？设备将在此期间脱网和失联数秒。`,
-    '确认重启',
-    { confirmButtonText: '立即重启', cancelButtonText: '取消', type: 'warning' }
-  ).then(() => true).catch(() => false)
+  const confirmed = await requestConfirmation({
+    message: `确定对设备 ${id} 发送重启模组指令？设备将在此期间脱网和失联数秒。`,
+    title: '确认重启',
+    confirmLabel: '立即重启',
+    cancelLabel: '取消',
+    danger: true
+  }).then(() => true).catch(() => false)
   if (!confirmed) return
 
   rebooting.value = true
   try {
     const result = await devicesService.rebootModem(id)
     if (!result.ok) throw new Error(result.error.message || '指令下发失败')
-    ElMessage.success('重启指令已送达，设备正在重新启动')
+    notify({ tone: 'success', message: '重启指令已送达，设备正在重新启动' })
     void refreshDeviceViews().catch(() => {})
     // 稍微延迟查询，因为网络可能正在断开
     scheduleRefreshDeviceViews(5000)
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '指令下发失败')
+    notify({ tone: 'error', message: err.message || '指令下发失败' })
   } finally {
     rebooting.value = false
   }
@@ -853,11 +869,11 @@ async function rescanDevices() {
   try {
     const result = await devicesService.rescanAll()
     if (!result.ok) throw new Error(result.error.message || '重新扫描失败')
-    ElMessage.success('设备重新扫描完成')
+    notify({ tone: 'success', message: '设备重新扫描完成' })
     await fetchAll()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '重新扫描失败')
+    notify({ tone: 'error', message: err.message || '重新扫描失败' })
   } finally {
     rescanning.value = false
   }
@@ -876,11 +892,14 @@ async function saveConfig() {
     const result = await devicesService.updateConfig(id, editConfig.value)
     if (!result.ok) throw new Error(result.error.message || '保存失败')
     if (result.data.warning) {
-      ElMessage.warning(result.data.warning)
+      notify({ tone: 'warning', message: result.data.warning })
     } else if (result.data.requiresRestart) {
-      ElMessage.warning('配置已保存，但部分变更需要重启服务后生效')
+      notify({
+        tone: 'warning',
+        message: '配置已保存，但部分变更需要重启服务后生效'
+      })
     } else {
-      ElMessage.success('配置已保存')
+      notify({ tone: 'success', message: '配置已保存' })
     }
     editDirty.value = false
     editBaseline.value = JSON.stringify(editConfig.value)
@@ -888,7 +907,7 @@ async function saveConfig() {
     await syncEditConfigFromSelected(true)
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '保存失败')
+    notify({ tone: 'error', message: err.message || '保存失败' })
   } finally {
     saving.value = false
   }
@@ -897,18 +916,20 @@ async function saveConfig() {
 async function deleteDevice() {
   const id = String(selectedId.value || '').trim()
   if (!id) return
-  const confirmed = await ElMessageBox.confirm(
-    `确定删除设备 ${id} 的配置？删除后该设备将停止接管（代理/网络/AT）。`,
-    '确认删除',
-    { confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning' }
-  ).then(() => true).catch(() => false)
+  const confirmed = await requestConfirmation({
+    message: `确定删除设备 ${id} 的配置？删除后该设备将停止接管（代理/网络/AT）。`,
+    title: '确认删除',
+    confirmLabel: '删除',
+    cancelLabel: '取消',
+    danger: true
+  }).then(() => true).catch(() => false)
   if (!confirmed) return
 
   deleting.value = true
   try {
     const result = await devicesService.deleteManaged(id)
     if (!result.ok) throw new Error(result.error.message || '删除失败')
-    ElMessage.success('设备已删除')
+    notify({ tone: 'success', message: '设备已删除' })
     clearLiveRadioFallbackTimer()
     selectedDetail.value = null
     updateTrafficSpeedFromSelected()
@@ -921,7 +942,7 @@ async function deleteDevice() {
     await fetchAll()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '删除失败')
+    notify({ tone: 'error', message: err.message || '删除失败' })
   } finally {
     deleting.value = false
   }
@@ -978,7 +999,10 @@ function applyDiscoveredToAddConfig(d: DiscoveredDevice | null) {
 
 function selectDiscoveredForAdd(d: DiscoveredDevice) {
   if (d.degraded) {
-    ElMessage.warning('无法读取该设备 IMEI（可能控制口挂死），请执行 AT!RESET 或切换组态后重试')
+    notify({
+      tone: 'warning',
+      message: '无法读取该设备 IMEI（可能控制口挂死），请执行 AT!RESET 或切换组态后重试'
+    })
     return
   }
   addSelected.value = d
@@ -989,7 +1013,7 @@ async function addDevice() {
   addSaving.value = true
   try {
     if (!addSelected.value) {
-      ElMessage.warning('请选择一个未配置设备')
+      notify({ tone: 'warning', message: '请选择一个未配置设备' })
       return
     }
     applyDiscoveredToAddConfig(addSelected.value)
@@ -998,17 +1022,17 @@ async function addDevice() {
     const warning = result.data.warning
     const started = result.data.started
     if (warning) {
-      ElMessage.warning(warning)
+      notify({ tone: 'warning', message: warning })
     } else if (started === true) {
-      ElMessage.success('设备已添加并开始接管')
+      notify({ tone: 'success', message: '设备已添加并开始接管' })
     } else {
-      ElMessage.success('设备配置已添加')
+      notify({ tone: 'success', message: '设备配置已添加' })
     }
     addDialogOpen.value = false
     await fetchAll()
   } catch (e: unknown) {
     const err = toAppError(e)
-    ElMessage.error(err.message || '添加失败')
+    notify({ tone: 'error', message: err.message || '添加失败' })
   } finally {
     addSaving.value = false
   }

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { onBeforeUnmount, watch } from 'vue'
 
-const props = defineProps<{ message: string }>()
+const props = defineProps<{ message: string; duration?: number }>()
 const emit = defineEmits<{ dismiss: [] }>()
 let timer: ReturnType<typeof setTimeout> | undefined
 watch(() => props.message, message => {
   clearTimeout(timer)
-  if (message) timer = setTimeout(() => emit('dismiss'), 8000)
-})
+  if (message && props.duration !== 0) timer = setTimeout(() => emit('dismiss'), props.duration ?? 8000)
+}, { immediate: true })
 onBeforeUnmount(() => clearTimeout(timer))
 </script>
 

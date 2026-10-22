@@ -1,4 +1,5 @@
 <script setup lang="ts">
+
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api } from '../stores/auth'
 import type { CarrierWebsheetInfo } from '../types/api'
@@ -29,6 +30,8 @@ const websheetToken = computed(() => {
     return ''
   }
 })
+
+watch(() => props.modelValue, value => { if (value) loaded.value = false })
 
 watch(() => props.websheet?.id, () => {
   loaded.value = false
@@ -122,37 +125,53 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <el-dialog
-    :model-value="modelValue"
-    :title="websheet?.title || 'E911地址'"
-    width="min(390px, 94vw)"
-    destroy-on-close
-    @update:model-value="emit('update:modelValue', $event)"
+  <md-dialog
+    class="m3-dialog websheet-dialog"
+    :open="modelValue"
+    @closed="emit('update:modelValue', false)"
   >
-    <div class="websheet-frame-shell relative overflow-hidden rounded border border-gray-200 dark:border-gray-700">
-      <div v-if="!loaded" class="absolute inset-0 z-10 flex items-center justify-center bg-white/80 text-sm text-gray-500 dark:bg-gray-900/80">
-        加载中...
+    <div slot="headline">{{ websheet?.title || 'E911 地址' }}</div>
+    <div slot="content">
+      <div class="websheet-frame-shell">
+        <div v-if="!loaded" class="websheet-loading" role="status">
+          <md-circular-progress indeterminate aria-label="加载运营商页面" />
+        </div>
+        <iframe
+          v-if="modelValue && iframeSrc"
+          ref="iframeEl"
+          :src="iframeSrc"
+          title="运营商地址设置"
+          sandbox="allow-forms allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox"
+          @load="loaded = true"
+        />
       </div>
-      <iframe
-        v-if="iframeSrc"
-        ref="iframeEl"
-        :src="iframeSrc"
-        class="block h-full w-full border-0"
-        sandbox="allow-forms allow-same-origin allow-scripts allow-popups allow-popups-to-escape-sandbox"
-        @load="loaded = true"
-      />
     </div>
-  </el-dialog>
+    <div slot="actions">
+      <md-text-button @click="emit('update:modelValue', false)">关闭</md-text-button>
+    </div>
+  </md-dialog>
 </template>
-
 <style scoped>
-.websheet-frame-shell {
-  height: min(680px, 78vh);
+.websheet-dialog {
+  width: min(438px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
 }
-
-@media (max-width: 640px) {
-  .websheet-frame-shell {
-    height: min(620px, calc(100vh - 140px));
-  }
+.websheet-frame-shell {
+  position: relative;
+  height: min(620px, calc(100dvh - 220px));
+  min-height: 120px;
+}
+.websheet-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--md-sys-color-surface);
+}
+iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 </style>

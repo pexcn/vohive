@@ -61,7 +61,7 @@ export function useCardPolicyToggles(
   const airplanePending = ref(false)
   const airplaneFailed = ref(false)
 
-  // 上游变化原地同步各字段（不整体替换对象，避免 el-switch 在 element-plus 2.13 崩溃）
+  // 上游变化原地同步各字段，保留响应式引用和开关回滚状态
   watch(
     source,
     (p) => {

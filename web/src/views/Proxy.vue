@@ -16,7 +16,7 @@ import {
 } from '../utils/upstreamProxyAddress'
 import SvgIcon from '../components/SvgIcon.vue'
 import RefreshButton from '../components/RefreshButton.vue'
-import MaterialSnackbar from '../components/MaterialSnackbar.vue'
+import { notify as showNotice } from '../stores/feedback'
 import StatusLight from '../components/StatusLight.vue'
 import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
 import addIcon from '@material-symbols/svg-400/outlined/add.svg?raw'
@@ -31,14 +31,13 @@ import earthIcon from '@material-symbols/svg-400/outlined/language.svg?raw'
 import visibilityIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
 import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
 
-const notice = ref('')
 const formError = ref('')
 function showError(message: string) {
   formError.value = message
-  notice.value = message
+  showNotice({ message })
 }
 function notify(message: string) {
-  notice.value = message
+  showNotice({ message })
 }
 function fieldValue(event: Event) {
   return (event.target as HTMLInputElement).value
@@ -1168,7 +1167,6 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
         </md-filled-button>
       </div>
     </md-dialog>
-    <MaterialSnackbar :message="notice" @dismiss="notice = ''" />
   </div>
 </template>
 

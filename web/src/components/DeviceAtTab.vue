@@ -1,7 +1,6 @@
 <script setup lang="ts">
+import { fieldValue } from '../utils/material'
 import { computed, ref, watch } from 'vue'
-import Code24Regular from '@vicons/fluent/es/Code24Regular'
-import Warning24Regular from '@vicons/fluent/es/Warning24Regular'
 import { AT_TEMPLATES } from '../constants/atTemplates'
 import { devicesService } from '../services/devices'
 
@@ -49,7 +48,7 @@ watch(
 
 async function sendAT() {
   const cmd = String(atCmd.value || '').trim()
-  if (!cmd) return
+  if (!cmd || atSending.value || !canUseATTerminal.value) return
   atSending.value = true
   atCmd.value = '' // 清空输入框
   try {
@@ -82,103 +81,70 @@ function clearATHistory() {
 </script>
 
 <template>
-  <div>
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-700 dark:text-gray-300">
-        <el-icon size="22"><Code24Regular /></el-icon>
-      </div>
-      <div>
-        <div class="text-lg font-bold text-gray-900 dark:text-white">AT 终端</div>
-        <div class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">发送 AT 指令并查看回显（多行响应会完整返回）</div>
-      </div>
+  <section class="m3-stack" aria-label="AT 终端">
+    <div>
+      <h2 class="m3-title">AT 终端</h2>
+      <p class="m3-muted">发送指令并查看完整响应</p>
     </div>
-
-    <template v-if="!canUseATTerminal">
-      <div class="mt-4 p-8 flex flex-col items-center justify-center bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-900/50 rounded-xl">
-        <el-icon size="48" class="text-orange-400 mb-4"><Warning24Regular /></el-icon>
-        <div class="text-lg font-bold text-orange-700 dark:text-orange-400">{{ unavailableTitle }}</div>
-        <div class="text-sm text-orange-600 dark:text-orange-300 mt-2 text-center max-w-md">
-          {{ unavailableDescription }}
-        </div>
-      </div>
-    </template>
-    
+    <div v-if="!canUseATTerminal" class="m3-notice">
+      <h3>{{ unavailableTitle }}</h3>
+      <p>{{ unavailableDescription }}</p>
+    </div>
     <template v-else>
-      <!-- 交互历史面板 -->
-    <div class="ui-panel-muted mt-4 p-4 h-[320px] overflow-auto flex flex-col gap-3 rounded-xl border border-gray-100 dark:border-white/10 relative">
-      <div v-if="atHistory.length === 0 && !atSending" class="absolute inset-0 flex items-center justify-center text-sm text-gray-400">
-        暂无 AT 会话记录
-      </div>
-      <div v-for="(h, i) in atHistory" :key="h.ts + h.cmd + i" class="flex flex-col gap-2 w-full">
-        
-        <!-- 请求记录（右侧气泡） -->
-        <div class="flex w-full justify-end">
-          <div class="max-w-[80%] bg-indigo-500 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 shadow-sm">
-            <div class="text-sm font-mono break-words">{{ h.cmd }}</div>
-            <div class="text-[10px] text-indigo-100 mt-1 text-right">{{ new Date(h.ts).toLocaleTimeString() }}</div>
-          </div>
+      <div class="terminal-log" role="log" aria-label="AT 会话记录" aria-live="polite">
+        <p v-if="!atHistory.length && !atSending" class="m3-muted">暂无 AT 会话记录</p>
+        <div v-for="(h, i) in atHistory" :key="h.ts + ':' + i" class="terminal-entry">
+          <p class="m3-label">{{ new Date(h.ts).toLocaleTimeString() }}</p>
+          <pre class="terminal-command">{{ h.cmd }}</pre>
+          <pre class="terminal-response" :class="{ 'm3-error': !h.ok }">{{ h.response }}</pre>
         </div>
-
-        <!-- 响应/错误记录（左侧气泡） -->
-        <div class="flex w-full justify-start">
-          <div class="max-w-[80%] rounded-2xl rounded-tl-sm px-4 py-2.5 shadow-sm" :class="!h.ok ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-100 dark:border-red-900/50' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-white/5'">
-            <div class="text-sm whitespace-pre-wrap break-words font-mono">{{ h.response }}</div>
-            <div class="text-[10px] mt-1 text-gray-400 flex items-center gap-2">
-              <span>{{ new Date(h.ts).toLocaleTimeString() }}</span>
-            </div>
-          </div>
-        </div>
-
+        <p v-if="atSending" role="status" class="m3-muted">等待模组响应…</p>
       </div>
-
-      <!-- 发送中等待状态（左侧呼吸气泡） -->
-      <div v-if="atSending" class="flex w-full justify-start mt-2">
-        <div class="max-w-[80%] bg-white dark:bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border border-gray-100 dark:border-white/5 flex items-center gap-2">
-          <div class="flex space-x-1">
-            <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-            <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-            <div class="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"></div>
-          </div>
-          <span class="text-xs text-gray-400 ml-1">等待模组响应...</span>
-        </div>
-      </div>
-    </div>
-    <!-- 输入区 -->
-    <div class="grid grid-cols-1 md:grid-cols-[200px_1fr_110px_auto] gap-3 mt-4">
-      <div class="space-y-1">
-        <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">快捷指令模板</div>
-        <el-select v-model="atTemplate" filterable clearable placeholder="选择常用命令（可选）">
-           <el-option-group v-for="g in atTemplates" :key="g.label" :label="g.label">
-            <el-option v-for="it in g.items" :key="it.value" :label="it.label" :value="it.value" />
-          </el-option-group>
-        </el-select>
-      </div>
-
-      <div class="space-y-1">
-        <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">命令</div>
-        <el-input
-          v-model="atCmd"
-          placeholder='例如 AT+CSQ (可自由编辑)'
-          @keyup.enter="sendAT"
+      <form class="m3-form" @submit.prevent="sendAT">
+        <md-outlined-select
+          label="快捷指令模板"
+          :value="atTemplate"
           :disabled="atSending"
-        />
-      </div>
-
-      <div class="space-y-1">
-        <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">超时(ms)</div>
-        <el-input v-model.number="atTimeoutMs" type="number" inputmode="numeric" placeholder="10000" />
-      </div>
-
-      <div class="space-y-1 self-end">
-        <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider opacity-0 select-none">操作</div>
-        <div class="flex items-center justify-end gap-2">
-          <el-button type="default" @click="clearATHistory" class="ui-button-plain">清空</el-button>
-          <el-button type="primary" :loading="atSending" :disabled="!atCmd" @click="sendAT" class="!border-0">
-            发送
-          </el-button>
+          @change="atTemplate = fieldValue($event)"
+        >
+          <md-select-option value="" :selected="!atTemplate"
+            ><div slot="headline">自由输入</div></md-select-option
+          >
+          <template v-for="group in atTemplates" :key="group.label"
+            ><md-select-option
+              v-for="item in group.items"
+              :key="item.value"
+              :value="item.value"
+              :selected="atTemplate === item.value"
+              ><div slot="headline">{{ group.label }} · {{ item.label }}</div></md-select-option
+            ></template
+          >
+        </md-outlined-select>
+        <div class="m3-form-grid">
+          <md-outlined-text-field
+            name="at-command"
+            label="AT 指令"
+            placeholder="例如 AT+CSQ"
+            :value="atCmd"
+            :disabled="atSending"
+            @input="atCmd = fieldValue($event)"
+          /><md-outlined-text-field
+            label="超时（毫秒）"
+            type="number"
+            min="1"
+            :value="String(atTimeoutMs)"
+            :disabled="atSending"
+            @input="atTimeoutMs = Number(fieldValue($event))"
+          />
         </div>
-      </div>
-      </div>
+        <div class="m3-actions">
+          <md-text-button type="button" :disabled="atSending" @click="clearATHistory"
+            >清空记录</md-text-button
+          ><md-filled-button type="submit" :disabled="atSending || !atCmd.trim()">{{
+            atSending ? '发送中…' : '发送'
+          }}</md-filled-button>
+        </div>
+      </form>
     </template>
-  </div>
+  </section>
 </template>

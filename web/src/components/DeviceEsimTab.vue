@@ -1,31 +1,20 @@
 <script setup lang="ts">
+import { notify, requestConfirmation } from '../stores/feedback'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import type { EsimChipInfo, EsimEUICCProfiles, EsimNotificationItem, EsimSpaceDelta } from '../types/api'
 import { devicesService } from '../services/devices'
 import { errorMessage } from '../services/http'
 import { api } from '../stores/auth'
 import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
 import EsimCardPolicyInline from './EsimCardPolicyInline.vue'
+import RefreshButton from './RefreshButton.vue'
+import LoadingScreen from './LoadingScreen.vue'
+import EmptyState from './EmptyState.vue'
+import { fieldValue } from '../utils/material'
 import { applyOptimisticActiveState } from './deviceEsimOptimistic'
 import { pickNextDownloadAid } from './deviceEsimOverviewRefresh'
 import { describeDeleteResultNotice, describeDownloadTerminalNotice, describeSpaceDelta } from './deviceEsimOperationNotice'
-import {
-  formatEsimNotificationEvent,
-  notificationDialogWidth,
-  notificationListItemLayoutClass,
-  notificationMetaContainerClass,
-  notificationMetaItemClass,
-  reconcileEsimNotificationDialogState,
-  shouldShowEsimNotificationIcon,
-  shouldShowEsimRefreshIcon
-} from './deviceEsimNotifications'
-import Add24Regular from '@vicons/fluent/es/Add24Regular'
-import Alert24Regular from '@vicons/fluent/es/Alert24Regular'
-import ArrowDownload24Regular from '@vicons/fluent/es/ArrowDownload24Regular'
-import ArrowSync24Regular from '@vicons/fluent/es/ArrowSync24Regular'
-import Eye24Regular from '@vicons/fluent/es/Eye24Regular'
-import EyeOff24Regular from '@vicons/fluent/es/EyeOff24Regular'
+import { formatEsimNotificationEvent, reconcileEsimNotificationDialogState } from './deviceEsimNotifications'
 
 const props = defineProps<{
   deviceId: string
@@ -101,7 +90,7 @@ watch(() => downloadForm.value.smdp, (newVal) => {
     if (parts.length >= 3) {
       downloadForm.value.smdp = parts[1] // SM-DP+
       downloadForm.value.matchingId = parts[2] // Matching ID
-      ElMessage.success('已自动解析完整的 LPA 激活码')
+      notify({ tone: 'success', message: '已自动解析完整的 LPA 激活码' })
     }
   } else if (newVal.startsWith('http://') || newVal.startsWith('https://')) {
     downloadForm.value.smdp = newVal.replace(/^https?:\/\//i, '')
@@ -142,7 +131,7 @@ async function fetchNotifications() {
     if (!result.ok) throw result.error
     notifications.value = result.data
   } catch (e: unknown) {
-    ElMessage.error(errorMessage(e, '获取当前通知列表失败'))
+    notify({ tone: 'error', message: errorMessage(e, '获取当前通知列表失败') })
   } finally {
     notificationsLoading.value = false
   }
@@ -160,10 +149,13 @@ async function retryNotification(item: EsimNotificationItem) {
   try {
     if (!result.ok) throw result.error
     retryingNotificationSequence.value = null
-    ElMessage.success(result.data.message)
+    notify({ tone: 'success', message: result.data.message })
     const refreshed = await devicesService.getEsimNotifications(props.deviceId)
     if (!refreshed.ok) {
-      ElMessage.warning(refreshed.error.message || '通知已发送，但刷新通知列表失败')
+      notify({
+        tone: 'warning',
+        message: refreshed.error.message || '通知已发送，但刷新通知列表失败'
+      })
       return
     }
     const nextState = reconcileEsimNotificationDialogState({
@@ -185,7 +177,7 @@ async function retryNotification(item: EsimNotificationItem) {
     notificationsDialogOpen.value = nextState.isOpen
     notifications.value = nextState.items
     retryingNotificationSequence.value = nextState.retryingSequenceNumber
-    ElMessage.error(errorMessage(e, '通知重试发送失败'))
+    notify({ tone: 'error', message: errorMessage(e, '通知重试发送失败') })
   }
 }
 
@@ -225,7 +217,7 @@ async function fetchOverview(refresh = false) {
     if (result.ok === false && result.error.code === 'ERR_CANCELED') {
       return
     }
-    ElMessage.error(errorMessage(e, '获取 eSIM 信息失败'))
+    notify({ tone: 'error', message: errorMessage(e, '获取 eSIM 信息失败') })
   } finally {
     if (shouldResetLoading) {
       if (refresh) {
@@ -244,7 +236,10 @@ async function fetchProfiles(refresh = false) {
     if (!result.ok) throw result.error
     profiles.value = result.data
   } catch (e: unknown) {
-    ElMessage.error(errorMessage(e, '获取 eSIM Profiles 失败'))
+    notify({
+      tone: 'error',
+      message: errorMessage(e, '获取 eSIM Profiles 失败')
+    })
   } finally {
     profilesRefreshing.value = false
   }
@@ -261,11 +256,13 @@ async function switchProfile(iccid: string, currentState: number, aidHex: string
   const requestId = ++switchRequestId
   const isCurrent = () => props.deviceId === deviceId && requestId === switchRequestId
   const action = currentState === 1 ? '禁用' : '启用'
-  const confirmed = await ElMessageBox.confirm(
-    `确定要${action}此 Profile (${iccid}) 吗？切换后设备会短暂断网。`,
-    `${action} Profile`,
-    { confirmButtonText: action, cancelButtonText: '取消', type: 'warning' }
-  ).then(() => true).catch(() => false)
+  const confirmed = await requestConfirmation({
+    message: `确定要${action}此 Profile (${iccid}) 吗？切换后设备会短暂断网。`,
+    title: `${action} Profile`,
+    confirmLabel: action,
+    cancelLabel: '取消',
+    danger: true
+  }).then(() => true).catch(() => false)
   if (!confirmed || switchBusy.value || !isCurrent()) return
 
   switching.value = iccid
@@ -277,7 +274,7 @@ async function switchProfile(iccid: string, currentState: number, aidHex: string
     if (!isCurrent()) return
     if (!result.ok) throw new Error(result.error.message || `${action}失败`)
     switchSubmitted.value = true
-    ElMessage.success('切卡指令已提交，正在恢复设备服务')
+    notify({ tone: 'success', message: '切卡指令已提交，正在恢复设备服务' })
     applyOptimisticActive(iccid, aidHex)
     // Covers completion before the SSE busy transition reaches this component.
     const overview = await devicesService.getOverviewLite(deviceId)
@@ -285,7 +282,7 @@ async function switchProfile(iccid: string, currentState: number, aidHex: string
       switchSubmitted.value = false
     }
   } catch (e: unknown) {
-    if (isCurrent()) ElMessage.error(errorMessage(e, `${action}失败`))
+    if (isCurrent()) notify({ tone: 'error', message: errorMessage(e, `${action}失败`) })
   } finally {
     if (isCurrent()) switching.value = null
   }
@@ -301,17 +298,17 @@ function startRename(iccid: string, currentName: string) {
 async function saveRename(iccid: string, aidHex: string) {
   const name = renameValue.value.trim()
   if (!name) {
-    ElMessage.warning('名称不能为空')
+    notify({ tone: 'warning', message: '名称不能为空' })
     return
   }
   try {
     const result = await devicesService.renameEsimProfile(props.deviceId, iccid, { name, aid_hex: aidHex })
     if (!result.ok) throw new Error(result.error.message || '修改名称失败')
-    ElMessage.success('名称修改成功')
+    notify({ tone: 'success', message: '名称修改成功' })
     renaming.value = null
     await fetchProfiles(true)
   } catch (e: unknown) {
-    ElMessage.error(errorMessage(e, '修改名称失败'))
+    notify({ tone: 'error', message: errorMessage(e, '修改名称失败') })
   }
 }
 
@@ -324,19 +321,18 @@ function cancelRename() {
 // 删除 profile（需要输入 ICCID 后 4 位确认）
 async function deleteProfile(iccid: string, name: string, aidHex: string) {
   const last4 = iccid.slice(-4)
-  const { value: input } = await ElMessageBox.prompt(
-    `此操作不可逆！请输入 ICCID 后 4 位「${last4}」以确认删除 Profile「${name}」`,
-    '⚠️ 删除 Profile',
-    {
-      confirmButtonText: '确认删除',
-      cancelButtonText: '取消',
-      inputPattern: new RegExp(`^${last4}$`),
-      inputErrorMessage: `请输入 ${last4} 以确认`,
-      inputPlaceholder: `输入 ${last4}`,
-      type: 'error',
-      confirmButtonClass: '!bg-red-600 !border-red-600 hover:!bg-red-700'
+  const { value: input } = await requestConfirmation({
+    message: `此操作不可逆！请输入 ICCID 后 4 位「${last4}」以确认删除 Profile「${name}」`,
+    title: '⚠️ 删除 Profile',
+    confirmLabel: '确认删除',
+    cancelLabel: '取消',
+    danger: true,
+    input: {
+      pattern: new RegExp(`^${last4}$`),
+      placeholder: `输入 ${last4}`,
+      errorMessage: `请输入 ${last4} 以确认`
     }
-  ).catch(() => ({ value: '' }))
+  }).then(value => ({ value })).catch(() => ({ value: '' }))
   if (input !== last4) return
 
   deleting.value = iccid
@@ -346,13 +342,13 @@ async function deleteProfile(iccid: string, name: string, aidHex: string) {
     showRecentSpaceDelta(aidHex, result.data.space_delta)
     const notice = describeDeleteResultNotice(result.data)
     if (notice.tone === 'warning') {
-      ElMessage.warning(notice.message)
+      notify({ tone: 'warning', message: notice.message })
     } else {
-      ElMessage.success(notice.message)
+      notify({ tone: 'success', message: notice.message })
     }
     await fetchOverview(true)
   } catch (e: unknown) {
-    ElMessage.error(errorMessage(e, '删除失败'))
+    notify({ tone: 'error', message: errorMessage(e, '删除失败') })
   } finally {
     deleting.value = null
   }
@@ -360,10 +356,11 @@ async function deleteProfile(iccid: string, name: string, aidHex: string) {
 
 // 下载新 profile（SSE 流式进度）
 async function downloadProfile() {
+  if (downloading.value) return
   const { smdp, matchingId, confirmationCode, aidHex, imei } = downloadForm.value
   const targetAidHex = aidHex || pickNextDownloadAid(chipInfo.value, '')
   if (!smdp) {
-    ElMessage.warning('请输入 SM-DP+ 地址')
+    notify({ tone: 'warning', message: '请输入 SM-DP+ 地址' })
     return
   }
 
@@ -428,9 +425,9 @@ async function downloadProfile() {
             showRecentSpaceDelta(targetAidHex, evt.space_delta)
             const notice = describeDownloadTerminalNotice(evt)
             if (notice.tone === 'warning') {
-              ElMessage.warning(notice.message)
+              notify({ tone: 'warning', message: notice.message })
             } else {
-              ElMessage.success(notice.message)
+              notify({ tone: 'success', message: notice.message })
             }
             downloadForm.value = { smdp: '', matchingId: '', confirmationCode: '', aidHex: targetAidHex, imei }
             await fetchOverview(true)
@@ -488,405 +485,272 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="space-y-5">
-    <div v-if="loading" class="space-y-4">
-      <div class="ui-panel-muted p-4 relative overflow-hidden esim-loading-hero">
-        <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-xl esim-orbit flex items-center justify-center text-white text-xs font-bold">
-            ESIM
-          </div>
-          <div class="space-y-2 flex-1">
-            <div class="h-4 w-44 rounded-md esim-skeleton-line" />
-            <div class="h-3 w-64 rounded-md esim-skeleton-line esim-skeleton-line-soft" />
-          </div>
-          <div class="flex items-center gap-1.5">
-            <span class="esim-dot" />
-            <span class="esim-dot" />
-            <span class="esim-dot" />
-          </div>
-        </div>
-        <div class="esim-skeleton-shimmer" />
-      </div>
-
-      <div class="ui-panel-muted p-4 space-y-3">
-        <div class="h-3 w-28 rounded-md esim-skeleton-line" />
-        <div class="space-y-2">
-          <div class="h-10 rounded-xl esim-skeleton-line" />
-          <div class="h-10 rounded-xl esim-skeleton-line esim-skeleton-line-soft" />
-          <div class="h-10 rounded-xl esim-skeleton-line" />
-        </div>
-      </div>
-    </div>
-
+  <section class="m3-stack esim-page" aria-label="eSIM 管理">
+    <LoadingScreen v-if="loading" title="读取 eUICC…" subtitle="正在获取芯片和 Profile 信息" />
     <template v-else>
-      <!-- 芯片信息 -->
-      <div v-if="chipInfo" class="ui-panel-muted p-4 relative">
-      <div class="flex items-center justify-between gap-3 mb-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-[#5b5bd6] to-[#4a4ac2] text-white text-xs font-bold flex items-center justify-center shadow-lg shadow-indigo-500/25">
-            ESIM
-          </div>
-          <div>
-            <div class="text-base font-bold text-gray-900 dark:text-white">
-              {{ chipInfo.sku_name || 'eUICC' }}
-            </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 font-mono">
-              <template v-if="chipInfo.firmware">固件 {{ chipInfo.firmware }}</template>
-              <template v-if="chipInfo.serial_number">
-                · SN: <span class="transition-all" :class="{ 'blur-sm select-none': !showSensitive }">{{ chipInfo.serial_number }}</span>
-              </template>
-            </div>
-          </div>
+      <div class="m3-row">
+        <div>
+          <h2 class="m3-title">{{ chipInfo?.sku_name || 'eSIM 管理' }}</h2>
+          <p v-if="chipInfo" class="m3-muted">
+            {{ chipInfo.firmware ? `固件 ${chipInfo.firmware}` : '' }}
+            <span :class="{ 'blur-sm select-none': !showSensitive }">{{
+              chipInfo.serial_number ? `· SN ${chipInfo.serial_number}` : ''
+            }}</span>
+          </p>
         </div>
-        <div class="flex items-center gap-2">
-          <el-tooltip content="手动刷新" placement="top">
-            <el-button circle text :loading="profilesRefreshing" @click="fetchOverview(true)">
-              <el-icon v-if="shouldShowEsimRefreshIcon(profilesRefreshing)" size="18"><ArrowSync24Regular /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="当前通知" placement="top">
-            <el-button circle text :loading="notificationsLoading" @click="openNotificationsDialog">
-              <el-icon v-if="shouldShowEsimNotificationIcon(notificationsLoading)" size="18"><Alert24Regular /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip :content="showSensitive ? '隐藏敏感信息' : '显示敏感信息'" placement="top">
-            <el-button circle text @click="showSensitive = !showSensitive">
-              <el-icon size="18">
-                <Eye24Regular v-if="showSensitive" />
-                <EyeOff24Regular v-else />
-              </el-icon>
-            </el-button>
-          </el-tooltip>
+        <div class="m3-actions">
+          <RefreshButton
+            :loading="profilesRefreshing"
+            @click="fetchOverview(true)"
+          /><md-outlined-button :disabled="notificationsLoading" @click="openNotificationsDialog"
+            >当前通知</md-outlined-button
+          ><md-text-button @click="showSensitive = !showSensitive">{{
+            showSensitive ? '隐藏敏感信息' : '显示敏感信息'
+          }}</md-text-button>
         </div>
       </div>
-    </div>
-
-      <!-- 按 eUICC 分组的 Profiles -->
-      <div v-for="(group, gi) in profiles" :key="group.aid_hex || group.eid || ('group-' + gi)" class="ui-panel-muted overflow-hidden">
-      <!-- eUICC 头部 -->
-      <div class="px-4 py-3 border-b border-gray-100 dark:border-white/10">
-        <div class="flex items-center justify-between">
-          <div>
-            <span class="text-sm font-bold text-gray-900 dark:text-white">eUICC #{{ gi + 1 }}</span>
-            <span class="text-xs text-gray-400 font-mono ml-2 transition-all" :class="{ 'blur-sm select-none': !showSensitive }">
-              {{ group.eid }}
-            </span>
-          </div>
-          <div v-if="chipInfo?.eids" class="text-xs text-gray-500">
-            <template v-for="eid in chipInfo.eids" :key="eid.eid">
-              <span v-if="eid.eid === group.eid" class="inline-flex flex-col items-end gap-1">
-                <span class="inline-flex items-center gap-1">
-                  <span class="w-2 h-2 rounded-full" :class="eid.free_nvram_bytes > 100000 ? 'bg-green-500' : 'bg-yellow-500'" />
-                  可用 {{ eid.free_nvram }}
-                </span>
-                <span v-if="recentSpaceDelta && normalizeAidHex(group.aid_hex) === recentSpaceDelta.aidHex" class="text-[11px] text-emerald-600 dark:text-emerald-400">
-                  {{ recentSpaceDelta.message }}
-                </span>
-              </span>
-            </template>
-          </div>
-        </div>
-        <!-- PKI 信息行 -->
-        <template v-if="chipInfo?.eids">
-          <template v-for="eid in chipInfo.eids" :key="'pki-' + eid.eid">
-            <div v-if="eid.eid === group.eid && (eid.manufacturer || eid.certificates?.length || eid.default_smdp_address || eid.root_ds_address || eid.sas_accreditation_number || eid.info_source)" class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
-              <span v-if="eid.manufacturer" class="inline-flex items-center gap-1">
-                <span class="text-[10px]">生产商:</span> {{ eid.manufacturer }}
-              </span>
-              <span v-if="eid.certificates?.length" class="inline-flex items-center gap-1">
-                <span class="text-[10px]">证书:</span> {{ eid.certificates.join(' · ') }}
-              </span>
-              <span v-if="eid.default_smdp_address" class="inline-flex items-center gap-1">
-                <span class="text-[10px]">Default SM-DP+:</span> {{ eid.default_smdp_address }}
-              </span>
-              <span v-if="eid.root_ds_address" class="inline-flex items-center gap-1">
-                <span class="text-[10px]">Root SM-DS:</span> {{ eid.root_ds_address }}
-              </span>
-              <span v-if="eid.sas_accreditation_number" class="inline-flex items-center gap-1">
-                <span class="text-[10px]">SAS:</span> {{ eid.sas_accreditation_number }}
-              </span>
-              <span v-if="eid.info_source" class="inline-flex items-center gap-1">
-                <span class="text-[10px]">来源:</span> {{ eid.info_source }}
-              </span>
-            </div>
-          </template>
-        </template>
-      </div>
-
-      <!-- Profile 列表 -->
-      <div v-if="group.profiles?.length === 0" class="p-4 text-sm text-gray-400">
-        暂无 Profile
-      </div>
-      <div v-else class="divide-y divide-gray-100 dark:divide-white/10">
-        <template v-for="p in group.profiles" :key="p.iccid">
-        <div
-          class="px-4 py-3 flex items-center justify-between gap-3 hover:bg-gray-50/50 dark:hover:bg-white/5 transition-colors"
-        >
-          <div class="min-w-0 flex-1">
-            <!-- 正常显示模式 -->
-            <template v-if="renaming !== p.iccid">
-              <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full flex-shrink-0" :class="p.state === 1 ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'" />
-                <span class="font-medium text-sm text-gray-900 dark:text-white truncate">{{ p.name || p.iccid }}</span>
-                <el-tag size="small" :type="p.state === 1 ? 'success' : 'info'" class="flex-shrink-0">
-                  {{ p.state_text }}
-                </el-tag>
-              </div>
-              <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 ml-4 flex flex-wrap items-center gap-x-2 gap-y-1 transition-all">
-                <span>{{ p.service_provider_name }}</span>
-                <span :class="{ 'blur-sm select-none': !showSensitive }">{{ p.iccid }}</span>
-              </div>
-            </template>
-            <!-- 编辑名称模式 -->
-            <template v-else>
-              <div class="flex items-center gap-2">
-                <el-input
-                  v-model="renameValue"
-                  size="small"
-                  placeholder="输入新名称"
-                  @keyup.enter="saveRename(p.iccid, group.aid_hex)"
-                  @keyup.escape="cancelRename"
-                  autofocus
-                  class="!w-52"
-                />
-                <el-button size="small" type="primary" @click="saveRename(p.iccid, group.aid_hex)" class="!border-0">保存</el-button>
-                <el-button size="small" @click="cancelRename" class="!border-0">取消</el-button>
-              </div>
-            </template>
-          </div>
-
-          <!-- 操作按钮 -->
-          <div v-if="renaming !== p.iccid" class="flex items-center gap-2 flex-shrink-0">
-            <el-button
-              v-if="p.state !== 1"
-              size="small"
-              type="success"
-              :loading="switching === p.iccid"
-              :disabled="switchBusy"
-              @click="switchProfile(p.iccid, p.state, group.aid_hex)"
-              plain
-            >
-              切换
-            </el-button>
-            <el-button
-              size="small"
-              type="primary"
-              @click="startRename(p.iccid, p.name)"
-              plain
-            >
-              改名
-            </el-button>
-            <el-button
-              size="small"
-              :type="expandedPolicyIccid === p.iccid ? 'primary' : 'default'"
-              @click="togglePolicyPanel(p.iccid)"
-              plain
-            >
-              策略
-            </el-button>
-            <el-button
-              size="small"
-              type="danger"
-              :loading="deleting === p.iccid"
-              @click="deleteProfile(p.iccid, p.name, group.aid_hex)"
-              plain
-            >
-              删除
-            </el-button>
-          </div>
-        </div>
-          <div v-if="expandedPolicyIccid === p.iccid" class="px-4 pb-3 border-t-0">
-            <EsimCardPolicyInline
-              :device-id="props.deviceId"
-              :iccid="p.iccid"
-              :is-active-card="p.state === 1"
-              :device-online="props.deviceOnline === true"
-              @policy-changed="fetchOverview(true)"
-            />
-          </div>
-        </template>
-      </div>
-    </div>
-
-      <el-dialog
-        v-model="notificationsDialogOpen"
-        title="当前通知列表"
-        :width="notificationDialogWidth()"
-        class="glass-modal"
+      <p v-if="switchBusy" class="m3-notice" role="status">切卡处理中，请等待设备服务恢复。</p>
+      <section
+        v-for="(group, index) in profiles"
+        :key="group.aid_hex || group.eid || index"
+        class="m3-inset m3-stack"
       >
-        <div v-if="notificationsLoading" class="py-10 text-sm text-center text-gray-400">正在加载通知...</div>
-        <div v-else-if="notifications.length === 0" class="py-10 text-sm text-center text-gray-400">当前没有可展示的通知</div>
-        <div v-else class="space-y-2 max-h-[420px] overflow-auto pr-1">
-          <div
-            v-for="item in notifications"
-            :key="item.sequence_number"
-            :class="notificationListItemLayoutClass()"
-          >
-            <div class="min-w-0 flex-1 space-y-1">
-              <div class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                <span>#{{ item.sequence_number }}</span>
-                <el-tag size="small" type="info">{{ formatEsimNotificationEvent(item.event) }}</el-tag>
-              </div>
-              <div :class="notificationMetaContainerClass()">
-                <div v-if="item.iccid" :class="notificationMetaItemClass()">
-                  <span class="mr-1 text-gray-400 dark:text-gray-500">ICCID</span>
-                  <span class="break-all">{{ item.iccid }}</span>
-                </div>
-                <div v-if="item.address" :class="notificationMetaItemClass()">
-                  <span class="mr-1 text-gray-400 dark:text-gray-500">地址</span>
-                  <span class="break-all">{{ item.address }}</span>
-                </div>
-                <div v-if="item.aid_hex" :class="notificationMetaItemClass()">
-                  <span class="mr-1 text-gray-400 dark:text-gray-500">AID</span>
-                  <span class="break-all">{{ item.aid_hex }}</span>
-                </div>
-              </div>
-            </div>
-            <el-button
-              size="small"
-              type="primary"
-              class="self-start sm:self-auto"
-              :disabled="!item.can_retry"
-              :loading="retryingNotificationSequence === item.sequence_number"
-              @click="retryNotification(item)"
+        <div>
+          <h3>eUICC #{{ index + 1 }}</h3>
+          <p class="esim-eid m3-muted" :class="{ 'blur-sm select-none': !showSensitive }">
+            {{ group.eid }}
+          </p>
+        </div>
+        <template v-for="eid in chipInfo?.eids || []" :key="eid.eid"
+          ><div v-if="eid.eid === group.eid" class="m3-stack">
+            <p class="m3-muted">
+              可用空间 {{ eid.free_nvram
+              }}<span
+                v-if="
+                  recentSpaceDelta && normalizeAidHex(group.aid_hex) === recentSpaceDelta.aidHex
+                "
+              >
+                · {{ recentSpaceDelta.message }}</span
+              >
+            </p>
+            <details
+              v-if="
+                eid.manufacturer ||
+                eid.certificates?.length ||
+                eid.default_smdp_address ||
+                eid.root_ds_address ||
+                eid.sas_accreditation_number ||
+                eid.info_source
+              "
+              class="m3-muted"
             >
-              重发
-            </el-button>
+              <summary>芯片与证书信息</summary>
+              <p v-if="eid.manufacturer">生产商：{{ eid.manufacturer }}</p>
+              <p v-if="eid.certificates?.length">证书：{{ eid.certificates.join(' · ') }}</p>
+              <p v-if="eid.default_smdp_address">Default SM-DP+：{{ eid.default_smdp_address }}</p>
+              <p v-if="eid.root_ds_address">Root SM-DS：{{ eid.root_ds_address }}</p>
+              <p v-if="eid.sas_accreditation_number">SAS：{{ eid.sas_accreditation_number }}</p>
+              <p v-if="eid.info_source">来源：{{ eid.info_source }}</p>
+            </details>
+          </div></template
+        >
+        <p v-if="!group.profiles?.length" class="m3-muted">暂无 Profile</p>
+        <article
+          v-for="profile in group.profiles"
+          :key="profile.iccid"
+          class="esim-profile m3-stack"
+        >
+          <div v-if="renaming !== profile.iccid" class="m3-stack">
+            <div class="m3-row">
+              <h4>{{ profile.name || profile.iccid }}</h4>
+              <span class="m3-badge">{{
+                profile.state_text || (profile.state === 1 ? '已启用' : '未启用')
+              }}</span>
+            </div>
+            <p class="m3-muted">
+              {{ profile.service_provider_name }}
+              <span :class="{ 'blur-sm select-none': !showSensitive }">{{ profile.iccid }}</span>
+            </p>
+            <div class="m3-actions">
+              <md-outlined-button
+                v-if="profile.state !== 1"
+                :disabled="switchBusy || deleting !== null || downloading"
+                @click="switchProfile(profile.iccid, profile.state, group.aid_hex)"
+                >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-outlined-button
+              ><md-text-button
+                :disabled="switchBusy || deleting !== null"
+                @click="startRename(profile.iccid, profile.name)"
+                >改名</md-text-button
+              ><md-text-button
+                :aria-expanded="expandedPolicyIccid === profile.iccid"
+                @click="togglePolicyPanel(profile.iccid)"
+                >卡策略</md-text-button
+              ><md-text-button
+                class="danger"
+                :disabled="switchBusy || deleting !== null || downloading"
+                @click="deleteProfile(profile.iccid, profile.name, group.aid_hex)"
+                >{{ deleting === profile.iccid ? '删除中…' : '删除' }}</md-text-button
+              >
+            </div>
           </div>
-        </div>
-      </el-dialog>
-
-      <!-- 下载新 Profile -->
-      <div v-if="chipInfo" class="ui-panel-muted p-4">
-      <div class="flex items-center gap-2 mb-3">
-        <div class="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-          <el-icon size="16"><Add24Regular /></el-icon>
-        </div>
-        <div class="text-sm font-bold text-gray-900 dark:text-white">下载新 Profile</div>
-      </div>
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <div class="space-y-1">
-          <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">SM-DP+ 地址 *</div>
-          <el-input v-model="downloadForm.smdp" placeholder="例如 rsp.truphone.com" />
-        </div>
-        <div class="space-y-1">
-          <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Matching ID</div>
-          <el-input v-model="downloadForm.matchingId" placeholder="可选" />
-        </div>
-        <div class="space-y-1">
-          <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">确认码</div>
-          <el-input v-model="downloadForm.confirmationCode" placeholder="可选" />
-        </div>
-        <div class="space-y-1">
-          <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">IMEI</div>
-          <el-input v-model="downloadForm.imei" maxlength="15" placeholder="默认使用设备 IMEI，可修改" />
-        </div>
-        <div class="space-y-1">
-          <div class="text-[11px] font-bold text-gray-500 uppercase tracking-wider">目标 eUICC</div>
-          <el-select v-model="downloadForm.aidHex" placeholder="选择目标 eUICC">
-            <el-option
-              v-for="(eid, ei) in (chipInfo?.eids || [])"
-              :key="eid.aid"
-              :label="`eUICC #${Number(ei) + 1} (...${eid.eid.slice(-4)}) — ${eid.free_nvram} 可用`"
-              :value="eid.aid"
+          <form v-else class="m3-form" @submit.prevent="saveRename(profile.iccid, group.aid_hex)">
+            <md-outlined-text-field
+              label="Profile 名称"
+              name="esim-profile-name"
+              autofocus
+              :value="renameValue"
+              @input="renameValue = fieldValue($event)"
+              @keydown.escape.stop="cancelRename"
             />
-          </el-select>
+            <div class="m3-actions">
+              <md-text-button type="button" @click="cancelRename">取消</md-text-button
+              ><md-filled-button type="submit">保存</md-filled-button>
+            </div>
+          </form>
+          <EsimCardPolicyInline
+            v-if="expandedPolicyIccid === profile.iccid"
+            :device-id="deviceId"
+            :iccid="profile.iccid"
+            :is-active-card="profile.state === 1"
+            :device-online="deviceOnline === true"
+            @policy-changed="fetchOverview(true)"
+          />
+        </article>
+      </section>
+      <md-dialog
+        class="m3-dialog"
+        :open="notificationsDialogOpen"
+        @closed="notificationsDialogOpen = false"
+        ><div slot="headline">当前通知列表</div>
+        <div slot="content" class="m3-stack">
+          <p v-if="notificationsLoading" role="status">正在加载通知…</p>
+          <p v-else-if="!notifications.length" class="m3-muted">当前没有可展示的通知</p>
+          <article
+            v-for="item in notifications"
+            v-else
+            :key="item.sequence_number"
+            class="m3-inset m3-stack"
+          >
+            <div class="m3-row">
+              <h3>#{{ item.sequence_number }} · {{ formatEsimNotificationEvent(item.event) }}</h3>
+              <md-outlined-button
+                :disabled="!item.can_retry || retryingNotificationSequence !== null"
+                @click="retryNotification(item)"
+                >{{
+                  retryingNotificationSequence === item.sequence_number ? '重发中…' : '重发'
+                }}</md-outlined-button
+              >
+            </div>
+            <p v-if="item.iccid" class="m3-muted">ICCID {{ item.iccid }}</p>
+            <p v-if="item.address" class="m3-muted">地址 {{ item.address }}</p>
+            <p v-if="item.aid_hex" class="m3-muted">AID {{ item.aid_hex }}</p>
+          </article>
         </div>
-      </div>
-      <!-- 下载进度条 -->
-      <div v-if="downloading || downloadError" class="mt-4 space-y-1.5">
-        <el-progress
-          :key="downloadSessionId"
-          :percentage="downloadProgress"
-          :status="downloadError ? 'exception' : downloadProgress >= 100 ? 'success' : undefined"
-          :striped="downloading && downloadProgress < 100"
-          :striped-flow="downloading && downloadProgress < 100"
-          :duration="8"
-          :stroke-width="10"
-        />
-        <div class="text-xs" :class="downloadError ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'">
-          {{ downloadError || downloadMsg }}
-        </div>
-      </div>
-
-      <div class="flex justify-end mt-4">
-        <el-button type="primary" :loading="downloading" :disabled="downloading" @click="downloadProfile" class="!border-0">
-          <el-icon><ArrowDownload24Regular /></el-icon>
-          开始下载
-        </el-button>
-      </div>
-    </div>
-
-      <!-- 空状态 -->
-      <EmptyState v-if="profiles.length === 0 && !chipInfo" title="未检测到 eUICC" subtitle="此SIM卡可能不支持 eUICC 功能" />
+        <div slot="actions">
+          <md-text-button @click="notificationsDialogOpen = false">关闭</md-text-button>
+        </div></md-dialog
+      >
+      <section v-if="chipInfo" class="m3-inset m3-stack">
+        <h3>下载新 Profile</h3>
+        <form class="m3-form" @submit.prevent="downloadProfile">
+          <div class="m3-form-grid">
+            <md-outlined-text-field
+              label="SM-DP+ 地址或 LPA 激活码"
+              name="esim-smdp"
+              required
+              :value="downloadForm.smdp"
+              :disabled="downloading"
+              @input="downloadForm.smdp = fieldValue($event)"
+            /><md-outlined-text-field
+              label="Matching ID（可选）"
+              :value="downloadForm.matchingId"
+              :disabled="downloading"
+              @input="downloadForm.matchingId = fieldValue($event)"
+            /><md-outlined-text-field
+              label="确认码（可选）"
+              :value="downloadForm.confirmationCode"
+              :disabled="downloading"
+              @input="downloadForm.confirmationCode = fieldValue($event)"
+            /><md-outlined-text-field
+              label="IMEI"
+              maxlength="15"
+              :value="downloadForm.imei"
+              :disabled="downloading"
+              @input="downloadForm.imei = fieldValue($event)"
+            />
+            <md-outlined-select
+              label="目标 eUICC"
+              :value="downloadForm.aidHex"
+              :disabled="downloading"
+              @change="downloadForm.aidHex = fieldValue($event)"
+              ><md-select-option
+                v-for="(eid, index) in chipInfo.eids || []"
+                :key="eid.aid"
+                :value="eid.aid"
+                :selected="downloadForm.aidHex === eid.aid"
+                ><div slot="headline">
+                  eUICC #{{ index + 1 }} (…{{ eid.eid.slice(-4) }}) · {{ eid.free_nvram }} 可用
+                </div></md-select-option
+              ></md-outlined-select
+            >
+          </div>
+          <div v-if="downloading || downloadError" class="m3-stack">
+            <md-linear-progress
+              :key="downloadSessionId"
+              :value="downloadProgress / 100"
+              :indeterminate="downloading && downloadProgress === 0"
+              aria-label="Profile 下载进度"
+            />
+            <p
+              :class="downloadError ? 'm3-error' : 'm3-muted'"
+              :role="downloadError ? 'alert' : 'status'"
+            >
+              {{ downloadError || downloadMsg }} · {{ Math.round(downloadProgress) }}%
+            </p>
+          </div>
+          <div class="m3-actions">
+            <md-filled-button
+              type="submit"
+              :disabled="downloading || switchBusy || deleting !== null"
+              >{{ downloading ? '下载中…' : '开始下载' }}</md-filled-button
+            >
+          </div>
+        </form>
+      </section>
+      <EmptyState
+        v-if="!profiles.length && !chipInfo"
+        title="未检测到 eUICC"
+        subtitle="此 SIM 卡可能不支持 eUICC 功能"
+      />
     </template>
-  </div>
+  </section>
 </template>
-
 <style scoped>
-.esim-loading-hero {
-  min-height: 88px;
+h3,
+h4 {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  overflow-wrap: anywhere;
 }
-
-.esim-orbit {
-  background: linear-gradient(135deg, #5b5bd6, #4a4ac2);
-  animation: esim-orbit 2.2s ease-in-out infinite;
+.esim-eid {
+  font-family: var(--vh-typeface-mono);
 }
-
-.esim-skeleton-line {
-  background: linear-gradient(90deg, rgba(148, 163, 184, 0.18), rgba(148, 163, 184, 0.34), rgba(148, 163, 184, 0.18));
-  background-size: 200% 100%;
-  animation: esim-shimmer 1.4s linear infinite;
+.esim-page p {
+  overflow-wrap: anywhere;
 }
-
-.esim-skeleton-line-soft {
-  opacity: 0.8;
-  animation-duration: 1.9s;
+.esim-profile {
+  padding-top: 16px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
 }
-
-.esim-skeleton-shimmer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(120deg, transparent 0%, rgba(255, 255, 255, 0.24) 45%, transparent 75%);
-  transform: translateX(-130%);
-  animation: esim-sweep 2.1s ease-in-out infinite;
+.esim-profile .m3-badge {
+  flex-shrink: 0;
 }
-
-.esim-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 9999px;
-  background: #5b5bd6;
-  opacity: 0.3;
-  animation: esim-dot-bounce 1.1s ease-in-out infinite;
+details {
+  overflow-wrap: anywhere;
 }
-
-.esim-dot:nth-child(2) {
-  animation-delay: 0.16s;
-}
-
-.esim-dot:nth-child(3) {
-  animation-delay: 0.32s;
-}
-
-@keyframes esim-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-@keyframes esim-sweep {
-  0% { transform: translateX(-130%); }
-  100% { transform: translateX(130%); }
-}
-
-@keyframes esim-dot-bounce {
-  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
-  40% { opacity: 1; transform: translateY(-2px); }
-}
-
-@keyframes esim-orbit {
-  0%, 100% { transform: scale(1); box-shadow: 0 8px 18px rgba(16, 185, 129, 0.25); }
-  50% { transform: scale(1.04); box-shadow: 0 10px 22px rgba(20, 184, 166, 0.35); }
+summary {
+  cursor: pointer;
+  padding-block: 8px;
 }
 </style>

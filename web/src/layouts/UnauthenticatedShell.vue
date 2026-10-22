@@ -4,7 +4,7 @@ import SwitchDark from '../components/SwitchDark.vue'
 </script>
 
 <template>
-  <div class="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-950 transition-colors duration-300">
+  <div class="unauthenticated-shell">
     <div class="absolute top-4 right-4 z-50">
       <SwitchDark />
     </div>
@@ -20,3 +20,14 @@ import SwitchDark from '../components/SwitchDark.vue'
     </router-view>
   </div>
 </template>
+
+<style scoped>
+.unauthenticated-shell {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+}
+</style>
