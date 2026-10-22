@@ -3,7 +3,6 @@ import { notify, requestConfirmation } from '../stores/feedback'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore } from '../stores/settings'
-import PageHeader from '../components/PageHeader.vue'
 import FieldRow from '../components/FieldRow.vue'
 import { fieldValue, fieldSelected } from '../utils/material'
 import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
@@ -485,7 +484,6 @@ watch(activeNotifyTab, () => revealed.clear())
 
 <template>
   <div class="m3-page settings-page">
-    <PageHeader title="系统设置" subtitle="账号安全、通知渠道与系统信息" />
     <div class="settings-top">
       <section class="m3-card m3-stack">
         <h2 class="m3-title">账号安全</h2>

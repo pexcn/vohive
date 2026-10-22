@@ -59,6 +59,7 @@ async function mockApi(req,res) {
     json({error:'Unexpected fixture mutation'},500);return
   }
   if(url.pathname==='/api/dashboard/devices'){json([]);return}
+  if(url.pathname==='/api/devices'){json({devices:[],device_limit:5});return}
   if(url.pathname==='/api/traffic/analysis'){json(analysis);return}
   if(url.pathname==='/api/proxy-instances/overview'){json({instances,devices:[{id:'modem-a',name:'Modem A',interface:'wwan0'}],status:[{id:'local',running}]});return}
   if(url.pathname==='/api/proxy-instances/local'){json(instances[0]);return}
@@ -125,14 +126,26 @@ try {
   await mkdir(artifactDir,{recursive:true});
   const snapshot=async name=>{await evaluate(`Promise.all([...document.querySelectorAll('md-dialog')].flatMap(el=>el.shadowRoot?.querySelector('dialog')?.getAnimations({subtree:true}) || []).map(a=>a.finished.catch(()=>{})))`);await evaluate('document.fonts.ready');await delay(120);await writeFile(path.join(artifactDir,name+'.png'),Buffer.from((await send('Page.captureScreenshot',{format:'png'})).data,'base64'));};
   const key=async (key,code=key,vk=0)=>{await send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode:vk});await send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode:vk});};
+  const expectPageTitle = async title => {
+    assert.deepEqual(await evaluate('[...document.querySelectorAll("h1")].map(el=>el.textContent.trim())'),[title])
+    assert.equal(await evaluate('document.querySelector("h1").closest(".top-app-bar") !== null'),true)
+  }
   // A hidden caption must never create a second, outer document scrollbar.
   await send('Page.navigate',{url:url+'#/'})
   await wait('document.querySelectorAll(".traffic-table tbody tr").length === 24')
+  await expectPageTitle('仪表盘')
   assert.equal(await evaluate('document.scrollingElement.scrollHeight'),1000)
   await evaluate('window.scrollTo(0,100000)')
   assert.equal(await evaluate('scrollY'),0)
   assert.equal(await evaluate('document.querySelector(".traffic-table").clientHeight'),484)
   assert.ok(await evaluate('document.querySelector(".shell-main").scrollHeight > document.querySelector(".shell-main").clientHeight'))
+  await evaluate('location.hash="#/devices"')
+  await wait('document.querySelector(".devices-layout")')
+  await expectPageTitle('设备管理')
+  assert.equal(await evaluate('document.querySelectorAll(".page-heading md-outlined-button,.page-heading md-filled-button").length'),3)
+  await snapshot('devices-toolbar-dark')
+  await evaluate('location.hash="#/"')
+  await wait('document.querySelectorAll(".traffic-table tbody tr").length === 24')
   // Drawer/rail transitions keep icons anchored and links operable throughout.
   const navWidth = 'document.querySelector(".navigation").getBoundingClientRect().width'
   const iconX = 'document.querySelector("#desktop-navigation-0 .svg-icon").getBoundingClientRect().x'
@@ -184,6 +197,7 @@ try {
   await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'}]})
   await evaluate('location.hash="#/proxy"')
   await wait('document.querySelectorAll("#proxy-upstream article").length === 2')
+  await expectPageTitle('代理管理')
   assert.equal(calls.filter(c=>c.method!=='GET').length,0,'Navigation may only read configuration')
   await snapshot('proxy-dark-desktop')
   const dialog = id=>`document.querySelector('#${id}').closest('md-dialog')`
@@ -265,6 +279,7 @@ try {
 
   await evaluate('location.hash="#/logs"')
   await wait('document.querySelectorAll(".log-entry").length === 2 && document.querySelector(".log-connection").textContent.includes("实时连接")')
+  await expectPageTitle('实时日志')
   for(const response of streams)response.write('event: log\ndata: '+JSON.stringify({...logs[1],message:'live warning'})+'\n\n')
   await wait('document.querySelectorAll(".log-entry").length === 3')
   await click('.logs-page .page-heading md-outlined-button')
@@ -292,6 +307,7 @@ try {
   await snapshot('logs-light-desktop')
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
   await wait('!document.querySelector(".navigation")')
+  await expectPageTitle('实时日志')
   await click('md-icon-button[aria-label="打开导航"]')
   await wait('document.querySelector(".navigation-drawer").open')
   await key('Escape','Escape',27)

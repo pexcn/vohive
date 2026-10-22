@@ -201,7 +201,7 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
           >
             <SvgIcon :svg="menuIcon" />
           </md-icon-button>
-          <span class="app-bar-title">{{ currentPage }}</span>
+          <h1 class="app-bar-title">{{ currentPage }}</h1>
         </div>
         <div class="m3-actions">
           <md-icon-button
@@ -446,7 +446,9 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
   background: var(--md-sys-color-surface);
 }
 .app-bar-title {
+  margin: 0;
   font-size: 22px;
+  font-weight: 400;
   line-height: 28px;
 }
 .shell-main {

@@ -163,7 +163,7 @@ watch(levelFilter, () => {
 
 <template>
   <div class="m3-page logs-page">
-    <PageHeader title="实时日志" subtitle="查看系统运行日志，支持级别过滤和内容搜索">
+    <PageHeader>
       <template #actions>
         <md-outlined-button type="button" :aria-pressed="paused" @click="togglePause">
           <SvgIcon slot="icon" :svg="paused ? playIcon : pauseIcon" />

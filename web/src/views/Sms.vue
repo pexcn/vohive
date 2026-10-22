@@ -718,7 +718,7 @@ function onComposerKeydown(event: KeyboardEvent) {
 
 <template>
   <div ref="smsPageRef" class="m3-page sms-page">
-    <PageHeader title="短信中心" subtitle="按联系人聚合，查看与管理短信会话">
+    <PageHeader>
       <template #actions
         ><RefreshButton :loading="loading" @click="refreshAll" /><md-filled-button
           :disabled="sending"

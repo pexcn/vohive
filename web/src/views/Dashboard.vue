@@ -86,7 +86,7 @@ onMounted(() => {
 
 <template>
   <div class="m3-page">
-    <PageHeader title="设备监控" subtitle="查看所有设备的连接状态与流量">
+    <PageHeader>
       <template #actions><RefreshButton :loading="loading" @click="fetchDevices" /></template>
     </PageHeader>
     <section class="dashboard-summary" aria-label="设备概况">

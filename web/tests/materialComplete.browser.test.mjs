@@ -411,6 +411,10 @@ const onFieldSubmit=()=>window.fieldSubmits++
       await wait(
         'document.querySelectorAll(".sms-thread").length===2 && !!document.querySelector(".sms-bubble")'
       )
+      assert.deepEqual(
+        await evaluate('[...document.querySelectorAll("h1")].map(el=>el.textContent.trim())'),
+        ['短信中心']
+      )
       assert.equal(
         calls.filter((c) => c.method !== 'GET').length,
         0,
@@ -429,6 +433,10 @@ const onFieldSubmit=()=>window.fieldSubmits++
       await evaluate('location.hash="#/settings"')
       await wait(
         'document.querySelector("md-outlined-text-field[name=bot_token]")?.value==="fixture-token"'
+      )
+      assert.deepEqual(
+        await evaluate('[...document.querySelectorAll("h1")].map(el=>el.textContent.trim())'),
+        ['系统设置']
       )
       await fill('md-outlined-text-field[name=chat_id]', '-321')
       await selectIndex('md-outlined-select[name=notification-channel]', 4)

@@ -600,7 +600,7 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
 
 <template>
   <div class="m3-page proxy-page">
-    <PageHeader title="代理管理" subtitle="管理 VoWiFi 漫游前置代理与本地出站实例">
+    <PageHeader>
       <template #actions>
         <RefreshButton
           :loading="

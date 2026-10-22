@@ -1196,7 +1196,7 @@ usePollingScheduler(async () => {
 
 <template>
   <div class="devices-page m3-page">
-    <PageHeader title="设备管理" subtitle="查看设备信息、编辑配置、执行 AT 指令">
+    <PageHeader>
       <template #actions>
         <div class="m3-actions">
           <RefreshButton :loading="loading" @click="fetchAll" />
