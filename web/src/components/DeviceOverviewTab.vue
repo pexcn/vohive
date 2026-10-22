@@ -320,7 +320,6 @@ const networkPanelMessage = computed(() => {
           label="当前 eSIM"
           :value="activeEsimProfileName"
           monospace
-          copyable
         />
         <FieldRow label="原运营商" :value="simOperatorDisplay" copyable />
         <FieldRow label="固件版本" :value="device?.modem?.firmware" monospace copyable />
