@@ -6,6 +6,7 @@ import CountryFlag from './CountryFlag.vue'
 import visibleIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
 import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
 import settingsIcon from '@material-symbols/svg-400/outlined/tune.svg?raw'
+import roamingIconSvg from '@material-symbols/svg-400/outlined/r_mobiledata.svg?raw'
 import type { DeviceOverviewItem } from '../types/api'
 import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
 import { activeEsimProfileDisplayName } from './deviceOverviewActiveEsim'
@@ -32,6 +33,8 @@ const emit = defineEmits<{
 
 const showSensitive = useSensitiveVisibility()
 const showOperatorSelection = ref(false)
+// The Material R sits in a signal canvas corner; crop its padding for inline use.
+const roamingIcon = roamingIconSvg.replace('viewBox="0 -960 960 960"', 'viewBox="40 -920 360 400"')
 
 const trafficStateLabel = computed(() => {
   const status = props.device?.traffic_meta?.status
@@ -122,6 +125,20 @@ const activeEsimProfileName = computed(() => activeEsimProfileDisplayName(props.
 const controlOnline = computed(() => isControlOnline(props.device))
 
 const isRegistered = computed(() => isRadioRegistered(props.device))
+
+const isRoaming = computed(() => props.device?.modem?.reg_status === 5)
+
+const registrationStatusText = computed(() => {
+  switch (props.device?.modem?.reg_status) {
+    case 0: return '未注册'
+    case 1:
+    case 5: return '已注册'
+    case 2: return '搜索中'
+    case 3: return '注册被拒'
+    case 4: return '未知'
+    default: return props.device?.modem?.reg_status_text || '--'
+  }
+})
 
 const cellularStatusTone = computed<StatusLightTone>(() => {
   if (isRecoveryPhase(props.device?.lifecycle_phase)) return 'warning'
@@ -261,7 +278,14 @@ const networkPanelMessage = computed(() => {
             :value="device?.modem?.radio_channel ? String(device.modem.radio_channel) : '--'"
             monospace
           />
-          <FieldRow label="注册状态" :value="device?.modem?.reg_status_text || '--'" monospace />
+          <FieldRow label="注册状态" :value="registrationStatusText" monospace>
+            <span class="registration-status">
+              {{ registrationStatusText }}
+              <span v-if="isRoaming" class="roaming-indicator" role="img" aria-label="漫游" title="漫游">
+                <SvgIcon :svg="roamingIcon" />
+              </span>
+            </span>
+          </FieldRow>
         </div>
       </template>
     </section>
@@ -558,6 +582,19 @@ const networkPanelMessage = computed(() => {
 }
 .signal-detail-extra {
   grid-column: 1 / -1;
+}
+.registration-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: bottom;
+}
+.roaming-indicator {
+  display: inline-flex;
+}
+.registration-status .roaming-indicator > .svg-icon {
+  width: 16px;
+  height: 16px;
 }
 .network-empty {
   margin-top: 12px;
