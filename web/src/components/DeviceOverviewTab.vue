@@ -393,7 +393,7 @@ const networkPanelMessage = computed(() => {
 }
 @container device-panel (min-width: 900px) {
   .overview-panels {
-    grid-template-columns: 0.95fr 1.2fr 0.95fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .network-panel {
     grid-column: auto;
