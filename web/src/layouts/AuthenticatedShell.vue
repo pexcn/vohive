@@ -371,7 +371,7 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
 .navigation-drawer {
   position: fixed;
   inset: 0 auto 0 0;
-  width: min(360px, calc(100vw - 56px));
+  width: min(280px, calc(100vw - 56px));
   height: 100dvh;
   max-height: 100dvh;
   margin: 0;
@@ -387,6 +387,13 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
 .drawer-content {
   min-height: 100%;
   padding: 16px 0;
+}
+.drawer-content .navigation-links {
+  gap: 4px;
+  padding: 16px 0;
+}
+.drawer-content .navigation-link {
+  min-height: 48px;
 }
 .drawer-heading {
   padding: 0 16px;

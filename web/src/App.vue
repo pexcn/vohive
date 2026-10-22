@@ -63,4 +63,14 @@ const shell = computed(() =>
 .dark ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+@media (max-width: 767px) {
+  ::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  ::-webkit-scrollbar-thumb,
+  .dark ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--md-sys-color-on-surface) 24%, transparent);
+  }
+}
 </style>
