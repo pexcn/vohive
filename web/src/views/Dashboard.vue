@@ -153,7 +153,11 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.dashboard-summary {
+.m3-page {
+  container-type: inline-size;
+}
+.dashboard-summary,
+.dashboard-devices {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
@@ -182,14 +186,15 @@ onMounted(() => {
 .summary-online {
   color: var(--vh-success);
 }
-.dashboard-devices {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-  gap: 16px;
-}
-@media (max-width: 1023px) {
-  .dashboard-summary {
+@container (max-width: 959px) {
+  .dashboard-summary,
+  .dashboard-devices {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (max-width: 599px) {
+  .dashboard-devices {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
