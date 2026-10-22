@@ -30,11 +30,6 @@ function refreshIfIdle() {
 </template>
 
 <style scoped>
-.refresh-icon {
-  width: 18px;
-  height: 18px;
-}
-
 .refresh-icon.busy {
   animation: refresh-spin 900ms linear 150ms infinite;
 }

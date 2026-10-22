@@ -10,6 +10,10 @@ defineProps<{ svg: string }>()
 <style scoped>
 .svg-icon {
   display: inline-flex;
+}
+
+/* Material components size icons assigned to their icon slot. */
+.svg-icon:not([slot='icon']) {
   width: 24px;
   height: 24px;
 }
