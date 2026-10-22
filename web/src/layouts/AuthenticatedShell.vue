@@ -21,7 +21,8 @@ import debugIcon from '@material-symbols/svg-400/outlined/bug_report.svg?raw'
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
-const collapsed = ref(false)
+const NAVIGATION_COLLAPSED_STORAGE_KEY = 'vohive_navigation_collapsed'
+const collapsed = ref(readNavigationCollapsed())
 const isMobile = ref(false)
 const drawerOpen = ref(false)
 const debugOpen = ref(false)
@@ -63,11 +64,24 @@ function syncIsMobile() {
   }
 }
 
+function readNavigationCollapsed() {
+  try {
+    return window.localStorage.getItem(NAVIGATION_COLLAPSED_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 function handleNavToggle() {
   if (isMobile.value) {
     drawerOpen.value = true
   } else {
     collapsed.value = !collapsed.value
+    try {
+      window.localStorage.setItem(NAVIGATION_COLLAPSED_STORAGE_KEY, collapsed.value ? '1' : '0')
+    } catch {
+      // Keep the current session usable if preferences cannot be saved.
+    }
   }
 }
 

@@ -156,9 +156,34 @@ try {
     assert.equal(await evaluate('document.querySelector(".shell-body").getBoundingClientRect().x'),width)
     assert.equal(await evaluate('document.querySelector("#desktop-navigation-0 md-ripple").control.id'),'desktop-navigation-0')
   }
+  const reloadDashboard = async () => {
+    const previousOrigin = await evaluate('performance.timeOrigin')
+    await send('Page.reload')
+    await until(async () => {
+      try {
+        return await evaluate(`performance.timeOrigin !== ${previousOrigin} && document.querySelectorAll('.traffic-table tbody tr').length === 24`)
+      } catch {
+        return false // The old execution context may disappear during reload.
+      }
+    },'Dashboard reload')
+  }
+  assert.equal(await evaluate(navWidth),240,'A new browser defaults to expanded navigation')
   await click('md-icon-button[aria-label="收起导航"]')
   await wait(`${navWidth} > 80 && ${navWidth} < 240`)
   assert.equal(await evaluate(iconX),anchorX,'Icons do not jump horizontally during collapse')
+  await settledNavigation(80)
+  assert.equal(await evaluate('localStorage.getItem("vohive_navigation_collapsed")'),'1')
+  await reloadDashboard()
+  await settledNavigation(80)
+  await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
+  await wait('!document.querySelector(".navigation")')
+  await click('md-icon-button[aria-label="打开导航"]')
+  await wait('document.querySelector(".navigation-drawer").open')
+  assert.equal(await evaluate('localStorage.getItem("vohive_navigation_collapsed")'),'1','Mobile navigation leaves the desktop preference intact')
+  await reloadDashboard()
+  assert.equal(await evaluate('document.querySelector(".navigation-drawer").open'),false,'Reload never opens the mobile drawer')
+  await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false})
+  await wait('document.querySelector(".navigation")')
   await settledNavigation(80)
   const railEdges = await evaluate(`Array.from(document.querySelectorAll('.navigation-link[id]')).map(link => {
     const pill = link.querySelector('.navigation-indicator').getBoundingClientRect()
@@ -188,6 +213,28 @@ try {
   assert.equal(await evaluate('getComputedStyle(document.querySelector(".navigation-label-rail")).opacity'),'0')
   assert.equal(await evaluate('document.querySelector("#desktop-navigation-0").getAttribute("aria-label")'),'仪表盘')
   await snapshot('navigation-drawer-dark')
+  assert.equal(await evaluate('localStorage.getItem("vohive_navigation_collapsed")'),'0')
+  await reloadDashboard()
+  await settledNavigation(240)
+  await evaluate('localStorage.setItem("vohive_navigation_collapsed","1")')
+  const blockedPreferences = await send('Page.addScriptToEvaluateOnNewDocument',{source:`
+    for (const method of ['getItem','setItem']) {
+      const original = Storage.prototype[method]
+      Storage.prototype[method] = function(key,...args) {
+        if(key === 'vohive_navigation_collapsed') throw new Error('Fixture preferences unavailable')
+        return original.call(this,key,...args)
+      }
+    }
+  `})
+  await reloadDashboard()
+  await settledNavigation(240)
+  await click('md-icon-button[aria-label="收起导航"]')
+  await settledNavigation(80)
+  await send('Page.removeScriptToEvaluateOnNewDocument',{identifier:blockedPreferences.identifier})
+  await reloadDashboard()
+  await settledNavigation(80)
+  await click('md-icon-button[aria-label="展开导航"]')
+  await settledNavigation(240)
   await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'},{name:'prefers-reduced-motion',value:'reduce'}]})
   await click('md-icon-button[aria-label="收起导航"]')
   assert.equal(await evaluate(navWidth),80,'Reduced motion makes collapse immediate')
