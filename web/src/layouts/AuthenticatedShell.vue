@@ -125,7 +125,7 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
     <aside v-if="!isMobile" class="navigation" :class="{ expanded: !collapsed }">
       <div class="navigation-brand">
         <span class="brand-mark">VH</span>
-        <span v-if="!collapsed">VoHive</span>
+        <span class="navigation-caption" :aria-hidden="collapsed">VoHive</span>
       </div>
       <nav aria-label="主导航" class="navigation-links">
         <RouterLink
@@ -134,22 +134,23 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
           :key="item.index"
           :to="item.index"
           class="navigation-link"
+          :aria-label="item.label"
           :aria-current="activePath === item.index ? 'page' : undefined"
           :title="item.label"
         >
-          <md-ripple v-if="!collapsed" />
           <span class="navigation-indicator">
-            <md-ripple v-if="collapsed" :for="`desktop-navigation-${index}`" />
+            <md-ripple :for="`desktop-navigation-${index}`" />
             <SvgIcon :svg="item.icon" />
           </span>
-          <span>{{ item.label }}</span>
+          <span class="navigation-label navigation-label-expanded" aria-hidden="true">{{ item.label }}</span>
+          <span class="navigation-label navigation-label-rail" aria-hidden="true">{{ item.label }}</span>
         </RouterLink>
       </nav>
       <div class="navigation-footer">
         <md-icon-button aria-label="退出登录" title="退出登录" @click="handleLogout">
           <SvgIcon :svg="logoutIcon" />
         </md-icon-button>
-        <span v-if="!collapsed" class="m3-muted">管理会话</span>
+        <span class="navigation-caption m3-muted" :aria-hidden="collapsed">管理会话</span>
       </div>
     </aside>
 
@@ -244,12 +245,17 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
   overflow: hidden;
 }
 .navigation {
+  --navigation-transition:
+    var(--md-sys-motion-duration-medium1, 250ms)
+    var(--md-sys-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   flex: none;
   display: flex;
   flex-direction: column;
   width: 80px;
   background: var(--md-sys-color-surface);
   padding: 16px 0;
+  overflow: hidden;
+  transition: width var(--navigation-transition);
 }
 .navigation.expanded {
   width: 240px;
@@ -339,6 +345,90 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
   display: flex;
   align-items: center;
   gap: 12px;
+}
+/* Keep one state layer and a stable icon anchor while the drawer becomes a rail. */
+.navigation .navigation-brand {
+  justify-content: flex-start;
+  padding-inline-start: 20px;
+}
+.navigation .brand-mark,
+.navigation-footer > md-icon-button {
+  flex: none;
+}
+.navigation .navigation-link {
+  position: relative;
+  display: block;
+  flex: none;
+  height: 56px;
+  margin: 0 12px;
+  padding: 0;
+  border-radius: 28px;
+  overflow: hidden;
+}
+.navigation .navigation-link[aria-current='page'] {
+  background: transparent;
+}
+.navigation .navigation-indicator {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: auto;
+  height: 32px;
+  padding-inline: 16px;
+  border-radius: 16px;
+  overflow: hidden;
+  transition:
+    height var(--navigation-transition),
+    border-radius var(--navigation-transition);
+}
+.navigation.expanded .navigation-indicator {
+  height: 56px;
+  border-radius: 28px;
+}
+.navigation .navigation-indicator > .svg-icon {
+  flex: none;
+}
+.navigation-label,
+.navigation-caption {
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity var(--md-sys-motion-duration-short2, 100ms) linear;
+}
+.navigation-caption {
+  flex: none;
+}
+.navigation-label {
+  position: absolute;
+  pointer-events: none;
+}
+.navigation-label-expanded {
+  inset: 18px 16px auto 56px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.navigation-label-rail {
+  inset: 36px auto auto 0;
+  width: 56px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 16px;
+}
+.navigation.expanded .navigation-label-expanded,
+.navigation.expanded .navigation-caption,
+.navigation:not(.expanded) .navigation-label-rail {
+  opacity: 1;
+  transition-duration: var(--md-sys-motion-duration-short3, 150ms);
+  transition-delay: var(--md-sys-motion-duration-short2, 100ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .navigation,
+  .navigation .navigation-indicator,
+  .navigation-label,
+  .navigation-caption {
+    transition: none;
+  }
 }
 .shell-body {
   display: flex;
