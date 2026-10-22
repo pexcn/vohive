@@ -684,4 +684,21 @@ thead th {
   text-align: center;
   color: var(--md-sys-color-on-surface-variant);
 }
+@media (max-width: 599px) {
+  table {
+    min-width: 0;
+    table-layout: fixed;
+    font-size: 12px;
+    line-height: 16px;
+  }
+  th,
+  td {
+    padding: 4px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  th:first-child {
+    width: 34%;
+  }
+}
 </style>
