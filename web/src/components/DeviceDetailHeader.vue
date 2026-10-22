@@ -14,7 +14,6 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'copy-text': [value: string]
   'rotate-ip': []
   'reboot-modem': []
   'reconnect-vowifi': []
@@ -26,20 +25,7 @@ const emit = defineEmits<{
   <section class="device-header m3-card" aria-label="当前设备">
     <div class="device-identity">
       <span class="device-avatar"><SvgIcon :svg="simIcon" /></span>
-      <div>
-        <h2 class="m3-title">{{ device.name || device.id }}</h2>
-        <div class="device-identifiers">
-          <button type="button" @click="emit('copy-text', device.id)">{{ device.id }}</button>
-          <span>公网 IP</span>
-          <button
-            type="button"
-            :disabled="!device.public_ip"
-            @click="emit('copy-text', device.public_ip || '')"
-          >
-            {{ device.public_ip || '暂无' }}
-          </button>
-        </div>
-      </div>
+      <h2 class="m3-title">{{ device.name || device.id }}</h2>
     </div>
     <div class="m3-actions">
       <md-text-button
@@ -107,8 +93,9 @@ const emit = defineEmits<{
   gap: 16px;
   min-width: 0;
 }
-.device-identity > div {
+.device-identity > .m3-title {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .device-avatar {
   flex: none;
@@ -119,25 +106,5 @@ const emit = defineEmits<{
   border-radius: 24px;
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-}
-.device-identifiers {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 8px;
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: 12px;
-  line-height: 16px;
-}
-.device-identifiers button {
-  font-family: var(--vh-typeface-mono);
-  overflow-wrap: anywhere;
-}
-.device-identifiers button:enabled:hover {
-  text-decoration: underline;
-}
-.device-identifiers button:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
 }
 </style>

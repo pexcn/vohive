@@ -21,7 +21,6 @@ import { usePollingScheduler } from '../composables/usePollingScheduler'
 import { useEventStream } from '../composables/useEventStream'
 import { useDevicesStore } from '../stores/devices'
 import { debugCollector } from '../debug/collector'
-import { copyToClipboard } from '../utils/clipboard'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
 import { getMccMncIndex, type MccMncRow } from '../utils/mcc-mnc'
 import type { CardPolicy, CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
@@ -582,12 +581,6 @@ watch(
   (iccid) => { void fetchCardPolicy(iccid) },
   { immediate: true }
 )
-
-async function copyText(text: unknown) {
-  const val = String(text ?? '').trim()
-  if (!val || val === '--' || val === '---') return
-  await copyToClipboard(val, '已复制')
-}
 
 async function fetchAll() {
   loading.value = true
@@ -1243,7 +1236,6 @@ usePollingScheduler(async () => {
           :rotating="rotating"
           :rebooting="rebooting"
           :reconnectingVoWiFi="reconnectingVoWiFi"
-          @copy-text="copyText"
           @rotate-ip="rotateIP"
           @reconnect-vowifi="reconnectVoWiFi"
           @reboot-modem="rebootModem"
