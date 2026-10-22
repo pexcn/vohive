@@ -196,8 +196,9 @@ const networkPanelMessage = computed(() => {
           />
           <FieldRow label="最后原因" :value="device.vowifi_runtime?.last_reason || '--'" />
           <FieldRow
+            v-if="device.vowifi_runtime?.last_error_class"
             label="错误分类"
-            :value="device.vowifi_runtime?.last_error_class || '--'"
+            :value="device.vowifi_runtime.last_error_class"
             monospace
             copyable
           />
