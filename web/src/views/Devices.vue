@@ -1409,27 +1409,28 @@ usePollingScheduler(async () => {
 .devices-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 24px;
+  gap: 16px;
 }
 .device-workspace {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
   min-width: 0;
 }
 .device-detail {
-  padding-top: 8px;
+  padding: 8px 16px 16px;
 }
 .device-detail-tabs {
   --md-tabs-container-color: transparent;
 }
 .device-tab-panel {
-  padding-top: 24px;
+  padding-top: 16px;
   min-width: 0;
+  container: device-panel / inline-size;
 }
 @container (min-width: 1060px) {
   .devices-layout {
-    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
   }
 }
 </style>

@@ -80,7 +80,7 @@ const notReadyNames = computed(() =>
 
 // 有错误时自动展开
 const hasError = computed(() =>
-  !!(props.device?.vowifi_runtime?.last_error_class || props.device?.vowifi_runtime?.last_reason)
+  !!props.device?.vowifi_runtime?.last_error_class
 )
 
 // ---- 窝蜂模式计算属性 ----
@@ -338,7 +338,7 @@ const networkPanelMessage = computed(() => {
         />
       </div>
     </section>
-    <section class="m3-inset">
+    <section class="network-panel m3-inset">
       <h2 class="m3-title">网络与流量</h2>
       <p v-if="networkPanelMessage" class="network-empty m3-muted">{{ networkPanelMessage }}</p>
       <div v-else class="overview-fields">
@@ -364,26 +364,64 @@ const networkPanelMessage = computed(() => {
 <style scoped>
 .overview-panels {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.overview-panels > section {
+  min-width: 0;
+}
+.overview-panels > section > .m3-row {
+  min-height: 40px;
+}
+.network-panel > .m3-title {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+}
+.overview-panels .m3-title {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+}
+@container device-panel (min-width: 600px) {
+  .overview-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .network-panel {
+    grid-column: 1 / -1;
+  }
+}
+@container device-panel (min-width: 900px) {
+  .overview-panels {
+    grid-template-columns: 0.95fr 1.2fr 0.95fr;
+  }
+  .network-panel {
+    grid-column: auto;
+  }
 }
 .runtime-status {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-  font-size: 18px;
-  line-height: 28px;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
   overflow-wrap: anywhere;
 }
 .runtime-status[data-tone='success'] {
-  color: var(--vh-success);
+  color: var(--vh-on-success-container);
+  background: var(--vh-success-container);
 }
 .runtime-status[data-tone='warning'] {
-  color: var(--vh-warning);
+  color: var(--vh-on-warning-container);
+  background: var(--vh-warning-container);
 }
 .runtime-status[data-tone='danger'] {
-  color: var(--md-sys-color-error);
+  color: var(--md-sys-color-on-error-container);
+  background: var(--md-sys-color-error-container);
 }
 .runtime-reason {
   margin-top: 8px;
@@ -393,7 +431,7 @@ const networkPanelMessage = computed(() => {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
-  margin: 24px 0 8px;
+  margin: 12px 0 4px;
   padding: 0;
   list-style: none;
 }
@@ -420,8 +458,8 @@ const networkPanelMessage = computed(() => {
 .overview-fields {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 12px;
   font-size: 14px;
   line-height: 20px;
 }
@@ -429,13 +467,13 @@ const networkPanelMessage = computed(() => {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin-top: 24px;
+  margin-top: 12px;
   color: var(--md-sys-color-on-surface-variant);
 }
 .signal-reading strong {
-  font-size: 36px;
+  font-size: 30px;
   font-weight: 400;
-  line-height: 44px;
+  line-height: 36px;
 }
 .signal-reading[data-signal='green'] {
   color: var(--vh-success);
@@ -465,6 +503,8 @@ const networkPanelMessage = computed(() => {
   margin-top: 8px;
 }
 .network-empty {
-  padding: 32px 0;
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 20px;
 }
 </style>

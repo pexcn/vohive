@@ -456,13 +456,17 @@ function handleRangeChange(value: string | number | boolean | undefined) {
 </script>
 
 <template>
-  <section class="traffic-panel m3-card" :aria-label="title">
+  <section
+    class="traffic-panel m3-card"
+    :class="{ 'traffic-panel-device': mode === 'device', 'traffic-panel-disabled': disabled }"
+    :aria-label="title"
+  >
     <header class="traffic-heading">
       <div>
         <h2 class="m3-title">{{ title }}</h2>
-        <p class="m3-muted">{{ subtitle }}</p>
+        <p v-if="!disabled" class="m3-muted">{{ subtitle }}</p>
       </div>
-      <div class="m3-actions traffic-actions">
+      <div v-if="!disabled" class="m3-actions traffic-actions">
         <div class="range-buttons" role="group" aria-label="流量统计范围">
           <button
             v-for="option in [
@@ -563,6 +567,26 @@ function handleRangeChange(value: string | number | boolean | undefined) {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  container: traffic-analysis / inline-size;
+}
+.traffic-panel-device {
+  padding: 16px;
+  gap: 16px;
+}
+.traffic-panel-device .m3-title {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+}
+.traffic-panel-disabled {
+  gap: 8px;
+}
+.traffic-panel-disabled .traffic-empty {
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  line-height: 20px;
 }
 .traffic-heading {
   display: flex;
@@ -586,9 +610,10 @@ function handleRangeChange(value: string | number | boolean | undefined) {
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-width: 52px;
+  width: 60px;
+  flex: none;
   min-height: 40px;
-  padding: 0 12px;
+  padding: 0 10px;
   color: var(--md-sys-color-on-surface);
   font-size: 14px;
   font-weight: 500;
@@ -615,6 +640,9 @@ function handleRangeChange(value: string | number | boolean | undefined) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
   gap: 16px;
+}
+.traffic-panel-device .traffic-totals {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 128px), 1fr));
 }
 .traffic-totals > div {
   padding: 16px;
@@ -689,7 +717,7 @@ thead th:first-child {
   text-align: center;
   color: var(--md-sys-color-on-surface-variant);
 }
-@media (max-width: 599px) {
+@container traffic-analysis (max-width: 599px) {
   .traffic-actions {
     width: 100%;
   }

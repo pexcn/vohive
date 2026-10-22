@@ -84,8 +84,13 @@ const secondaryStatus = (d: DeviceMgmtListItem) => {
 .device-picker {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
+  padding: 16px;
   align-self: start;
+}
+.device-picker .m3-title {
+  font-size: 18px;
+  line-height: 24px;
 }
 .device-list {
   display: grid;
@@ -99,7 +104,7 @@ const secondaryStatus = (d: DeviceMgmtListItem) => {
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  padding: 16px;
+  padding: 12px;
   border: 0;
   border-radius: 12px;
   overflow: hidden;

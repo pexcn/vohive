@@ -91,7 +91,15 @@ const emit = defineEmits<{
 .device-header {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
+  padding: 16px;
+}
+@container (min-width: 1060px) {
+  .device-header {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
 }
 .device-identity {
   display: flex;
