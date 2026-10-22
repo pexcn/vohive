@@ -47,9 +47,6 @@ const trafficTxDisplay = computed(() => props.trafficMinuteTx || trafficDisplay(
 const trafficDownloadRateDisplay = computed(() => props.trafficSpeedRx || trafficDisplay(props.device?.traffic?.rate) || '--')
 const trafficUploadRateDisplay = computed(() => props.trafficSpeedTx || trafficStateLabel.value || '--')
 
-// 次要字段折叠状态（VoWiFi 模式）
-const showVowifiDetail = ref(false)
-
 // ---- VoWiFi 模式计算属性 ----
 
 const readinessItems = computed(() => {
@@ -76,11 +73,6 @@ const vowifiStatus = computed<'ok' | 'partial' | 'off'>(() => {
 // 未就绪的环节名称列表
 const notReadyNames = computed(() =>
   readinessItems.value.filter(i => !i.ready).map(i => i.key)
-)
-
-// 有错误时自动展开
-const hasError = computed(() =>
-  !!props.device?.vowifi_runtime?.last_error_class
 )
 
 // ---- 窝蜂模式计算属性 ----
@@ -192,15 +184,7 @@ const networkPanelMessage = computed(() => {
             <span>{{ item.key }}</span>
           </li>
         </ol>
-        <md-text-button
-          type="button"
-          :aria-expanded="showVowifiDetail || hasError"
-          aria-controls="vowifi-diagnostics"
-          @click="showVowifiDetail = !showVowifiDetail"
-        >
-          {{ showVowifiDetail || hasError ? '收起连接详情' : '查看连接详情' }}
-        </md-text-button>
-        <div v-if="showVowifiDetail || hasError" id="vowifi-diagnostics" class="overview-fields">
+        <div id="vowifi-diagnostics" class="overview-fields">
           <FieldRow
             label="数据平面"
             :value="device.vowifi_runtime?.dataplane_mode || '--'"
@@ -445,8 +429,8 @@ const networkPanelMessage = computed(() => {
   line-height: 16px;
 }
 .readiness-track {
-  height: 4px;
-  border-radius: 2px;
+  height: 6px;
+  border-radius: 3px;
   background: var(--md-sys-color-outline-variant);
 }
 [data-state='ready'] .readiness-track {
