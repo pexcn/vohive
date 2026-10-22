@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, inject, ref, shallowRef, watchEffect, type Ref } from 'vue'
 import ErrorState from './ErrorState.vue'
-import RefreshButton from './RefreshButton.vue'
 import SvgIcon from './SvgIcon.vue'
 import checkIcon from '@material-symbols/svg-400/outlined/check.svg?raw'
 import type { AppError } from '../types/domain'
@@ -485,7 +484,6 @@ function handleRangeChange(value: string | number | boolean | undefined) {
             {{ option.label }}
           </button>
         </div>
-        <RefreshButton class="traffic-refresh" :loading="loading" :disabled="disabled" @click="emit('refresh')" />
       </div>
     </header>
     <p v-if="disabled" class="traffic-empty m3-muted">网络已禁用，暂无流量分析</p>
@@ -720,9 +718,6 @@ thead th:first-child {
 @container traffic-analysis (max-width: 599px) {
   .traffic-actions {
     width: 100%;
-  }
-  .traffic-refresh {
-    margin-inline-start: auto;
   }
   table {
     min-width: 0;

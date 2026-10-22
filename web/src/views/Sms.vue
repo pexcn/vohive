@@ -15,7 +15,6 @@ import { fieldValue, guardDialogCancel } from '../utils/material'
 import EmptyState from '../components/EmptyState.vue'
 import ErrorState from '../components/ErrorState.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
-import RefreshButton from '../components/RefreshButton.vue'
 import type { DeviceMgmtListItem, SMSMessage } from '../types/api'
 import { RecycleScroller } from 'vue-virtual-scroller'
 import 'vue-virtual-scroller/dist/vue-virtual-scroller.css'
@@ -720,7 +719,7 @@ function onComposerKeydown(event: KeyboardEvent) {
   <div ref="smsPageRef" class="m3-page sms-page">
     <PageHeader>
       <template #actions
-        ><RefreshButton :loading="loading" @click="refreshAll" /><md-filled-button
+        ><md-filled-button
           :disabled="sending"
           @click="openSendModal"
           ><SvgIcon slot="icon" :svg="sendIcon" />新建短信</md-filled-button

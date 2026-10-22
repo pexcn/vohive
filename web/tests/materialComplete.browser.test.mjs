@@ -415,6 +415,7 @@ const onFieldSubmit=()=>window.fieldSubmits++
         await evaluate('[...document.querySelectorAll("h1")].map(el=>el.textContent.trim())'),
         ['短信中心']
       )
+      assert.equal(await evaluate('document.querySelectorAll(".sms-page .refresh-icon").length'),0)
       assert.equal(
         calls.filter((c) => c.method !== 'GET').length,
         0,
@@ -424,7 +425,6 @@ const onFieldSubmit=()=>window.fieldSubmits++
       await click('.sms-thread:not(.selected) .sms-thread-main')
       await wait('document.querySelectorAll(".sms-unread").length===0')
       failContacts = true
-      await click('.sms-page .page-heading md-outlined-button')
       await wait(
         `document.querySelector('.sms-page .error-state')?.textContent.includes('Fixture contacts unavailable')`
       )
@@ -572,6 +572,7 @@ const onFieldSubmit=()=>window.fieldSubmits++
       await wait(
         'document.querySelectorAll(".esim-profile").length===3 && !!window.feedbackFixture'
       )
+      assert.equal(await evaluate('document.querySelector(".fixture .refresh-icon").parentElement.textContent.trim()'),'刷新','eSIM keeps its refresh action and label')
       const writesBefore = calls.filter((c) => c.method !== 'GET').length
       assert.equal(
         await evaluate(

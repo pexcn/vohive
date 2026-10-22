@@ -5,7 +5,6 @@ import { storeToRefs } from 'pinia'
 import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '../components/PageHeader.vue'
 import ErrorState from '../components/ErrorState.vue'
-import RefreshButton from '../components/RefreshButton.vue'
 import DeviceListPanel from '../components/DeviceListPanel.vue'
 import DeviceDetailLoading from '../components/DeviceDetailLoading.vue'
 import DeviceDetailHeader from '../components/DeviceDetailHeader.vue'
@@ -1199,7 +1198,6 @@ usePollingScheduler(async () => {
     <PageHeader>
       <template #actions>
         <div class="m3-actions">
-          <RefreshButton :loading="loading" @click="fetchAll" />
           <md-outlined-button
             type="button"
             :disabled="rescanning"

@@ -15,7 +15,6 @@ import {
   upstreamProxyIPv6AddressHint
 } from '../utils/upstreamProxyAddress'
 import SvgIcon from '../components/SvgIcon.vue'
-import RefreshButton from '../components/RefreshButton.vue'
 import { notify as showNotice } from '../stores/feedback'
 import StatusLight from '../components/StatusLight.vue'
 import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
@@ -52,10 +51,6 @@ function changeTab(event: Event) {
   const tab = (event.target as HTMLElement & { activeTab?: HTMLElement }).activeTab?.dataset.tab
   if (tab === 'upstream' || tab === 'outbound') activeTab.value = tab
 }
-function refreshActive() {
-  if (activeTab.value === 'upstream') void fetchUpstream()
-  else void fetchOverview()
-}
 const confirmation = ref<{ title: string; message: string; run: () => Promise<boolean> } | null>(null)
 const confirmBusy = ref(false)
 async function runConfirmation() {
@@ -86,7 +81,6 @@ const proxyStore = useProxyStore()
 const { statusMap } = storeToRefs(proxyStore)
 
 const initialLoading = ref(true)
-const refreshing = ref(false)
 const loadError = ref<{ message: string; status?: number } | null>(null)
 const instances = ref<ProxyInstance[]>([])
 const devices = ref<ProxyDevice[]>([])
@@ -129,13 +123,10 @@ watch(
   }
 )
 
-async function fetchOverview(opts: { silent?: boolean; initial?: boolean } = {}) {
+async function fetchOverview(opts: { initial?: boolean } = {}) {
   const isInitial = opts.initial === true
-  const silent = opts.silent === true
   if (isInitial) {
     initialLoading.value = true
-  } else if (!silent) {
-    refreshing.value = true
   }
   loadError.value = null
 
@@ -156,8 +147,6 @@ async function fetchOverview(opts: { silent?: boolean; initial?: boolean } = {})
   } finally {
     if (isInitial) {
       initialLoading.value = false
-    } else if (!silent) {
-      refreshing.value = false
     }
   }
 }
@@ -341,7 +330,7 @@ function formatModeLabel(mode: string | undefined) {
 }
 
 const pollEnabled = computed(() => !initialLoading.value && instances.value.length > 0)
-usePollingScheduler(() => fetchOverview({ silent: true }), 5000, {
+usePollingScheduler(() => fetchOverview(), 5000, {
   enabled: pollEnabled,
   maxIntervalMs: 60000,
   backgroundIntervalMs: 15000
@@ -354,7 +343,6 @@ usePollingScheduler(() => fetchOverview({ silent: true }), 5000, {
 const upstreamStore = useUpstreamProxyStore()
 
 const upstreamLoading = ref(true)
-const upstreamRefreshing = ref(false)
 const upstreamError = ref<{ message: string; status?: number } | null>(null)
 
 // ── 编辑 Drawer ──
@@ -395,13 +383,10 @@ const upstreamProxiesWithRuleCount = computed(() => {
   }))
 })
 
-async function fetchUpstream(opts: { silent?: boolean; initial?: boolean } = {}) {
+async function fetchUpstream(opts: { initial?: boolean } = {}) {
   const isInitial = opts.initial === true
-  const silent = opts.silent === true
   if (isInitial) {
     upstreamLoading.value = true
-  } else if (!silent) {
-    upstreamRefreshing.value = true
   }
   upstreamError.value = null
 
@@ -417,8 +402,6 @@ async function fetchUpstream(opts: { silent?: boolean; initial?: boolean } = {})
   } finally {
     if (isInitial) {
       upstreamLoading.value = false
-    } else if (!silent) {
-      upstreamRefreshing.value = false
     }
   }
 }
@@ -591,7 +574,7 @@ onMounted(() => {
 
 // 前置代理轮询
 const upPollEnabled = computed(() => !upstreamLoading.value && activeTab.value === 'upstream')
-usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
+usePollingScheduler(() => fetchUpstream(), 10000, {
   enabled: upPollEnabled,
   maxIntervalMs: 60000,
   backgroundIntervalMs: 30000
@@ -602,15 +585,6 @@ usePollingScheduler(() => fetchUpstream({ silent: true }), 10000, {
   <div class="m3-page proxy-page">
     <PageHeader>
       <template #actions>
-        <RefreshButton
-          :loading="
-            activeTab === 'upstream'
-              ? upstreamLoading || upstreamRefreshing
-              : initialLoading || refreshing
-          "
-          :disabled="saving || upstreamSaving"
-          @click="refreshActive"
-        />
         <md-filled-button
           type="button"
           :disabled="saving || upstreamSaving"

@@ -129,6 +129,7 @@ try {
   const expectPageTitle = async title => {
     assert.deepEqual(await evaluate('[...document.querySelectorAll("h1")].map(el=>el.textContent.trim())'),[title])
     assert.equal(await evaluate('document.querySelector("h1").closest(".top-app-bar") !== null'),true)
+    assert.equal(await evaluate('document.querySelectorAll(".refresh-icon").length'),0,'Automatically updated pages have no persistent refresh button')
   }
   // A hidden caption must never create a second, outer document scrollbar.
   await send('Page.navigate',{url:url+'#/'})
@@ -142,7 +143,7 @@ try {
   await evaluate('location.hash="#/devices"')
   await wait('document.querySelector(".devices-layout")')
   await expectPageTitle('设备管理')
-  assert.equal(await evaluate('document.querySelectorAll(".page-heading md-outlined-button,.page-heading md-filled-button").length'),3)
+  assert.equal(await evaluate('document.querySelectorAll(".page-heading md-outlined-button,.page-heading md-filled-button").length'),2)
   await snapshot('devices-toolbar-dark')
   await evaluate('location.hash="#/"')
   await wait('document.querySelectorAll(".traffic-table tbody tr").length === 24')

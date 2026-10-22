@@ -3,11 +3,9 @@ import { onMounted, ref, computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRouter } from 'vue-router'
 import DeviceCard from '../components/DeviceCard.vue'
-import PageHeader from '../components/PageHeader.vue'
 import EmptyState from '../components/EmptyState.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
 import ErrorState from '../components/ErrorState.vue'
-import RefreshButton from '../components/RefreshButton.vue'
 import TrafficAnalysisPanel from '../components/TrafficAnalysisPanel.vue'
 import { usePollingScheduler } from '../composables/usePollingScheduler'
 import { useDashboardStore } from '../stores/dashboard'
@@ -86,9 +84,6 @@ onMounted(() => {
 
 <template>
   <div class="m3-page">
-    <PageHeader>
-      <template #actions><RefreshButton :loading="loading" @click="fetchDevices" /></template>
-    </PageHeader>
     <section class="dashboard-summary" aria-label="设备概况">
       <div class="m3-card summary-total">
         <p class="m3-label">设备总数</p>
