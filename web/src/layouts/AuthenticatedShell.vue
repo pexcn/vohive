@@ -129,15 +129,17 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
       </div>
       <nav aria-label="主导航" class="navigation-links">
         <RouterLink
-          v-for="item in menuItems"
+          v-for="(item, index) in menuItems"
+          :id="`desktop-navigation-${index}`"
           :key="item.index"
           :to="item.index"
           class="navigation-link"
           :aria-current="activePath === item.index ? 'page' : undefined"
           :title="item.label"
         >
+          <md-ripple v-if="!collapsed" />
           <span class="navigation-indicator">
-            <md-ripple />
+            <md-ripple v-if="collapsed" :for="`desktop-navigation-${index}`" />
             <SvgIcon :svg="item.icon" />
           </span>
           <span>{{ item.label }}</span>
