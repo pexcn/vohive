@@ -511,6 +511,7 @@ async function refreshAll() {
 async function pollRefresh() {
   if (loading.value || threadLoading.value || loadingHistoryMore.value) return
   try {
+    await fetchDevices()
     await fetchMessagesAndThread(true)
   } catch {
     // Ignore polling failures; scheduler keeps retrying.

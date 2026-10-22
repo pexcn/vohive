@@ -24,6 +24,8 @@ test(
     let browser, socket, debugSend, debugEvaluate
     const exceptions = []
     let failContacts = false
+    let failDevices = false
+    let deviceList = [{ id: 'fixture', name: 'Fixture modem', running: true, healthy: true }]
     let failNext = false,
       holdNext = false,
       releaseMutation
@@ -140,7 +142,12 @@ test(
         return
       }
       if (url.pathname === '/api/devices') {
-        json({ devices: [{ id: 'fixture', name: 'Fixture modem', running: true, healthy: true }] })
+        if (failDevices) {
+          failDevices = false
+          json({ error: 'Fixture devices unavailable' }, 500)
+          return
+        }
+        json({ devices: deviceList })
         return
       }
       if (url.pathname === '/api/sms/contacts') {
@@ -430,6 +437,32 @@ const onFieldSubmit=()=>window.fieldSubmits++
       )
       await click('.sms-page .error-state md-outlined-button')
       await wait(`!document.querySelector('.sms-page .error-state')`)
+      await click('.sms-devices button:nth-of-type(2)')
+      await wait('!!document.querySelector("md-outlined-text-field[name=sms-reply]")')
+      await fill('md-outlined-text-field[name=sms-reply]', 'automatic sync draft')
+      const selectedConversation = await evaluate('location.hash')
+      deviceList = [
+        { ...deviceList[0], name: 'Renamed fixture', healthy: false },
+        { id: 'second', name: 'Second fixture', running: true, healthy: true }
+      ]
+      await wait(`document.querySelectorAll('.sms-devices button').length === 3 && document.querySelector('.sms-devices button:nth-of-type(2)').textContent.includes('Renamed fixture')`)
+      assert.equal(await evaluate('document.querySelector(".sms-devices button:nth-of-type(2)").getAttribute("aria-pressed")'),'true')
+      assert.equal(await evaluate('document.querySelector(".sms-devices button:nth-of-type(2) .sms-device-dot").classList.contains("online")'),false)
+      assert.equal(await evaluate('location.hash'),selectedConversation,'Background device updates preserve the selected conversation')
+      assert.equal(await evaluate('document.querySelector("md-outlined-text-field[name=sms-reply]").value'),'automatic sync draft')
+      assert.equal(await evaluate('document.querySelectorAll(".sms-unread").length'),0)
+      failDevices = true
+      await wait(`document.querySelector('.sms-page .error-state')?.textContent.includes('Fixture devices unavailable')`)
+      const failedDeviceRequest = calls.map(call=>call.path).lastIndexOf('/api/devices')
+      await until(()=>calls.slice(failedDeviceRequest+1).some(call=>call.path==='/api/sms/contacts'),'Messages keep updating after a device-list failure')
+      assert.equal(await evaluate('document.querySelectorAll(".sms-devices button").length'),3,'Failed requests keep the last device list')
+      assert.equal(await evaluate('location.hash'),selectedConversation)
+      assert.equal(await evaluate('document.querySelector("md-outlined-text-field[name=sms-reply]").value'),'automatic sync draft')
+      deviceList = deviceList.slice(1)
+      await wait(`document.querySelectorAll('.sms-devices button').length === 2 && document.querySelector('.sms-devices button:first-of-type').getAttribute('aria-pressed') === 'true'`)
+      await wait('!location.hash.includes("device=fixture")')
+      await until(()=>calls.filter(call=>call.path==='/api/sms/contacts').at(-1)?.query.device_id===undefined,'Removed devices fall back to unfiltered messages')
+      deviceList = [{ id: 'fixture', name: 'Fixture modem', running: true, healthy: true }]
       await evaluate('location.hash="#/settings"')
       await wait(
         'document.querySelector("md-outlined-text-field[name=bot_token]")?.value==="fixture-token"'
