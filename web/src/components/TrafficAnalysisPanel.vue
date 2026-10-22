@@ -462,7 +462,7 @@ function handleRangeChange(value: string | number | boolean | undefined) {
         <h2 class="m3-title">{{ title }}</h2>
         <p class="m3-muted">{{ subtitle }}</p>
       </div>
-      <div class="m3-actions">
+      <div class="m3-actions traffic-actions">
         <div class="range-buttons" role="group" aria-label="流量统计范围">
           <button
             v-for="option in [
@@ -481,7 +481,7 @@ function handleRangeChange(value: string | number | boolean | undefined) {
             {{ option.label }}
           </button>
         </div>
-        <RefreshButton :loading="loading" :disabled="disabled" @click="emit('refresh')" />
+        <RefreshButton class="traffic-refresh" :loading="loading" :disabled="disabled" @click="emit('refresh')" />
       </div>
     </header>
     <p v-if="disabled" class="traffic-empty m3-muted">网络已禁用，暂无流量分析</p>
@@ -685,6 +685,12 @@ thead th {
   color: var(--md-sys-color-on-surface-variant);
 }
 @media (max-width: 599px) {
+  .traffic-actions {
+    width: 100%;
+  }
+  .traffic-refresh {
+    margin-inline-start: auto;
+  }
   table {
     min-width: 0;
     table-layout: fixed;
