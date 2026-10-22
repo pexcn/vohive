@@ -93,24 +93,20 @@ onMounted(() => {
       <div class="m3-card summary-total">
         <p class="m3-label">设备总数</p>
         <strong>{{ totalCount }}</strong>
-        <span class="m3-muted">当前管理的设备</span>
       </div>
       <div class="m3-card">
         <p class="m3-label">在线设备</p>
         <strong class="summary-online">{{ onlineCount }}</strong>
-        <span class="m3-muted">连接正常</span>
       </div>
       <div class="m3-card">
         <p class="m3-label">离线设备</p>
         <strong>{{ offlineCount }}</strong>
-        <span class="m3-muted">等待连接或恢复</span>
       </div>
       <div class="m3-card">
         <p class="m3-label">最近刷新</p>
         <strong class="summary-time">
           {{ lastUpdatedAt ? new Date(lastUpdatedAt).toLocaleTimeString() : '--:--:--' }}
         </strong>
-        <span class="m3-muted">设备状态自动更新</span>
       </div>
     </section>
     <ErrorState
@@ -180,8 +176,7 @@ onMounted(() => {
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
 }
-.summary-total .m3-label,
-.summary-total .m3-muted {
+.summary-total .m3-label {
   color: inherit;
 }
 .summary-online {
