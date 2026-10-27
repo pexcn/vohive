@@ -4,6 +4,7 @@ import ListSkeleton from './ListSkeleton.vue'
 import StatusLight from './StatusLight.vue'
 import type { DeviceMgmtListItem } from '../types/api'
 import { isControlOnline, isRadioRegistered, lifecycleStatusLabel, primaryLifecycleStatus } from '../utils/deviceLifecycle'
+import { getVoWiFiStatus } from '../utils/vowifiStatus'
 
 defineProps<{
   loading: boolean
@@ -64,7 +65,11 @@ const registrationText = (d: DeviceMgmtListItem) => {
         </span>
         <span class="device-option-meta">{{ d.id }} · {{ d.interface || '--' }}</span>
         <span class="device-option-meta">
-          <span v-if="d.vowifi_enabled" class="device-connected">Wi-Fi Calling</span>
+          <span
+            v-if="d.vowifi_enabled"
+            class="device-vowifi"
+            :data-status="getVoWiFiStatus(d.vowifi_runtime)"
+          >Wi-Fi Calling</span>
           <template v-else>
             {{ registrationText(d) }}
             <template v-if="d.network_enabled && d.network_connected">
@@ -149,6 +154,9 @@ const registrationText = (d: DeviceMgmtListItem) => {
   line-height: 16px;
 }
 .device-connected {
+  color: var(--vh-success);
+}
+.device-vowifi[data-status='ok'] {
   color: var(--vh-success);
 }
 </style>

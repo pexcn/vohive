@@ -14,6 +14,7 @@ import { isControlOnline, isRadioRegistered, isRecoveryPhase, lifecycleStatusLab
 import StatusLight from './StatusLight.vue'
 import OperatorSelectionDialog from './OperatorSelectionDialog.vue'
 import type { StatusLightTone } from './statusLight'
+import { getVoWiFiReadiness, getVoWiFiStatus } from '../utils/vowifiStatus'
 
 const props = defineProps<{
   device: DeviceOverviewItem | null
@@ -54,26 +55,10 @@ const trafficUploadRateDisplay = computed(() => props.trafficSpeedTx || trafficS
 
 // ---- VoWiFi 模式计算属性 ----
 
-const readinessItems = computed(() => {
-  const rt = props.device?.vowifi_runtime
-  return [
-    { key: 'SIM',    ready: rt?.sim_ready },
-    { key: 'Access', ready: rt?.access_ready },
-    { key: 'Tunnel', ready: rt?.tunnel_ready },
-    { key: 'IMS',    ready: rt?.ims_ready },
-    { key: 'SMS',    ready: rt?.sms_ready },
-  ]
-})
+const readinessItems = computed(() => getVoWiFiReadiness(props.device?.vowifi_runtime))
 
 // 'ok' | 'partial' | 'off'
-const vowifiStatus = computed<'ok' | 'partial' | 'off'>(() => {
-  const rt = props.device?.vowifi_runtime
-  if (!rt) return 'off'
-  const all = [rt.sim_ready, rt.access_ready, rt.tunnel_ready, rt.ims_ready, rt.sms_ready]
-  if (all.every(Boolean)) return 'ok'
-  if (all.some(Boolean)) return 'partial'
-  return 'off'
-})
+const vowifiStatus = computed(() => getVoWiFiStatus(props.device?.vowifi_runtime))
 
 // 未就绪的环节名称列表
 const notReadyNames = computed(() =>

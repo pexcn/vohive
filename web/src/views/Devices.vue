@@ -19,6 +19,7 @@ import CarrierWebsheetDialog from '../components/CarrierWebsheetDialog.vue'
 import TrafficAnalysisPanel from '../components/TrafficAnalysisPanel.vue'
 import { usePollingScheduler } from '../composables/usePollingScheduler'
 import { useEventStream } from '../composables/useEventStream'
+import { useVoWiFiRuntime } from '../composables/useVoWiFiRuntime'
 import { useDevicesStore } from '../stores/devices'
 import { debugCollector } from '../debug/collector'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
@@ -127,13 +128,15 @@ type RollingTrafficSample = {
 
 const realtimeTrafficWindowMs = 60_000
 let rollingTrafficWindow: RollingTrafficSample[] = []
+const voWiFiRuntime = useVoWiFiRuntime()
+const displayedDevices = computed(() => devices.value.map(device => voWiFiRuntime.apply(device)))
 
 const selectedListItem = computed<DeviceMgmtListItem | null>(() => {
   return devices.value.find(d => d.id === selectedId.value) || null
 })
 
 const selectedDevice = computed<DeviceOverviewItem | null>(() => {
-  return selectedDetail.value
+  return selectedDetail.value ? voWiFiRuntime.apply(selectedDetail.value) : null
 })
 
 const RADIO_LIVE_GRACE_MS = 3000
@@ -502,8 +505,10 @@ async function fetchSelectedDetail(id: string) {
 
   if (detailAbort) detailAbort.abort()
   detailAbort = new AbortController()
+  const runtimeCheckpoint = voWiFiRuntime.checkpoint()
   const result = await devicesStore.fetchDetail(deviceID, detailAbort.signal)
   if (result.ok) {
+    if (storeDetail.value) voWiFiRuntime.update(storeDetail.value, runtimeCheckpoint)
     selectedDetail.value = resolveDetailForDisplay((storeDetail.value || null) as DeviceOverviewItem | null)
   }
   updateTrafficSpeedFromSelected()
@@ -589,9 +594,11 @@ async function fetchAll() {
     const prevSelected = selectedId.value
     if (listAbort) listAbort.abort()
     listAbort = new AbortController()
+    const runtimeCheckpoint = voWiFiRuntime.checkpoint()
     const listResult = await devicesStore.fetchList(listAbort.signal)
     if (!listResult.ok) throw new Error(listResult.error.message)
     devices.value = (storeList.value || []) as DeviceMgmtListItem[]
+    devices.value.forEach(device => voWiFiRuntime.update(device, runtimeCheckpoint))
     loadLastOkAt.value = Date.now()
     applyRouteSelection()
 
@@ -635,9 +642,11 @@ async function refreshListOnly() {
     const prevSelected = selectedId.value
     if (listAbort) listAbort.abort()
     listAbort = new AbortController()
+    const runtimeCheckpoint = voWiFiRuntime.checkpoint()
     const listResult = await devicesStore.fetchList(listAbort.signal)
     if (!listResult.ok) throw new Error(listResult.error.message)
     devices.value = (storeList.value || []) as DeviceMgmtListItem[]
+    devices.value.forEach(device => voWiFiRuntime.update(device, runtimeCheckpoint))
     // 自动刷新时如果当前选中的设备突然不在列表中，不要强行将其重置。
     // 这可以避免正在配置某设备时，因为网络或拔插一秒钟的掉线导致系统强制关闭当前配置并把页面顶上去拉回到第一项。
     if (!hasAutoSelected.value && !selectedId.value && devices.value.length) {
@@ -1111,6 +1120,7 @@ function handleOverviewEvent(data: OverviewSSEPayload) {
   if (!data?.devices || !data.devices.length) return
 
   const found = data.devices[0]
+  voWiFiRuntime.update(found)
   const idx = devices.value.findIndex(d => d.id === found.id)
   if (idx !== -1) {
     Object.assign(devices.value[idx], found)
@@ -1224,7 +1234,7 @@ usePollingScheduler(async () => {
       <DeviceListPanel
         :loading="loading"
         :selected-id="selectedId"
-        :devices="devices"
+        :devices="displayedDevices"
         :device-count="devices.length"
         :device-limit="deviceLimit"
         @select-device="selectDevice"
