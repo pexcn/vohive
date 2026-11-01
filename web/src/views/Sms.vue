@@ -842,7 +842,7 @@ function onComposerKeydown(event: KeyboardEvent) {
           <md-text-button v-if="isNarrowLayout && selectedThreadKey" @click="backToList"
             >返回</md-text-button
           >
-          <div class="sms-peer">
+          <div class="sms-peer m3-heading">
             <h2>{{ selectedThread?.peer || '会话详情' }}</h2>
             <p v-if="selectedThread?.localPhone" class="m3-muted">
               本机：{{ selectedThread.localPhone }}

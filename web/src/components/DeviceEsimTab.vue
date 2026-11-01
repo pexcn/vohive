@@ -489,7 +489,7 @@ onBeforeUnmount(() => {
     <LoadingScreen v-if="loading" title="读取 eUICC…" subtitle="正在获取芯片和 Profile 信息" />
     <template v-else>
       <div class="m3-row">
-        <div>
+        <div class="m3-heading">
           <h2 class="m3-title">{{ chipInfo?.sku_name || 'eSIM 管理' }}</h2>
           <p v-if="chipInfo" class="m3-muted">
             {{ chipInfo.firmware ? `固件 ${chipInfo.firmware}` : '' }}

@@ -64,7 +64,7 @@ h2 {
   line-height: 24px;
 }
 p {
-  margin-top: 4px;
+  margin-top: 8px;
   font-size: 14px;
   overflow-wrap: anywhere;
 }

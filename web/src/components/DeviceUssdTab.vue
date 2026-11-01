@@ -125,7 +125,7 @@ function clearHistory() {
 <template>
   <section class="m3-stack" aria-label="USSD 终端">
     <div class="m3-row">
-      <div>
+      <div class="m3-heading">
         <h2 class="m3-title">USSD 交互终端</h2>
         <p class="m3-muted">发送代码并查看网络菜单响应</p>
       </div>

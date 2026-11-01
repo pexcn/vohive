@@ -82,11 +82,11 @@ function clearATHistory() {
 
 <template>
   <section class="m3-stack" aria-label="AT 终端">
-    <div>
+    <div class="m3-heading">
       <h2 class="m3-title">AT 终端</h2>
       <p class="m3-muted">发送指令并查看完整响应</p>
     </div>
-    <div v-if="!canUseATTerminal" class="m3-notice">
+    <div v-if="!canUseATTerminal" class="m3-notice m3-heading">
       <h3>{{ unavailableTitle }}</h3>
       <p>{{ unavailableDescription }}</p>
     </div>

@@ -622,7 +622,7 @@ usePollingScheduler(() => fetchUpstream(), 10000, {
       aria-labelledby="proxy-tab-upstream"
       class="proxy-section"
     >
-      <div class="section-heading">
+      <div class="section-heading m3-heading">
         <h2 class="m3-title">
           漫游前置代理
           <span class="m3-badge">{{ upstreamStore.proxies.length }}</span>
@@ -701,7 +701,7 @@ usePollingScheduler(() => fetchUpstream(), 10000, {
       aria-labelledby="proxy-tab-outbound"
       class="proxy-section"
     >
-      <div class="section-heading">
+      <div class="section-heading m3-heading">
         <h2 class="m3-title">
           本地出站实例
           <span class="m3-badge">{{ instances.length }}</span>
@@ -1150,10 +1150,6 @@ usePollingScheduler(() => fetchUpstream(), 10000, {
   display: grid;
   gap: 20px;
   min-width: 0;
-}
-.section-heading {
-  display: grid;
-  gap: 8px;
 }
 .section-heading h2 {
   display: flex;

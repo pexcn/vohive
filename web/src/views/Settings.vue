@@ -559,7 +559,7 @@ watch(activeNotifyTab, () => revealed.clear())
     </div>
     <section class="m3-card m3-stack" aria-label="通知设置">
       <div class="m3-row">
-        <div>
+        <div class="m3-heading">
           <h2 class="m3-title">通知渠道</h2>
           <p class="m3-muted">设置会统一保存；测试通知仅在点击时发送。</p>
         </div>

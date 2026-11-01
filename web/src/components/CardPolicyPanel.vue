@@ -108,7 +108,7 @@ const sourceLabel = computed(() => {
 
 <template>
   <section class="policy-panel" aria-labelledby="policy-title">
-    <header>
+    <header class="m3-heading">
       <h2 id="policy-title" class="m3-title">卡策略</h2>
       <p class="m3-muted">策略跟随 SIM 卡保存，切卡后即时生效</p>
     </header>
@@ -230,9 +230,6 @@ const sourceLabel = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 24px;
-}
-header p {
-  margin-top: 8px;
 }
 .policy-identity {
   display: flex;

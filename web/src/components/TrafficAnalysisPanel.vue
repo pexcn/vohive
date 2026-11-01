@@ -461,7 +461,7 @@ function handleRangeChange(value: string | number | boolean | undefined) {
     :aria-label="title"
   >
     <header class="traffic-heading">
-      <div>
+      <div class="m3-heading">
         <h2 class="m3-title">{{ title }}</h2>
         <p v-if="!disabled" class="m3-muted">{{ subtitle }}</p>
       </div>
@@ -592,9 +592,6 @@ function handleRangeChange(value: string | number | boolean | undefined) {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 16px;
-}
-.traffic-heading p {
-  margin-top: 8px;
 }
 .range-buttons {
   display: flex;

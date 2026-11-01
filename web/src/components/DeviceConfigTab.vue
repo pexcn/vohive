@@ -40,7 +40,7 @@ watch(
 <template>
   <section class="m3-stack">
     <div class="m3-row">
-      <div>
+      <div class="m3-heading">
         <h2 class="m3-title">设备配置</h2>
         <p class="m3-muted">部分变更需要重启后生效</p>
       </div>
