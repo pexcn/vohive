@@ -4,6 +4,7 @@ import router from './router'
 import App from './App.vue'
 import { debugCollector } from './debug/collector'
 import './style.css'
+import './scrollbars.css'
 import './materialWeb'
 import './material.css'
 
