@@ -71,7 +71,9 @@ watch(activeTab, tab => visitedTabs.add(tab), { immediate: true })
 
 function handleDetailTabChange(event: Event) {
   const tab = (event.target as HTMLElement & { activeTab?: HTMLElement }).activeTab?.dataset.tab
-  if (tab && deviceTabs.has(tab)) activeTab.value = tab
+  if (!tab || !deviceTabs.has(tab) || activeTab.value === tab) return
+  activeTab.value = tab
+  void router.replace({ name: 'Devices', query: { ...route.query, tab } })
 }
 
 
@@ -167,9 +169,7 @@ function firstQueryValue(value: unknown): string {
 
 function applyRouteSelection(): boolean {
   const tab = firstQueryValue(route.query.tab).trim()
-  if (deviceTabs.has(tab)) {
-    activeTab.value = tab
-  }
+  activeTab.value = deviceTabs.has(tab) ? tab : 'overview'
 
   const deviceID = firstQueryValue(route.query.device).trim()
   if (!deviceID || selectedId.value === deviceID) {

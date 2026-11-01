@@ -232,7 +232,11 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
         <div class="main-inner">
           <router-view v-slot="{ Component, route: r }">
             <ErrorBoundary v-if="Component" title="页面渲染失败">
-              <component :is="Component" :key="r.fullPath" />
+              <!-- Tab navigation keeps drafts; changing devices still resets the workspace. -->
+              <component
+                :is="Component"
+                :key="r.name === 'Devices' ? `${r.path}:${r.query.device || ''}` : r.fullPath"
+              />
             </ErrorBoundary>
             <LoadingScreen v-else title="正在加载页面…" subtitle="正在准备页面组件与资源" />
           </router-view>
