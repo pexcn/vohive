@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { copyToClipboard } from '../utils/clipboard'
+import SensitiveText from './SensitiveText.vue'
 
 const props = defineProps<{
   label: string
@@ -8,7 +9,7 @@ const props = defineProps<{
   copyable?: boolean
   monospace?: boolean
   placeholder?: string
-  sensitive?: boolean // 加密显示（打码）
+  sensitive?: boolean // 模糊显示敏感信息
 }>()
 
 const displayValue = computed(() => {
@@ -46,13 +47,12 @@ async function copy() {
       class="field-value block min-w-0 max-w-full flex-1 truncate text-right"
       :class="[
         monospace ? 'font-mono' : '',
-        canCopy ? 'cursor-pointer hover:underline' : '',
-        sensitive ? 'blur-sm select-none motion-safe:transition-all' : ''
+        canCopy ? 'cursor-pointer hover:underline' : ''
       ]"
       :title="titleValue"
       @click="copy"
     >
-      <slot>{{ displayValue }}</slot>
+      <SensitiveText :concealed="sensitive"><slot>{{ displayValue }}</slot></SensitiveText>
     </component>
   </div>
 </template>

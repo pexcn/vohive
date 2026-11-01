@@ -11,6 +11,7 @@ import RefreshButton from './RefreshButton.vue'
 import LoadingScreen from './LoadingScreen.vue'
 import EmptyState from './EmptyState.vue'
 import SvgIcon from './SvgIcon.vue'
+import SensitiveText from './SensitiveText.vue'
 import simIcon from '@material-symbols/svg-400/outlined/sim_card.svg?raw'
 import notificationsIcon from '@material-symbols/svg-400/outlined/notifications.svg?raw'
 import visibleIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
@@ -565,9 +566,9 @@ onBeforeUnmount(() => {
           <h2 class="m3-title">{{ chipInfo?.sku_name || 'eSIM 管理' }}</h2>
           <p v-if="chipInfo" class="m3-muted">
             {{ chipInfo.firmware ? `固件 ${chipInfo.firmware}` : '' }}
-            <span :class="{ 'blur-sm select-none': !showSensitive }">{{
+            <SensitiveText :concealed="!showSensitive">{{
               chipInfo.serial_number ? `· SN ${chipInfo.serial_number}` : ''
-            }}</span>
+            }}</SensitiveText>
           </p>
         </div>
         <div class="m3-actions esim-tools">
@@ -601,7 +602,8 @@ onBeforeUnmount(() => {
               <span class="m3-muted esim-count">{{ group.profiles.length }} 个 Profile</span>
             </div>
             <p class="m3-muted esim-eid" :title="showSensitive ? group.eid : undefined">
-              EID {{ displayIdentifier(group.eid) }}
+              <span class="esim-id-label">EID</span>
+              <SensitiveText :concealed="!showSensitive">{{ group.eid }}</SensitiveText>
             </p>
           </div>
           <div v-if="group.chip" class="esim-free-space">
@@ -634,11 +636,14 @@ onBeforeUnmount(() => {
             <div v-if="renaming !== profile.iccid" class="esim-profile-row">
               <span class="esim-avatar" aria-hidden="true"><SvgIcon :svg="simIcon" /></span>
               <div class="esim-profile-identity">
-                <h4>{{ profile.name || displayIdentifier(profile.iccid) }}</h4>
+                <h4><SensitiveText :concealed="!profile.name && !showSensitive">{{ profile.name || profile.iccid }}</SensitiveText></h4>
                 <p class="m3-muted esim-profile-meta">
                   <span v-if="profile.service_provider_name" class="esim-provider">{{ profile.service_provider_name }}</span>
                   <span v-if="profile.service_provider_name" class="esim-meta-separator" aria-hidden="true">·</span>
-                  <span class="esim-profile-iccid" :title="showSensitive ? profile.iccid : undefined">ICCID {{ displayIdentifier(profile.iccid) }}</span>
+                  <span class="esim-profile-iccid" :title="showSensitive ? profile.iccid : undefined">
+                    <span class="esim-id-label">ICCID</span>
+                    <SensitiveText :concealed="!showSensitive">{{ profile.iccid }}</SensitiveText>
+                  </span>
                 </p>
               </div>
               <span class="esim-profile-state">
@@ -716,7 +721,10 @@ onBeforeUnmount(() => {
       <md-dialog class="m3-dialog esim-chip-dialog" :open="!!selectedChip" @closed="selectedChip = null">
         <div slot="headline">芯片与证书信息</div>
         <div slot="content" class="m3-stack esim-chip-details">
-          <p class="esim-eid">EID {{ displayIdentifier(selectedChip?.eid || '') }}</p>
+          <p class="esim-eid">
+            <span class="esim-id-label">EID</span>
+            <SensitiveText :concealed="!showSensitive">{{ selectedChip?.eid || '' }}</SensitiveText>
+          </p>
           <p v-if="selectedChip?.manufacturer">生产商：{{ selectedChip.manufacturer }}</p>
           <p v-if="selectedChip?.certificates?.length">证书：{{ selectedChip.certificates.join(' · ') }}</p>
           <p v-if="selectedChip?.default_smdp_address">Default SM-DP+：{{ selectedChip.default_smdp_address }}</p>
@@ -918,7 +926,13 @@ h4 {
   line-height: 16px;
 }
 .esim-eid {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font: 12px/20px var(--vh-typeface-mono);
+}
+.esim-id-label {
+  flex: none;
 }
 .esim-chip-identity .esim-eid {
   margin-top: 4px;
@@ -994,6 +1008,10 @@ h4 {
   min-width: 0;
 }
 .esim-profile-iccid {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   flex-shrink: 0;
   max-width: 100%;
   font: 12px/20px var(--vh-typeface-mono);
@@ -1096,8 +1114,7 @@ h4 {
     justify-self: end;
   }
   .esim-profile-meta,
-  .esim-provider,
-  .esim-profile-iccid {
+  .esim-provider {
     display: block;
   }
   .esim-meta-separator {
