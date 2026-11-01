@@ -2,10 +2,11 @@
 import refresh from '@material-symbols/svg-400/outlined/refresh.svg?raw'
 import SvgIcon from './SvgIcon.vue'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   loading?: boolean
   disabled?: boolean
-}>()
+  variant?: 'outlined' | 'text'
+}>(), { variant: 'outlined' })
 
 const emit = defineEmits<{
   (e: 'click'): void
@@ -17,7 +18,8 @@ function refreshIfIdle() {
 </script>
 
 <template>
-  <md-outlined-button
+  <component
+    :is="variant === 'text' ? 'md-text-button' : 'md-outlined-button'"
     type="button"
     :disabled="disabled"
     :aria-disabled="disabled || loading"
@@ -26,7 +28,7 @@ function refreshIfIdle() {
   >
     <SvgIcon :svg="refresh" slot="icon" class="refresh-icon" :class="{ busy: loading }" />
     刷新
-  </md-outlined-button>
+  </component>
 </template>
 
 <style scoped>

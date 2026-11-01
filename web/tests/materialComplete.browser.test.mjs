@@ -613,7 +613,10 @@ const onFieldSubmit=()=>window.fieldSubmits++
         ),
         true
       )
-      await click('.esim-profile:nth-of-type(2) md-text-button.danger')
+      await evaluate(`window.profileMenuReady=false;document.querySelector('.esim-profile-menu').addEventListener('opened',()=>window.profileMenuReady=true,{once:true})`)
+      await click('.esim-profile:nth-of-type(2) .esim-profile-more')
+      await wait('window.profileMenuReady')
+      await click('.esim-profile-menu md-menu-item.danger')
       const deviceConfirm = '#fixture > md-dialog'
       await wait(`document.querySelector('${deviceConfirm}').open`)
       assert.equal(
@@ -639,7 +642,7 @@ const onFieldSubmit=()=>window.fieldSubmits++
         writesBefore + 1,
         'Entering subpages cannot switch/download eSIM or send AT/USSD'
       )
-      await click('.esim-profile:last-of-type .m3-actions md-text-button:nth-of-type(2)')
+      await click('.esim-profile:last-of-type .esim-policy')
       await wait('document.querySelectorAll(".esim-profile md-switch").length===3')
       failNext = true
       holdNext = true
@@ -655,7 +658,7 @@ const onFieldSubmit=()=>window.fieldSubmits++
         `!document.querySelector('.esim-profile md-switch').selected && !document.querySelector('.esim-profile md-switch').shadowRoot.querySelector('input').checked`
       )
       await wait(`!!document.querySelector('.esim-profile .m3-error')`)
-      await click('.esim-profile .m3-actions md-outlined-button')
+      await click('.esim-profile .esim-switch')
       await wait(`document.querySelector('${deviceConfirm}').open`)
       await click(deviceConfirm + ' md-filled-button')
       await until(
@@ -668,7 +671,7 @@ const onFieldSubmit=()=>window.fieldSubmits++
       )
       assert.equal(
         await evaluate(
-          'document.querySelector(".esim-profile .m3-actions md-outlined-button").disabled'
+          'document.querySelector(".esim-profile .esim-switch").disabled'
         ),
         true
       )

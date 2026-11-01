@@ -127,13 +127,18 @@ try {
   assert.equal(overviewRequests(),beforeTabs,'Tab query updates do not reload the device list or reconnect overview SSE')
   await chooseTab('at');await fill(atInput,'AT+CSQ')
   await chooseTab('ussd');await fill(ussdInput,'*100#')
-  await chooseTab('esim');await fill(esimInput,'smdp.example.test')
+  await chooseTab('esim')
+  await click('.esim-download-entry md-filled-tonal-button')
+  await fill(esimInput,'smdp.example.test')
+  await click('.esim-download-dialog [slot=actions] md-text-button')
+  await wait('!document.querySelector(".esim-download-dialog").shadowRoot.querySelector("dialog").open')
   await chooseTab('config');await fill(nameInput,'Unsaved device name')
   for(const [tab,selector,draft] of [
     ['at',atInput,'AT+CSQ'],['ussd',ussdInput,'*100#'],
     ['esim',esimInput,'smdp.example.test'],['config',nameInput,'Unsaved device name']
   ]) {
     await chooseTab(tab)
+    await wait(`!!document.querySelector(${JSON.stringify(selector)})`)
     assert.equal(await value(selector),draft,'Tab navigation retains '+tab+' input')
   }
   await snapshot('device-tab-config-draft')

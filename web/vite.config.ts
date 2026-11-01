@@ -61,6 +61,8 @@ export default defineConfig(({ mode }) => {
         '@material/web/button/text-button.js',
         '@material/web/dialog/dialog.js',
         '@material/web/iconbutton/icon-button.js',
+        '@material/web/menu/menu.js',
+        '@material/web/menu/menu-item.js',
         '@material/web/progress/circular-progress.js',
         '@material/web/progress/linear-progress.js',
         '@material/web/ripple/ripple.js',

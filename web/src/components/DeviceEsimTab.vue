@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { notify, requestConfirmation } from '../stores/feedback'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { EsimChipInfo, EsimEUICCProfiles, EsimNotificationItem, EsimSpaceDelta } from '../types/api'
+import type { EsimChipInfo, EsimEUICCInfo, EsimEUICCProfiles, EsimNotificationItem, EsimProfileItem, EsimSpaceDelta } from '../types/api'
 import { devicesService } from '../services/devices'
 import { errorMessage } from '../services/http'
 import { api } from '../stores/auth'
@@ -10,6 +10,17 @@ import EsimCardPolicyInline from './EsimCardPolicyInline.vue'
 import RefreshButton from './RefreshButton.vue'
 import LoadingScreen from './LoadingScreen.vue'
 import EmptyState from './EmptyState.vue'
+import SvgIcon from './SvgIcon.vue'
+import simIcon from '@material-symbols/svg-400/outlined/sim_card.svg?raw'
+import notificationsIcon from '@material-symbols/svg-400/outlined/notifications.svg?raw'
+import visibleIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
+import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
+import moreIcon from '@material-symbols/svg-400/outlined/more_vert.svg?raw'
+import infoIcon from '@material-symbols/svg-400/outlined/info.svg?raw'
+import editIcon from '@material-symbols/svg-400/outlined/edit.svg?raw'
+import deleteIcon from '@material-symbols/svg-400/outlined/delete.svg?raw'
+import downloadIcon from '@material-symbols/svg-400/outlined/download.svg?raw'
+import addIcon from '@material-symbols/svg-400/outlined/add.svg?raw'
 import { fieldValue } from '../utils/material'
 import { applyOptimisticActiveState } from './deviceEsimOptimistic'
 import { pickNextDownloadAid } from './deviceEsimOverviewRefresh'
@@ -29,6 +40,14 @@ const loading = ref(false)
 const profilesRefreshing = ref(false)
 const chipInfo = ref<EsimChipInfo | null>(null)
 const profiles = ref<EsimEUICCProfiles[]>([])
+const profileGroups = computed(() => profiles.value.map(group => {
+  const chips = chipInfo.value?.eids || []
+  const aid = normalizeAidHex(group.aid_hex)
+  const entries = group.profiles || []
+  const chip = chips.find(item => !!aid && normalizeAidHex(item.aid) === aid) ||
+    chips.find(item => !!group.eid && item.eid === group.eid)
+  return { ...group, profiles: entries, chip, enabledCount: entries.filter(profile => profile.state === 1).length }
+}))
 
 // 操作状态
 const switching = ref<string | null>(null)
@@ -42,6 +61,51 @@ const deleting = ref<string | null>(null)
 const renaming = ref<string | null>(null)
 const showSensitive = useSensitiveVisibility()
 const renameValue = ref('')
+const selectedChip = ref<EsimEUICCInfo | null>(null)
+const downloadDialogOpen = ref(false)
+const profileMenuOpen = ref(false)
+const profileMenu = ref<{ anchor: string; profile: EsimProfileItem; aidHex: string; deviceId: string } | null>(null)
+let pendingProfileAction: 'rename' | 'delete' | null = null
+
+function displayIdentifier(value: string) {
+  return showSensitive.value || value.length <= 8 ? value : `···· ${value.slice(-4)}`
+}
+
+function hasChipDetails(chip?: EsimEUICCInfo) {
+  return !!(chip && (chip.manufacturer || chip.certificates?.length || chip.default_smdp_address ||
+    chip.root_ds_address || chip.sas_accreditation_number || chip.info_source))
+}
+
+function openProfileMenu(event: Event, profile: EsimProfileItem, aidHex: string) {
+  profileMenu.value = { anchor: (event.currentTarget as HTMLElement).id, profile, aidHex, deviceId: props.deviceId }
+  pendingProfileAction = null
+  profileMenuOpen.value = true
+}
+
+function selectProfileAction(action: 'rename' | 'delete') {
+  pendingProfileAction = action
+  profileMenuOpen.value = false
+}
+
+function handleProfileMenuClosed() {
+  const target = profileMenu.value
+  const action = pendingProfileAction
+  profileMenuOpen.value = false
+  profileMenu.value = null
+  pendingProfileAction = null
+  if (!target || target.deviceId !== props.deviceId || switchBusy.value || deleting.value !== null) return
+  if (action === 'rename') startRename(target.profile.iccid, target.profile.name)
+  if (action === 'delete' && !downloading.value) {
+    void deleteProfile(target.profile.iccid, target.profile.name, target.aidHex)
+  }
+}
+
+function closeTransientViews() {
+  pendingProfileAction = null
+  profileMenuOpen.value = false
+  selectedChip.value = null
+  downloadDialogOpen.value = false
+}
 // 行内卡策略展开态（手风琴，一次只展开一行，按 iccid 记）
 const expandedPolicyIccid = ref<string | null>(null)
 function togglePolicyPanel(iccid: string) {
@@ -65,6 +129,9 @@ const downloadProgress = ref(0)
 const downloadMsg = ref('')
 const downloadError = ref('')
 const downloadSessionId = ref(0)
+const downloadEntryMessage = computed(() => downloadError.value || (downloading.value
+  ? `${downloadMsg.value} · ${Math.round(downloadProgress.value)}%`
+  : '使用 SM-DP+ 地址或 LPA 激活码'))
 const recentSpaceDelta = ref<{ aidHex: string; message: string } | null>(null)
 let recentSpaceDeltaTimer: number | null = null
 let lastDeviceImeiDefault = ''
@@ -453,7 +520,10 @@ watch(
       fetchAbortController.abort()
     }
     expandedPolicyIccid.value = null
-    if (!newId || !newActive) return
+    if (!newId || !newActive) {
+      closeTransientViews()
+      return
+    }
 
     clearRecentSpaceDelta()
     chipInfo.value = null
@@ -466,6 +536,7 @@ watch(
 )
 
 watch(() => props.deviceId, () => {
+  closeTransientViews()
   switchRequestId++
   switching.value = null
   switchSubmitted.value = false
@@ -476,6 +547,7 @@ watch(() => props.deviceImei, () => {
 })
 
 onBeforeUnmount(() => {
+  closeTransientViews()
   switchRequestId++
   clearRecentSpaceDelta()
   if (fetchAbortController) {
@@ -488,7 +560,7 @@ onBeforeUnmount(() => {
   <section class="m3-stack esim-page" aria-label="eSIM 管理">
     <LoadingScreen v-if="loading" title="读取 eUICC…" subtitle="正在获取芯片和 Profile 信息" />
     <template v-else>
-      <div class="m3-row">
+      <div class="m3-row esim-toolbar">
         <div class="m3-heading">
           <h2 class="m3-title">{{ chipInfo?.sku_name || 'eSIM 管理' }}</h2>
           <p v-if="chipInfo" class="m3-muted">
@@ -498,125 +570,162 @@ onBeforeUnmount(() => {
             }}</span>
           </p>
         </div>
-        <div class="m3-actions">
-          <RefreshButton
-            :loading="profilesRefreshing"
-            @click="fetchOverview(true)"
-          /><md-outlined-button :disabled="notificationsLoading" @click="openNotificationsDialog"
-            >当前通知</md-outlined-button
-          ><md-text-button @click="showSensitive = !showSensitive">{{
-            showSensitive ? '隐藏敏感信息' : '显示敏感信息'
-          }}</md-text-button>
+        <div class="m3-actions esim-tools">
+          <RefreshButton variant="text" :loading="profilesRefreshing" @click="fetchOverview(true)" />
+          <md-text-button :disabled="notificationsLoading" aria-label="当前通知" @click="openNotificationsDialog">
+            <SvgIcon slot="icon" :svg="notificationsIcon" />
+            通知
+          </md-text-button>
+          <md-icon-button
+            :aria-label="showSensitive ? '隐藏敏感信息' : '显示敏感信息'"
+            :title="showSensitive ? '隐藏敏感信息' : '显示敏感信息'"
+            :aria-pressed="showSensitive"
+            @click="showSensitive = !showSensitive"
+          >
+            <SvgIcon :svg="showSensitive ? visibleIcon : hiddenIcon" />
+          </md-icon-button>
         </div>
       </div>
       <p v-if="switchBusy" class="m3-notice" role="status">切卡处理中，请等待设备服务恢复。</p>
       <section
-        v-for="(group, index) in profiles"
+        v-for="(group, index) in profileGroups"
         :key="group.aid_hex || group.eid || index"
-        class="m3-inset m3-stack"
+        class="esim-group"
+        :aria-label="`eUICC #${index + 1}`"
       >
-        <div>
-          <h3>eUICC #{{ index + 1 }}</h3>
-          <p class="esim-eid m3-muted" :class="{ 'blur-sm select-none': !showSensitive }">
-            {{ group.eid }}
-          </p>
-        </div>
-        <template v-for="eid in chipInfo?.eids || []" :key="eid.eid"
-          ><div v-if="eid.eid === group.eid" class="m3-stack">
-            <p class="m3-muted">
-              可用空间 {{ eid.free_nvram
-              }}<span
-                v-if="
-                  recentSpaceDelta && normalizeAidHex(group.aid_hex) === recentSpaceDelta.aidHex
-                "
-              >
-                · {{ recentSpaceDelta.message }}</span
-              >
-            </p>
-            <details
-              v-if="
-                eid.manufacturer ||
-                eid.certificates?.length ||
-                eid.default_smdp_address ||
-                eid.root_ds_address ||
-                eid.sas_accreditation_number ||
-                eid.info_source
-              "
-              class="m3-muted"
-            >
-              <summary>芯片与证书信息</summary>
-              <p v-if="eid.manufacturer">生产商：{{ eid.manufacturer }}</p>
-              <p v-if="eid.certificates?.length">证书：{{ eid.certificates.join(' · ') }}</p>
-              <p v-if="eid.default_smdp_address">Default SM-DP+：{{ eid.default_smdp_address }}</p>
-              <p v-if="eid.root_ds_address">Root SM-DS：{{ eid.root_ds_address }}</p>
-              <p v-if="eid.sas_accreditation_number">SAS：{{ eid.sas_accreditation_number }}</p>
-              <p v-if="eid.info_source">来源：{{ eid.info_source }}</p>
-            </details>
-          </div></template
-        >
-        <p v-if="!group.profiles?.length" class="m3-muted">暂无 Profile</p>
-        <article
-          v-for="profile in group.profiles"
-          :key="profile.iccid"
-          class="esim-profile m3-stack"
-        >
-          <div v-if="renaming !== profile.iccid" class="m3-stack">
-            <div class="m3-row">
-              <h4>{{ profile.name || profile.iccid }}</h4>
-              <span class="m3-badge">{{
-                profile.state_text || (profile.state === 1 ? '已启用' : '未启用')
-              }}</span>
+        <div class="m3-inset esim-chip-summary">
+          <span class="esim-avatar chip-avatar" aria-hidden="true"><SvgIcon :svg="simIcon" /></span>
+          <div class="esim-chip-identity">
+            <div class="esim-chip-title">
+              <h3>eUICC #{{ index + 1 }}</h3>
+              <span class="m3-muted esim-count">{{ group.profiles.length }} 个 Profile</span>
             </div>
-            <p class="m3-muted">
-              {{ profile.service_provider_name }}
-              <span :class="{ 'blur-sm select-none': !showSensitive }">{{ profile.iccid }}</span>
+            <p class="m3-muted esim-eid" :title="showSensitive ? group.eid : undefined">
+              EID {{ displayIdentifier(group.eid) }}
             </p>
-            <div class="m3-actions">
-              <md-outlined-button
-                v-if="profile.state !== 1"
-                :disabled="switchBusy || deleting !== null || downloading"
-                @click="switchProfile(profile.iccid, profile.state, group.aid_hex)"
-                >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-outlined-button
-              ><md-text-button
-                :disabled="switchBusy || deleting !== null"
-                @click="startRename(profile.iccid, profile.name)"
-                >改名</md-text-button
-              ><md-text-button
-                :aria-expanded="expandedPolicyIccid === profile.iccid"
-                @click="togglePolicyPanel(profile.iccid)"
-                >卡策略</md-text-button
-              ><md-text-button
-                class="danger"
-                :disabled="switchBusy || deleting !== null || downloading"
-                @click="deleteProfile(profile.iccid, profile.name, group.aid_hex)"
-                >{{ deleting === profile.iccid ? '删除中…' : '删除' }}</md-text-button
-              >
-            </div>
           </div>
-          <form v-else class="m3-form" @submit.prevent="saveRename(profile.iccid, group.aid_hex)">
-            <md-outlined-text-field
-              label="Profile 名称"
-              name="esim-profile-name"
-              autofocus
-              :value="renameValue"
-              @input="renameValue = fieldValue($event)"
-              @keydown.escape.stop="cancelRename"
-            />
-            <div class="m3-actions">
-              <md-text-button type="button" @click="cancelRename">取消</md-text-button
-              ><md-filled-button type="submit">保存</md-filled-button>
+          <div v-if="group.chip" class="esim-free-space">
+            <span class="m3-muted">可用空间</span>
+            <strong>{{ group.chip.free_nvram || '--' }}</strong>
+          </div>
+          <md-icon-button
+            v-if="hasChipDetails(group.chip)"
+            aria-label="芯片与证书信息"
+            title="芯片与证书信息"
+            @click="selectedChip = group.chip || null"
+          ><SvgIcon :svg="infoIcon" /></md-icon-button>
+        </div>
+        <p
+          v-if="recentSpaceDelta && normalizeAidHex(group.aid_hex) === recentSpaceDelta.aidHex"
+          class="m3-muted esim-space-delta"
+          role="status"
+        >{{ recentSpaceDelta.message }}</p>
+        <div v-if="group.profiles.length" class="esim-profile-list">
+          <div class="esim-profile-list-heading">
+            <span>Profiles</span>
+            <span>{{ group.enabledCount }} 个已启用 · {{ group.profiles.length - group.enabledCount }} 个未启用</span>
+          </div>
+          <article
+            v-for="profile in group.profiles"
+            :key="profile.iccid"
+            class="esim-profile"
+            :data-active="profile.state === 1"
+          >
+            <div v-if="renaming !== profile.iccid" class="esim-profile-row">
+              <span class="esim-avatar" aria-hidden="true"><SvgIcon :svg="simIcon" /></span>
+              <div class="esim-profile-identity">
+                <h4>{{ profile.name || displayIdentifier(profile.iccid) }}</h4>
+                <p class="m3-muted esim-profile-meta">
+                  <span v-if="profile.service_provider_name" class="esim-provider">{{ profile.service_provider_name }}</span>
+                  <span v-if="profile.service_provider_name" class="esim-meta-separator" aria-hidden="true">·</span>
+                  <span class="esim-profile-iccid" :title="showSensitive ? profile.iccid : undefined">ICCID {{ displayIdentifier(profile.iccid) }}</span>
+                </p>
+              </div>
+              <span class="esim-profile-state">
+                <span v-if="profile.state === 1" class="esim-state-dot" aria-hidden="true"></span>
+                {{ profile.state_text || (profile.state === 1 ? '已启用' : '未启用') }}
+              </span>
+              <div class="m3-actions esim-profile-actions">
+                <md-text-button
+                  v-if="profile.state !== 1"
+                  class="esim-switch"
+                  :disabled="switchBusy || deleting !== null || downloading"
+                  @click="switchProfile(profile.iccid, profile.state, group.aid_hex)"
+                >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-text-button>
+                <md-text-button
+                  class="esim-policy"
+                  :aria-expanded="expandedPolicyIccid === profile.iccid"
+                  @click="togglePolicyPanel(profile.iccid)"
+                >卡策略</md-text-button>
+                <md-icon-button
+                  :id="`esim-profile-actions-${deviceId}-${index}-${profile.iccid}`"
+                  class="esim-profile-more"
+                  :aria-label="`更多操作：${profile.name || displayIdentifier(profile.iccid)}`"
+                  aria-haspopup="menu"
+                  :aria-expanded="profileMenuOpen && profileMenu?.profile.iccid === profile.iccid && profileMenu?.aidHex === group.aid_hex"
+                  :disabled="switchBusy || deleting !== null"
+                  @click="openProfileMenu($event, profile, group.aid_hex)"
+                ><SvgIcon :svg="moreIcon" /></md-icon-button>
+              </div>
             </div>
-          </form>
-          <EsimCardPolicyInline
-            v-if="expandedPolicyIccid === profile.iccid"
-            :device-id="deviceId"
-            :iccid="profile.iccid"
-            :is-active-card="profile.state === 1"
-            :device-online="deviceOnline === true"
-            @policy-changed="fetchOverview(true)"
-          />
-        </article>
+            <form v-else class="m3-form esim-rename-form" @submit.prevent="saveRename(profile.iccid, group.aid_hex)">
+              <md-outlined-text-field
+                label="Profile 名称"
+                name="esim-profile-name"
+                autofocus
+                :value="renameValue"
+                @input="renameValue = fieldValue($event)"
+                @keydown.escape.stop="cancelRename"
+              />
+              <div class="m3-actions">
+                <md-text-button type="button" @click="cancelRename">取消</md-text-button>
+                <md-filled-button type="submit">保存</md-filled-button>
+              </div>
+            </form>
+            <EsimCardPolicyInline
+              v-if="expandedPolicyIccid === profile.iccid"
+              class="esim-inline-policy"
+              :device-id="deviceId"
+              :iccid="profile.iccid"
+              :is-active-card="profile.state === 1"
+              :device-online="deviceOnline === true"
+              @policy-changed="fetchOverview(true)"
+            />
+          </article>
+        </div>
+        <p v-else class="m3-muted esim-empty-profiles">暂无 Profile</p>
       </section>
+      <md-menu
+        class="esim-profile-menu"
+        :anchor="profileMenu?.anchor || ''"
+        :open="profileMenuOpen"
+        positioning="popover"
+        anchor-corner="end-end"
+        menu-corner="start-end"
+        @closed="handleProfileMenuClosed"
+      >
+        <md-menu-item :disabled="switchBusy || deleting !== null" @click="selectProfileAction('rename')">
+          <SvgIcon slot="start" :svg="editIcon" />
+          <div slot="headline">改名</div>
+        </md-menu-item>
+        <md-menu-item class="danger" :disabled="switchBusy || deleting !== null || downloading" @click="selectProfileAction('delete')">
+          <SvgIcon slot="start" :svg="deleteIcon" />
+          <div slot="headline">{{ deleting ? '删除中…' : '删除' }}</div>
+        </md-menu-item>
+      </md-menu>
+      <md-dialog class="m3-dialog esim-chip-dialog" :open="!!selectedChip" @closed="selectedChip = null">
+        <div slot="headline">芯片与证书信息</div>
+        <div slot="content" class="m3-stack esim-chip-details">
+          <p class="esim-eid">EID {{ displayIdentifier(selectedChip?.eid || '') }}</p>
+          <p v-if="selectedChip?.manufacturer">生产商：{{ selectedChip.manufacturer }}</p>
+          <p v-if="selectedChip?.certificates?.length">证书：{{ selectedChip.certificates.join(' · ') }}</p>
+          <p v-if="selectedChip?.default_smdp_address">Default SM-DP+：{{ selectedChip.default_smdp_address }}</p>
+          <p v-if="selectedChip?.root_ds_address">Root SM-DS：{{ selectedChip.root_ds_address }}</p>
+          <p v-if="selectedChip?.sas_accreditation_number">SAS：{{ selectedChip.sas_accreditation_number }}</p>
+          <p v-if="selectedChip?.info_source">来源：{{ selectedChip.info_source }}</p>
+        </div>
+        <div slot="actions"><md-text-button @click="selectedChip = null">关闭</md-text-button></div>
+      </md-dialog>
       <md-dialog
         class="m3-dialog"
         :open="notificationsDialogOpen"
@@ -650,9 +759,24 @@ onBeforeUnmount(() => {
           <md-text-button @click="notificationsDialogOpen = false">关闭</md-text-button>
         </div></md-dialog
       >
-      <section v-if="chipInfo" class="m3-inset m3-stack">
-        <h3>下载新 Profile</h3>
-        <form class="m3-form" @submit.prevent="downloadProfile">
+      <section v-if="chipInfo" class="m3-inset esim-download-entry">
+        <span class="esim-avatar download-avatar" aria-hidden="true"><SvgIcon :svg="downloadIcon" /></span>
+        <div class="esim-download-heading">
+          <h3>下载新 Profile</h3>
+          <p
+            class="m3-muted"
+            :class="{ 'm3-error': !!downloadError }"
+            :role="downloadError ? 'alert' : downloading ? 'status' : undefined"
+          >{{ downloadEntryMessage }}</p>
+        </div>
+        <md-filled-tonal-button @click="downloadDialogOpen = true">
+          <SvgIcon slot="icon" :svg="addIcon" />
+          {{ downloadError ? '查看详情' : downloading ? '查看进度' : '下载 Profile' }}
+        </md-filled-tonal-button>
+      </section>
+      <md-dialog class="m3-dialog esim-download-dialog" :open="downloadDialogOpen" @closed="downloadDialogOpen = false">
+        <div slot="headline">下载新 Profile</div>
+        <form :id="`esim-download-form-${deviceId}`" slot="content" class="m3-form" @submit.prevent="downloadProfile">
           <div class="m3-form-grid">
             <md-outlined-text-field
               label="SM-DP+ 地址或 LPA 激活码"
@@ -684,7 +808,7 @@ onBeforeUnmount(() => {
               :disabled="downloading"
               @change="downloadForm.aidHex = fieldValue($event)"
               ><md-select-option
-                v-for="(eid, index) in chipInfo.eids || []"
+                v-for="(eid, index) in chipInfo?.eids || []"
                 :key="eid.aid"
                 :value="eid.aid"
                 :selected="downloadForm.aidHex === eid.aid"
@@ -708,15 +832,16 @@ onBeforeUnmount(() => {
               {{ downloadError || downloadMsg }} · {{ Math.round(downloadProgress) }}%
             </p>
           </div>
-          <div class="m3-actions">
-            <md-filled-button
-              type="submit"
-              :disabled="downloading || switchBusy || deleting !== null"
-              >{{ downloading ? '下载中…' : '开始下载' }}</md-filled-button
-            >
-          </div>
         </form>
-      </section>
+        <div slot="actions">
+          <md-text-button @click="downloadDialogOpen = false">关闭</md-text-button>
+          <md-filled-button
+            type="submit"
+            :form="`esim-download-form-${deviceId}`"
+            :disabled="downloading || switchBusy || deleting !== null"
+          >{{ downloading ? '下载中…' : '开始下载' }}</md-filled-button>
+        </div>
+      </md-dialog>
       <EmptyState
         v-if="!profiles.length && !chipInfo"
         title="未检测到 eUICC"
@@ -726,31 +851,267 @@ onBeforeUnmount(() => {
   </section>
 </template>
 <style scoped>
+.esim-page {
+  gap: 16px;
+  container: esim-panel / inline-size;
+}
 h3,
 h4 {
+  margin: 0;
   font-size: 16px;
   font-weight: 500;
   line-height: 24px;
   overflow-wrap: anywhere;
 }
-.esim-eid {
-  font-family: var(--vh-typeface-mono);
-}
 .esim-page p {
   overflow-wrap: anywhere;
 }
+.esim-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.esim-tools {
+  flex: none;
+  gap: 4px;
+  padding-right: 4px;
+}
+.esim-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.esim-chip-summary {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+}
+.esim-avatar {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.chip-avatar {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+.esim-chip-identity,
+.esim-profile-identity {
+  min-width: 0;
+}
+.esim-chip-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.esim-count,
+.esim-free-space > span {
+  font-size: 12px;
+  line-height: 16px;
+}
+.esim-eid {
+  font: 12px/20px var(--vh-typeface-mono);
+}
+.esim-chip-identity .esim-eid {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.esim-free-space {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+}
+.esim-free-space strong {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+  white-space: nowrap;
+}
+.esim-space-delta {
+  font-size: 12px;
+  line-height: 16px;
+}
+.esim-profile-list {
+  overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+}
+.esim-profile-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
 .esim-profile {
-  padding-top: 16px;
+  min-width: 0;
   border-top: 1px solid var(--md-sys-color-outline-variant);
 }
-.esim-profile .m3-badge {
-  flex-shrink: 0;
+.esim-profile[data-active='true'] {
+  background: color-mix(in srgb, var(--vh-success) 6%, transparent);
 }
-details {
+.esim-profile-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 88px;
+  padding: 12px 16px;
+}
+.esim-profile-identity h4 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.esim-profile-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 20px;
+}
+.esim-provider,
+.esim-profile-iccid {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.esim-provider {
+  min-width: 0;
+}
+.esim-profile-iccid {
+  flex-shrink: 0;
+  max-width: 100%;
+  font: 12px/20px var(--vh-typeface-mono);
+}
+.esim-meta-separator {
+  color: var(--md-sys-color-outline);
+}
+.esim-profile-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.esim-profile[data-active='true'] .esim-avatar,
+.esim-profile[data-active='true'] .esim-profile-state {
+  background: var(--vh-success-container);
+  color: var(--vh-on-success-container);
+}
+.esim-state-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.esim-profile-actions {
+  flex-wrap: nowrap;
+  gap: 0;
+}
+.esim-rename-form {
+  padding: 16px;
+}
+.esim-inline-policy {
+  margin: 0 16px 16px;
+}
+.esim-empty-profiles {
+  padding: 16px;
+}
+.esim-profile-menu {
+  min-width: 152px;
+}
+.esim-profile-menu .danger {
+  --md-menu-item-label-text-color: var(--md-sys-color-error);
+  --md-menu-item-leading-icon-color: var(--md-sys-color-error);
+}
+.esim-chip-details {
   overflow-wrap: anywhere;
 }
-summary {
-  cursor: pointer;
-  padding-block: 8px;
+.esim-download-entry {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+.download-avatar {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.esim-download-heading {
+  min-width: 0;
+}
+.esim-download-heading h3 {
+  font-size: 14px;
+  line-height: 20px;
+}
+.esim-download-heading p {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 16px;
+}
+@container esim-panel (max-width: 639px) {
+  .esim-chip-summary {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    padding: 12px;
+  }
+  .esim-chip-summary > md-icon-button {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .esim-free-space {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    text-align: left;
+  }
+  .esim-profile-row {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 12px;
+  }
+  .esim-profile-actions {
+    grid-column: 2 / -1;
+    justify-self: end;
+  }
+  .esim-profile-meta,
+  .esim-provider,
+  .esim-profile-iccid {
+    display: block;
+  }
+  .esim-meta-separator {
+    display: none;
+  }
+  .esim-profile-list-heading {
+    padding: 12px;
+  }
+  .esim-download-entry {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+  .esim-download-entry > md-filled-tonal-button {
+    grid-column: 2;
+    justify-self: start;
+  }
 }
 </style>
