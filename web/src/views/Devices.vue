@@ -1429,7 +1429,21 @@ usePollingScheduler(async () => {
 }
 @container (min-width: 1060px) {
   .devices-layout {
+    grid-template-columns: 240px minmax(0, 1fr);
+    transition: grid-template-columns var(--navigation-transition);
+  }
+  :global(.app-shell:has(> .navigation:not(.expanded)) .devices-layout) {
     grid-template-columns: 320px minmax(0, 1fr);
+  }
+}
+@container (min-width: 1280px) {
+  .devices-layout {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .devices-layout {
+    transition: none;
   }
 }
 </style>

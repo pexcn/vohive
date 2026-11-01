@@ -405,7 +405,7 @@ const networkPanelMessage = computed(() => {
     grid-column: 1 / -1;
   }
 }
-@container device-panel (min-width: 900px) {
+@container device-panel (min-width: 680px) {
   .overview-panels {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -585,5 +585,10 @@ const networkPanelMessage = computed(() => {
   margin-top: 12px;
   font-size: 14px;
   line-height: 20px;
+}
+@container device-panel (min-width: 680px) and (max-width: 899px) {
+  .signal-detail {
+    font-size: clamp(12px, calc(2cqi - 2px), 14px);
+  }
 }
 </style>

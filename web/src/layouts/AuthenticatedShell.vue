@@ -254,14 +254,14 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
 
 <style scoped>
 .app-shell {
+  --navigation-transition:
+    var(--md-sys-motion-duration-medium1, 250ms)
+    var(--md-sys-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   display: flex;
   height: 100%;
   overflow: hidden;
 }
 .navigation {
-  --navigation-transition:
-    var(--md-sys-motion-duration-medium1, 250ms)
-    var(--md-sys-motion-easing-standard, cubic-bezier(0.2, 0, 0, 1));
   flex: none;
   display: flex;
   flex-direction: column;
