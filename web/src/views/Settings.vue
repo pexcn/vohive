@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { notify, requestConfirmation } from '../stores/feedback'
+import { notify } from '../stores/feedback'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore } from '../stores/settings'
@@ -9,6 +9,7 @@ import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
 import SvgIcon from '../components/SvgIcon.vue'
 import visibilityIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
 import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
+import openInNewIcon from '@material-symbols/svg-400/outlined/open_in_new.svg?raw'
 
 const settingsStore = useSettingsStore()
 const {
@@ -87,15 +88,6 @@ async function loadNotifications() {
   } catch {
     notify({ tone: 'error', message: '通知配置加载失败' })
   }
-}
-
-function openAPIDocs() {
-  const docsURL = String(systemInfo.value.docs?.swagger_ui || '').trim()
-  if (!docsURL) {
-    notify({ tone: 'warning', message: 'API 文档入口暂不可用' })
-    return
-  }
-  window.open(docsURL, '_blank', 'noopener,noreferrer')
 }
 
 async function saveNotifications() {
@@ -276,64 +268,6 @@ watch(
     }
   }
 )
-
-import { systemService, type UpdateInfo } from '../services/system'
-
-const checkingUpdate = ref(false)
-const applyingUpdate = ref(false)
-const updateInfo = ref<UpdateInfo | null>(null)
-
-async function doCheckUpdate() {
-  checkingUpdate.value = true
-  try {
-    const res = await systemService.checkUpdate()
-    if (!res.ok) throw new Error(res.error.message || '检查更新失败')
-    updateInfo.value = res.data
-    if (!res.data.has_update) {
-      notify({ tone: 'success', message: '当前已是最新版本' })
-    }
-  } catch (e: any) {
-    notify({ tone: 'error', message: e.message || '检查更新失败' })
-  } finally {
-    checkingUpdate.value = false
-  }
-}
-
-async function doApplyUpdate() {
-  if (!updateInfo.value) return
-
-  if (updateInfo.value.is_docker) {
-    void requestConfirmation({
-      title: 'Docker 环境更新',
-      message: '请通过拉取最新镜像并重启容器完成升级。容器内不执行程序文件热替换。',
-      alert: true
-    })
-    return
-  }
-
-  try {
-    await requestConfirmation({
-      title: '应用更新',
-      message: `最新版本：${updateInfo.value.latest_version}。确定更新并重启服务吗？`,
-      details: updateInfo.value.release_note,
-      confirmLabel: '立即更新',
-      danger: true
-    })
-    applyingUpdate.value = true
-    const res = await systemService.applyUpdate()
-    if (!res.ok) throw new Error(res.error.message || '请求应用更新失败')
-    notify({ tone: 'success', message: res.data?.message || '正在更新...' })
-    setTimeout(() => {
-      window.location.reload()
-    }, 5000)
-  } catch (e: any) {
-    if (e !== 'cancel') {
-      notify({ tone: 'error', message: e.message || '应用更新失败' })
-    }
-  } finally {
-    applyingUpdate.value = false
-  }
-}
 
 onMounted(() => {
   loadNotifications()
@@ -520,41 +454,33 @@ watch(activeNotifyTab, () => revealed.clear())
           label="构建时间"
           :value="systemInfo.build_time"
           monospace
-        /><FieldRow label="配置路径" :value="systemInfo.config" monospace copyable /><FieldRow
-          label="交流群"
-          value="https://t.me/vohive"
-          copyable
-        />
-        <div class="m3-actions">
-          <md-outlined-button :disabled="checkingUpdate || applyingUpdate" @click="doCheckUpdate">{{
-            checkingUpdate ? '检查中…' : '检查更新'
-          }}</md-outlined-button
-          ><md-text-button :disabled="!systemInfo.docs?.swagger_ui" @click="openAPIDocs"
-            >API 文档</md-text-button
+        /><FieldRow label="配置路径" :value="systemInfo.config" monospace copyable />
+        <nav class="m3-actions" aria-label="API 文档入口">
+          <md-outlined-button
+            :href="systemInfo.docs?.swagger_ui || undefined"
+            :disabled="!systemInfo.docs?.swagger_ui"
+            target="_blank"
           >
-        </div>
-        <div v-if="updateInfo?.has_update" class="m3-inset m3-stack">
-          <p>发现新版本 {{ updateInfo.latest_version }}</p>
-          <pre class="release-notes">{{ updateInfo.release_note }}</pre>
-          <md-filled-button :disabled="applyingUpdate" @click="doApplyUpdate">{{
-            applyingUpdate ? '更新中…' : '更新程序'
-          }}</md-filled-button>
-        </div>
-        <div class="m3-actions">
-          <a
+            <SvgIcon slot="icon" :svg="openInNewIcon" />
+            API 文档
+          </md-outlined-button>
+          <md-text-button
             v-if="systemInfo.docs?.openapi_yaml"
             :href="systemInfo.docs.openapi_yaml"
             target="_blank"
-            rel="noopener noreferrer"
-            >OpenAPI YAML</a
-          ><a
+            aria-label="OpenAPI YAML"
+          >
+            YAML
+          </md-text-button>
+          <md-text-button
             v-if="systemInfo.docs?.openapi_json"
             :href="systemInfo.docs.openapi_json"
             target="_blank"
-            rel="noopener noreferrer"
-            >OpenAPI JSON</a
+            aria-label="OpenAPI JSON"
           >
-        </div>
+            JSON
+          </md-text-button>
+        </nav>
       </section>
     </div>
     <section class="m3-card m3-stack" aria-label="通知设置">
@@ -751,16 +677,6 @@ watch(activeNotifyTab, () => revealed.clear())
 }
 .settings-list-row md-outlined-text-field {
   flex: 1;
-}
-.release-notes {
-  max-height: 180px;
-  overflow: auto;
-  font: 12px/20px var(--vh-typeface-mono);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-a {
-  color: var(--md-sys-color-primary);
 }
 h3 {
   font-size: 16px;
