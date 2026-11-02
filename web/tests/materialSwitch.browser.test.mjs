@@ -127,13 +127,16 @@ test('Material controls preserve policy rollback, theme modes and refresh state'
       return result.result.value
     }
     const wait = expression => until(() => evaluate(expression), expression)
-    const click = async (selector = 'md-switch') => {
+    const click = async (selector = 'md-switch', offset = { x: 0, y: 0 }) => {
       const point = await evaluate(`(() => {
         const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect()
         return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
       })()`)
+      point.x += offset.x
+      point.y += offset.y
       await send('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'left', clickCount: 1, ...point })
       await send('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'left', clickCount: 1, ...point })
+      return point
     }
     const state = expected => `document.querySelector('md-switch')?.selected === ${expected} && document.querySelector('md-switch')?.shadowRoot.querySelector('input')?.checked === ${expected}`
     await send('Runtime.enable')
@@ -168,21 +171,169 @@ test('Material controls preserve policy rollback, theme modes and refresh state'
     await click()
     await wait(state(true))
     assert.deepEqual(await evaluate('window.fixture.changes'), [false, false, true])
-    // Existing explicit preferences survive migration. Only system mode follows the OS.
+    // Explicit preferences persist; only system mode follows the OS.
     await wait('!!window.materialControls && !!document.querySelector("md-outlined-button")?.shadowRoot')
     assert.equal(await evaluate('window.materialControls.theme.mode.value'), 'dark')
     assert.equal(await evaluate('document.documentElement.classList.contains("dark")'), true)
-    await click('md-icon-button')
+    await evaluate(`(() => {
+      window.themeReveals = []
+      window.themeAnimations = []
+      window.nativeThemeTransition = document.startViewTransition.bind(document)
+      const animate = document.documentElement.animate.bind(document.documentElement)
+      document.documentElement.animate = (frames, options) => {
+        const animation = animate(frames, options)
+        window.themeAnimations.push(animation)
+        if (options.pseudoElement !== '::view-transition-image-pair(theme-reveal)') {
+          window.themeReveals.push({frames, options})
+        }
+        return animation
+      }
+      document.documentElement.style.setProperty('view-transition-name', 'root', 'important')
+    })()`)
+    const themeIdle = () => wait('!window.materialControls.theme.isTransitioning.value && !document.documentElement.classList.contains("theme-transition")')
+    const firstPoint = await click('md-icon-button', {x: -7, y: 5})
     await wait('localStorage.getItem("theme") === "system" && !document.documentElement.classList.contains("dark")')
+    await wait('window.themeReveals.length === 1')
+    await wait('window.themeAnimations.length === 2')
+    await evaluate('window.themeAnimations.forEach(a => { a.pause(); a.currentTime = 325 })')
+    const reveal = await evaluate(`({frames: window.themeReveals[0].frames, options: window.themeReveals[0].options,
+      coordinates: document.querySelector('style[data-theme-reveal]').textContent,
+      origin: getComputedStyle(document.documentElement, '::view-transition-group(theme-reveal)').transformOrigin,
+      scale: Number(getComputedStyle(document.documentElement, '::view-transition-group(theme-reveal)').scale),
+      projection: new DOMMatrixReadOnly(getComputedStyle(document.documentElement, '::view-transition-image-pair(theme-reveal)').transform).m44,
+      width: innerWidth, height: innerHeight})`)
+    assert.equal(reveal.origin, `${firstPoint.x}px ${firstPoint.y}px`)
+    assert.ok(Math.abs(reveal.scale / reveal.projection - 1) < 1e-5, 'The page image stays at its original scale')
+    const radius = Number(reveal.coordinates.match(/circle\(([\d.]+)px/)[1])
+    for (const x of [0, reveal.width]) for (const y of [0, reveal.height]) {
+      assert.ok(radius >= Math.hypot(x - firstPoint.x, y - firstPoint.y), 'Reveal reaches every viewport corner')
+    }
+    assert.equal(reveal.options.pseudoElement, '::view-transition-group(theme-reveal)')
+    assert.equal(reveal.frames.length, 2, 'Only two transform keyframes are needed')
+    await click('md-icon-button')
+    assert.equal(await evaluate('localStorage.getItem("theme")'), 'system', 'Repeated clicks do not overlap a reveal')
+    assert.equal(await evaluate('window.themeReveals.length'), 1)
+    await evaluate('window.themeAnimations.forEach(a => a.finish())')
+    await themeIdle()
+    assert.equal(await evaluate('!!document.querySelector("style[data-theme-reveal]")'), false)
+    assert.equal(await evaluate('document.documentElement.style.getPropertyValue("view-transition-name")'), 'root')
+    assert.equal(await evaluate('document.documentElement.style.getPropertyPriority("view-transition-name")'), 'important')
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] })
     await wait('document.documentElement.classList.contains("dark")')
+    assert.equal(await evaluate('window.themeReveals.length'), 1, 'OS theme changes remain immediate')
     await click('md-icon-button')
     await wait('localStorage.getItem("theme") === "light" && !document.documentElement.classList.contains("dark")')
+    await themeIdle()
+    assert.equal(await evaluate('document.querySelector("md-icon-button").title'), '浅色模式')
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] })
     await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'dark' }] })
     assert.equal(await evaluate('document.documentElement.classList.contains("dark")'), false)
     await click('md-icon-button')
     await wait('localStorage.getItem("theme") === "dark" && document.documentElement.classList.contains("dark")')
+    await themeIdle()
+    assert.equal(await evaluate('document.querySelector("md-icon-button").ariaLabel'), '深色模式')
+    assert.equal(await evaluate('window.themeReveals.length'), 3, 'Both directions reveal the new theme')
+    await click('md-icon-button')
+    await themeIdle()
+    assert.equal(await evaluate('localStorage.getItem("theme")'), 'system')
+    assert.equal(await evaluate('window.themeReveals.length'), 3, 'An unchanged appearance needs no reveal')
+
+    const setMode = mode => evaluate(`(async () => {
+      for (let i = 0; i < 3 && window.materialControls.theme.mode.value !== ${JSON.stringify(mode)}; i++) {
+        await window.materialControls.theme.cycle()
+      }
+    })()`)
+    await setMode('dark')
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }] })
+    await click('md-icon-button')
+    await wait('localStorage.getItem("theme") === "system" && !document.documentElement.classList.contains("dark")')
+    await themeIdle()
+    assert.equal(await evaluate('document.documentElement.classList.contains("dark")'), false)
+    assert.equal(await evaluate('window.themeReveals.length'), 3, 'Reduced motion switches directly')
+    await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'no-preference' }] })
+    await setMode('light')
+    await evaluate('document.startViewTransition = undefined')
+    await click('md-icon-button')
+    await themeIdle()
+    assert.equal(await evaluate('localStorage.getItem("theme")'), 'dark', 'Unsupported browsers still switch themes')
+
+    // Skipped or failed browser transitions must release the guard and retain the target theme.
+    for (const start of [
+      '(update) => { const transition = window.nativeThemeTransition(update); transition.skipTransition(); return transition }',
+      '() => { throw new Error("Transition unavailable") }',
+    ]) {
+      await setMode('light')
+      await evaluate('document.startViewTransition = ' + start)
+      await click('md-icon-button')
+      await themeIdle()
+      assert.equal(await evaluate('localStorage.getItem("theme")'), 'dark')
+    }
+    await evaluate('document.startViewTransition = window.nativeThemeTransition')
+    await setMode('light')
+    const beforeKeyboard = await evaluate('window.themeReveals.length')
+    const center = await evaluate(`(() => {
+      const button = document.querySelector('md-icon-button'), rect = button.getBoundingClientRect()
+      button.focus()
+      return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2}
+    })()`)
+    await send('Input.dispatchKeyEvent', {type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r'})
+    await send('Input.dispatchKeyEvent', {type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13})
+    await wait(`window.themeReveals.length === ${beforeKeyboard + 1}`)
+    assert.equal(await evaluate('getComputedStyle(document.documentElement, "::view-transition-group(theme-reveal)").transformOrigin'), `${center.x}px ${center.y}px`)
+    await themeIdle()
+
+    // Failure of one half or cancellation of a running reveal cleans up both.
+    await setMode('light')
+    await evaluate(`(() => {
+      window.recordedRootAnimate = document.documentElement.animate
+      document.documentElement.animate = (frames, options) => {
+        if (options.pseudoElement === '::view-transition-image-pair(theme-reveal)') throw new Error('Second animation unavailable')
+        return window.recordedRootAnimate(frames, options)
+      }
+    })()`)
+    await click('md-icon-button')
+    await themeIdle()
+    assert.equal(await evaluate('localStorage.getItem("theme")'), 'dark')
+    assert.equal(await evaluate('!!document.querySelector("style[data-theme-reveal]")'), false)
+    assert.equal(await evaluate('document.documentElement.style.getPropertyValue("view-transition-name")'), 'root')
+    await evaluate('document.documentElement.animate = window.recordedRootAnimate')
+    await setMode('light')
+    const beforeCancel = await evaluate('window.themeAnimations.length')
+    await click('md-icon-button')
+    await wait(`window.themeAnimations.length === ${beforeCancel + 2}`)
+    await evaluate('window.themeAnimations.at(-1).cancel()')
+    await themeIdle()
+    assert.equal(await evaluate('localStorage.getItem("theme")'), 'dark')
+    assert.equal(await evaluate('!!document.querySelector("style[data-theme-reveal]")'), false)
+    assert.equal(await evaluate('document.documentElement.style.getPropertyPriority("view-transition-name")'), 'important')
+
+    // Mobile capture bounds can exceed innerHeight when browser bars are visible.
+    await evaluate(`(() => {
+      window.originalInnerHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight')
+      Object.defineProperty(window, 'innerHeight', {value: document.documentElement.clientHeight - 56, configurable: true})
+    })()`)
+    await setMode('light')
+    const previousReveals = await evaluate('window.themeReveals.length')
+    const capturePoint = await click('md-icon-button')
+    await wait(`window.themeReveals.length === ${previousReveals + 1}`)
+    const bounds = await evaluate(`(() => {
+      const root = document.documentElement
+      const clip = document.querySelector('style[data-theme-reveal]').textContent
+      const capture = getComputedStyle(root, '::view-transition-group(theme-reveal)')
+      const finalScale = Number(window.themeReveals.at(-1).frames.at(-1).scale)
+      return {radius: Number(clip.match(/circle\\(([\\d.]+)px/)[1]) * finalScale, width: parseFloat(capture.width), height: parseFloat(capture.height), innerHeight}
+    })()`)
+    assert.ok(bounds.height > bounds.innerHeight, 'Fixture models the mobile viewport mismatch')
+    for (const x of [0, bounds.width]) for (const y of [0, bounds.height]) {
+      assert.ok(bounds.radius >= Math.hypot(x - capturePoint.x, y - capturePoint.y), 'Reveal covers every captured corner before teardown')
+    }
+    await themeIdle()
+    assert.equal(await evaluate('localStorage.getItem("theme")'), 'dark')
+    assert.equal(await evaluate('!!document.querySelector("style[data-theme-reveal]")'), false)
+    await evaluate(`(() => {
+      if (window.originalInnerHeight) Object.defineProperty(window, 'innerHeight', window.originalInnerHeight)
+      else delete window.innerHeight
+    })()`)
     await evaluate('window.materialControls = undefined')
     await send('Page.reload')
     await wait('window.materialControls?.theme.mode.value === "dark"')

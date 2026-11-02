@@ -14,6 +14,29 @@
   initial-value: 20px;
 }
 
+/* Reveal the target theme above the previous page without a cross-fade. */
+:root.theme-transition::view-transition-group(root),
+:root.theme-transition::view-transition-old(root),
+:root.theme-transition::view-transition-group(theme-reveal),
+:root.theme-transition::view-transition-new(theme-reveal) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+:root.theme-transition::view-transition-group(root) {
+  z-index: 0;
+}
+:root.theme-transition::view-transition-group(theme-reveal) {
+  z-index: 1;
+  scale: 0;
+}
+:root.theme-transition::view-transition-new(theme-reveal) {
+  width: 100%;
+  height: 100%;
+}
+:root.theme-transition::view-transition {
+  pointer-events: none;
+}
+
 :root {
   color-scheme: light;
   --md-ref-typeface-plain:

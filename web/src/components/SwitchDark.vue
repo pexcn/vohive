@@ -6,20 +6,31 @@ import lightMode from '@material-symbols/svg-400/outlined/light_mode.svg?raw'
 import { useTheme } from '../composables/useTheme'
 import SvgIcon from './SvgIcon.vue'
 
-const { mode, cycle } = useTheme()
+const { mode, isTransitioning, cycle } = useTheme()
 const themes = {
   system: { icon: autoMode, label: '跟随设备' },
-  light: { icon: lightMode, label: '亮色模式' },
-  dark: { icon: darkMode, label: '暗色模式' },
+  light: { icon: lightMode, label: '浅色模式' },
+  dark: { icon: darkMode, label: '深色模式' },
 }
 const current = computed(() => themes[mode.value])
+
+function changeTheme(event: MouseEvent) {
+  let { clientX: x, clientY: y } = event
+  if (event.detail === 0) {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    x = rect.left + rect.width / 2
+    y = rect.top + rect.height / 2
+  }
+  void cycle({ x, y })
+}
 </script>
 
 <template>
   <md-icon-button
-    :aria-label="`主题：${current.label}`"
-    :title="`主题：${current.label}`"
-    @click="cycle"
+    :aria-label="current.label"
+    :title="current.label"
+    :aria-busy="isTransitioning || undefined"
+    @click="changeTheme"
   >
     <SvgIcon :svg="current.icon" />
   </md-icon-button>

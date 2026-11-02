@@ -1,4 +1,5 @@
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { revealTheme } from '../utils/themeTransition'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 const modes: ThemeMode[] = ['system', 'light', 'dark']
@@ -14,6 +15,7 @@ function loadTheme(): ThemeMode {
 }
 
 const mode = ref<ThemeMode>(loadTheme())
+const isTransitioning = ref(false)
 const media = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(media.matches)
 // One listener for the app lifetime, shared by both layouts and chart consumers.
@@ -36,10 +38,34 @@ watch(
   { immediate: true, flush: 'sync' },
 )
 
-function cycle() {
-  mode.value = modes[(modes.indexOf(mode.value) + 1) % modes.length]!
+async function cycle(origin?: { x: number; y: number }) {
+  if (isTransitioning.value) return
+  const nextMode = modes[(modes.indexOf(mode.value) + 1) % modes.length]!
+  const nextIsDark = nextMode === 'dark' || (nextMode === 'system' && systemDark.value)
+  const applyTheme = async () => {
+    mode.value = nextMode
+    await nextTick()
+  }
+  if (!origin || nextIsDark === isDark.value ||
+      typeof document.startViewTransition !== 'function' ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    await applyTheme()
+    return
+  }
+
+  isTransitioning.value = true
+  try {
+    await revealTheme(origin, applyTheme)
+  } finally {
+    isTransitioning.value = false
+  }
 }
 
 export function useTheme() {
-  return { mode: computed(() => mode.value), isDark, cycle }
+  return {
+    mode: computed(() => mode.value),
+    isDark,
+    isTransitioning: computed(() => isTransitioning.value),
+    cycle,
+  }
 }
