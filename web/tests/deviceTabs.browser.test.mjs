@@ -35,6 +35,7 @@ async function mockApi(req,res) {
     res.write(': connected\n\n');streams.add(res);res.on('close',()=>streams.delete(res));return
   }
   if(url.pathname==='/api/devices'){json({devices:fixtures,device_limit:5});return}
+  if(url.pathname==='/api/logs/history'){json({logs:[]});return}
   const fixture=fixtures.find(d=>url.pathname.startsWith('/api/devices/'+d.id+'/'))
   if(fixture&&url.pathname.endsWith('/overview')){json({devices:[fixture]});return}
   if(fixture&&url.pathname.endsWith('/config')){json({config:{id:fixture.id,name:fixture.name,device_backend:'qmi'}});return}
@@ -83,11 +84,17 @@ try {
   };
   debugSend=send;debugEvaluate=evaluate;
   await send('Runtime.enable');await send('Page.enable');await send('Network.enable');
-  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'}]});
+  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-color-scheme',value:'light'},{name:'prefers-reduced-motion',value:'no-preference'}]});
   await send('Network.setBlockedURLs',{urls:['https://*']});
   await send('Page.addScriptToEvaluateOnNewDocument',{source:`
     localStorage.setItem('token','fixture-token');localStorage.setItem('theme','dark');
     localStorage.setItem('go-4gproxy:mcc-mnc-table:v1',JSON.stringify({fetched_at:Date.now(),rows:[{mcc:'001',mnc:'01',iso:'',network:'Fixture',country:'Fixture',country_code:''}]}));
+    window.pageTransitions=[];
+    document.addEventListener('transitionrun',event=>{
+      if(event.propertyName==='opacity'&&event.target.parentElement?.classList.contains('main-inner')) {
+        window.pageTransitions.push({leaving:event.target.classList.contains('page-fade-leave-active'),tab:document.querySelector('.device-detail-tabs')?.activeTab?.dataset.tab});
+      }
+    });
   `});
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   const address=server.httpServer.address();const url=`http://127.0.0.1:${address.port}/`;
@@ -177,6 +184,18 @@ try {
   await wait('document.querySelector(".device-option[aria-pressed=true]")?.textContent.includes("Fixture b")')
   assert.equal(await query('device'),'b')
   assert.equal(await value(atInput),'','A new device does not inherit another device terminal input')
+  await chooseTab('ussd')
+  assert.equal(await evaluate('window.pageTransitions.length'),0,'Tabs and device queries do not animate the whole page')
+  await evaluate('window.savedNavigation=document.querySelector(".navigation");window.savedTopBar=document.querySelector(".top-app-bar")')
+  await click('#desktop-navigation-4')
+  await wait('!!document.querySelector(".logs-page") && window.pageTransitions.length===2')
+  assert.equal(await evaluate('window.pageTransitions[0].leaving'),true)
+  assert.equal(await evaluate('window.pageTransitions[0].tab'),'ussd','The outgoing page retains its tab during fade-out')
+  assert.equal(await evaluate('window.pageTransitions[1].leaving'),false)
+  assert.equal(await evaluate('window.savedNavigation===document.querySelector(".navigation") && window.savedTopBar===document.querySelector(".top-app-bar")'),true)
+  assert.equal(await evaluate('document.querySelector(".main-inner").children.length'),1,'Only one page is mounted at a time')
+  await evaluate('history.back()')
+  await expectTab('ussd')
   assert.equal(calls.filter(c=>c.method!=='GET').length,0)
   assert.equal(exceptions.length,0,JSON.stringify(exceptions))
 

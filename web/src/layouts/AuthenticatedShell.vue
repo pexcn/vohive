@@ -231,13 +231,15 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
       <main id="main-content" class="shell-main">
         <div class="main-inner">
           <router-view v-slot="{ Component, route: r }">
-            <ErrorBoundary v-if="Component" title="页面渲染失败">
-              <!-- Tab navigation keeps drafts; changing devices still resets the workspace. -->
-              <component
-                :is="Component"
-                :key="r.name === 'Devices' ? `${r.path}:${r.query.device || ''}` : r.fullPath"
-              />
-            </ErrorBoundary>
+            <Transition v-if="Component" name="page-fade" mode="out-in">
+              <ErrorBoundary :key="r.path" title="页面渲染失败">
+                <!-- Tab navigation keeps drafts; changing devices still resets the workspace. -->
+                <component
+                  :is="Component"
+                  :key="r.name === 'Devices' ? `${r.path}:${r.query.device || ''}` : r.fullPath"
+                />
+              </ErrorBoundary>
+            </Transition>
             <LoadingScreen v-else title="正在加载页面…" subtitle="正在准备页面组件与资源" />
           </router-view>
         </div>
@@ -479,6 +481,19 @@ const currentPage = computed(() => menuItems.find(item => item.index === activeP
   width: 100%;
   max-width: 1280px;
   margin: 0 auto;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .page-fade-leave-active {
+    transition: opacity 100ms linear;
+    pointer-events: none;
+  }
+  .page-fade-enter-active {
+    transition: opacity 200ms cubic-bezier(0, 0, 0.2, 1);
+  }
+  .page-fade-enter-from,
+  .page-fade-leave-to {
+    opacity: 0;
+  }
 }
 .navigation-drawer {
   position: fixed;
