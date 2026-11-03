@@ -20,7 +20,7 @@ const displayValue = computed(() => {
 })
 
 const canCopy = computed(() => {
-  if (!props.copyable) return false
+  if (!props.copyable || props.sensitive) return false
   const v = displayValue.value
   return !!v && v !== '--' && v !== '---'
 })
@@ -43,7 +43,7 @@ async function copy() {
     <component
       :is="canCopy ? 'button' : 'span'"
       :type="canCopy ? 'button' : undefined"
-      :aria-label="canCopy ? (sensitive ? `复制${label}` : `复制${label}：${displayValue}`) : undefined"
+      :aria-label="canCopy ? `复制${label}：${displayValue}` : undefined"
       class="field-value block min-w-0 max-w-full flex-1 truncate text-right"
       :class="[
         monospace ? 'font-mono' : '',

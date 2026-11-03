@@ -230,9 +230,11 @@ import StatusLight from '/src/components/StatusLight.vue'
 import {notify,requestConfirmation} from '/src/stores/feedback'
 const config=ref({id:'fixture',name:'Fixture modem',device_backend:'qmi',control_device:'/dev/wwan0qmi0'})
 window.feedbackFixture={notify,requestConfirmation,results:[]}
+const fieldSensitive=ref(true)
+window.setFieldSensitive=value=>fieldSensitive.value=value
 window.fieldSubmits=0
 const onFieldSubmit=()=>window.fieldSubmits++
-</script><template><main class="fixture m3-stack"><DeviceEsimTab device-id="fixture" :is-active="true" :device-online="true"/><DeviceAtTab device-id="fixture" :running="true" at-port="/dev/fixture-at" backend-mode="qmi"/><DeviceUssdTab device-id="fixture" :vowifi-active="true"/><DeviceConfigTab :edit-config="config" :saving="false" :deleting="false"/><form @submit.prevent="onFieldSubmit"><FieldRow id="field-copy" label="测试字段" value="fixture-copy" copyable/><FieldRow id="field-empty" label="空值" value="--" copyable/><FieldRow id="field-plain" label="文本" value="plain"/></form><StatusLight id="status-motion" tone="success"/></main><MaterialFeedback/></template><style>.fixture{padding:24px;max-width:1000px;margin:auto}</style>`
+</script><template><main class="fixture m3-stack"><DeviceEsimTab device-id="fixture" :is-active="true" :device-online="true"/><DeviceAtTab device-id="fixture" :running="true" at-port="/dev/fixture-at" backend-mode="qmi"/><DeviceUssdTab device-id="fixture" :vowifi-active="true"/><DeviceConfigTab :edit-config="config" :saving="false" :deleting="false"/><form @submit.prevent="onFieldSubmit"><FieldRow id="field-copy" label="测试字段" value="fixture-copy" :sensitive="fieldSensitive" copyable/><FieldRow id="field-empty" label="空值" value="--" copyable/><FieldRow id="field-plain" label="文本" value="plain"/></form><StatusLight id="status-motion" tone="success"/></main><MaterialFeedback/></template><style>.fixture{padding:24px;max-width:1000px;margin:auto}</style>`
           },
           configureServer(dev) {
             dev.middlewares.use(async (req, res, next) => {
@@ -699,8 +701,22 @@ const onFieldSubmit=()=>window.fieldSubmits++
       await wait('document.querySelector(".snackbar")?.textContent.includes("new result")')
       // Copy controls retain native button keyboard semantics without submitting their form.
       await evaluate(
-        `window.copies=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copies.push(text)}}});document.querySelector('#field-copy button').focus();void 0`
+        `window.copies=[];Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copies.push(text)}}});void 0`
       )
+      const expectConcealed = async () => {
+        await wait(`!document.querySelector('#field-copy button')`)
+        assert.deepEqual(
+          await evaluate(`(()=>{const el=document.querySelector('#field-copy .field-value');return {title:el.title,label:el.getAttribute('aria-label'),selection:getComputedStyle(el.querySelector('.sensitive-text')).userSelect}})()`),
+          { title: '', label: null, selection: 'none' }
+        )
+        const before = await evaluate('window.copies.length')
+        await click('#field-copy .field-value')
+        assert.equal(await evaluate('window.copies.length'), before, 'Concealed fields cannot copy')
+      }
+      await expectConcealed()
+      await evaluate('window.setFieldSensitive(false)')
+      await wait(`!!document.querySelector('#field-copy button')`)
+      await evaluate(`document.querySelector('#field-copy button').focus()`)
       assert.equal(
         await evaluate(`document.querySelector('#field-copy button').getAttribute('aria-label')`),
         '复制测试字段：fixture-copy'
@@ -727,6 +743,13 @@ const onFieldSubmit=()=>window.fieldSubmits++
       await key(' ', 'Space', 32)
       await until(() => evaluate('window.copies.length===2'), 'Space copies the field')
       assert.deepEqual(await evaluate('window.copies'), ['fixture-copy', 'fixture-copy'])
+      await evaluate('window.setFieldSensitive(true)')
+      await expectConcealed()
+      await evaluate('window.setFieldSensitive(false)')
+      await wait(`!!document.querySelector('#field-copy button')`)
+      await click('#field-copy button')
+      await until(() => evaluate('window.copies.length===3'), 'Revealing restores click-to-copy')
+      assert.equal(await evaluate('window.copies[2]'), 'fixture-copy')
       assert.equal(await evaluate('window.fieldSubmits'), 0)
       assert.equal(
         await evaluate(
