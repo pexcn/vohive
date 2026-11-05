@@ -1015,7 +1015,6 @@ async function addDevice() {
       notify({ tone: 'warning', message: '请选择一个未配置设备' })
       return
     }
-    applyDiscoveredToAddConfig(addSelected.value)
     const result = await devicesService.addManaged(addConfig.value)
     if (!result.ok) throw new Error(result.error.message || '添加失败')
     const warning = result.data.warning
