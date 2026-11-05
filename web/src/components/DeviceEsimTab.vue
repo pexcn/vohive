@@ -138,6 +138,9 @@ const downloadForm = ref({
   aidHex: '',
   imei: ''
 })
+const downloadTarget = computed(() => chipInfo.value?.eids.find(chip =>
+  normalizeAidHex(chip.aid) === normalizeAidHex(downloadForm.value.aidHex)
+))
 const downloading = ref(false)
 const downloadProgress = ref(0)
 const downloadMsg = ref('')
@@ -857,47 +860,73 @@ onBeforeUnmount(() => {
       </section>
       <md-dialog class="m3-dialog esim-download-dialog" :open="downloadDialogOpen" @closed="downloadDialogOpen = false">
         <div slot="headline">下载新 eSIM 配置</div>
-        <form :id="`esim-download-form-${deviceId}`" slot="content" class="m3-form" @submit.prevent="downloadProfile">
-          <div class="m3-form-grid">
+        <form :id="`esim-download-form-${deviceId}`" slot="content" class="m3-form esim-download-form" @submit.prevent="downloadProfile">
+          <div class="esim-download-layout">
             <md-outlined-text-field
-              label="SM-DP+ 地址或 LPA 激活码"
+              class="esim-download-activation"
+              label="激活码或服务器地址"
+              supporting-text="支持 SM-DP+ 地址或完整 LPA 激活码"
               name="esim-smdp"
               required
               :value="downloadForm.smdp"
               :disabled="downloading"
               @input="downloadForm.smdp = fieldValue($event)"
-            /><md-outlined-text-field
-              label="Matching ID（可选）"
-              :value="downloadForm.matchingId"
-              :disabled="downloading"
-              @input="downloadForm.matchingId = fieldValue($event)"
-            /><md-outlined-text-field
-              label="确认码（可选）"
-              :value="downloadForm.confirmationCode"
-              :disabled="downloading"
-              @input="downloadForm.confirmationCode = fieldValue($event)"
-            /><md-outlined-text-field
-              label="IMEI"
-              maxlength="15"
-              :value="downloadForm.imei"
-              :disabled="downloading"
-              @input="downloadForm.imei = fieldValue($event)"
             />
-            <md-outlined-select
-              label="目标 eUICC"
-              :value="downloadForm.aidHex"
-              :disabled="downloading"
-              @change="downloadForm.aidHex = fieldValue($event)"
-              ><md-select-option
-                v-for="(eid, index) in chipInfo?.eids || []"
-                :key="eid.aid"
-                :value="eid.aid"
-                :selected="downloadForm.aidHex === eid.aid"
-                ><div slot="headline">
-                  eUICC #{{ index + 1 }} (…{{ eid.eid.slice(-4) }}) · {{ eid.free_nvram }} 可用
-                </div></md-select-option
-              ></md-outlined-select
-            >
+            <aside class="esim-download-target">
+              <div class="esim-download-target-heading">
+                <span class="esim-avatar chip-avatar"><SvgIcon :svg="simIcon" /></span>
+                <div>
+                  <h3>下载目标</h3>
+                  <p>选择接收配置的芯片</p>
+                </div>
+              </div>
+              <md-outlined-select
+                label="目标 eUICC"
+                name="esim-download-target"
+                :value="downloadForm.aidHex"
+                :disabled="downloading"
+                @change="downloadForm.aidHex = fieldValue($event)"
+              >
+                <md-select-option
+                  v-for="(eid, index) in chipInfo?.eids || []"
+                  :key="eid.aid"
+                  :value="eid.aid"
+                  :selected="downloadForm.aidHex === eid.aid"
+                >
+                  <div slot="headline">eUICC #{{ index + 1 }}（…{{ eid.eid.slice(-4) }}）</div>
+                </md-select-option>
+              </md-outlined-select>
+              <div class="esim-download-space">
+                <span>可用空间</span>
+                <strong>{{ downloadTarget?.free_nvram || '--' }}</strong>
+              </div>
+            </aside>
+            <section class="esim-download-extra">
+              <h3>补充信息</h3>
+              <md-outlined-text-field
+                label="Matching ID（可选）"
+                name="esim-matching-id"
+                :value="downloadForm.matchingId"
+                :disabled="downloading"
+                @input="downloadForm.matchingId = fieldValue($event)"
+              />
+              <md-outlined-text-field
+                label="确认码（可选）"
+                name="esim-confirmation-code"
+                :value="downloadForm.confirmationCode"
+                :disabled="downloading"
+                @input="downloadForm.confirmationCode = fieldValue($event)"
+              />
+              <md-outlined-text-field
+                label="IMEI"
+                name="esim-imei"
+                maxlength="15"
+                :supporting-text="deviceImei?.trim() ? '默认填入当前设备 IMEI，可按需修改' : '可按运营商要求填写 IMEI'"
+                :value="downloadForm.imei"
+                :disabled="downloading"
+                @input="downloadForm.imei = fieldValue($event)"
+              />
+            </section>
           </div>
           <div v-if="downloading || downloadError" class="m3-stack">
             <md-linear-progress
@@ -1236,6 +1265,101 @@ h4 {
   .chip-details-identity .esim-eid {
     display: grid;
     gap: 6px;
+  }
+}
+.esim-download-dialog {
+  width: min(860px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+}
+.esim-download-form {
+  gap: 24px;
+}
+.esim-download-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 252px;
+  align-items: start;
+  gap: 24px;
+}
+.esim-download-activation {
+  grid-column: 1;
+  grid-row: 1;
+}
+.esim-download-target {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  gap: 24px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container);
+}
+.esim-download-target-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.esim-download-target h3,
+.esim-download-extra h3 {
+  font-size: 14px;
+  line-height: 20px;
+}
+.esim-download-target-heading p {
+  margin-top: 4px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 20px;
+}
+.esim-download-space {
+  display: grid;
+  gap: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+.esim-download-space > span {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 20px;
+}
+.esim-download-space strong {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+  overflow-wrap: anywhere;
+}
+.esim-download-extra {
+  display: grid;
+  grid-column: 1;
+  grid-row: 2;
+  gap: 16px;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .esim-download-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .esim-download-activation,
+  .esim-download-target,
+  .esim-download-extra {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .esim-download-target {
+    gap: 16px;
+  }
+  .esim-download-space {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+  }
+  .esim-download-space strong {
+    font-size: 18px;
+    line-height: 24px;
+  }
+  .esim-download-extra {
+    padding-top: 20px;
+    border-top: 1px solid var(--md-sys-color-outline-variant);
   }
 }
 .esim-download-entry {
