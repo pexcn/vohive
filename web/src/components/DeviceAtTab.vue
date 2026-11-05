@@ -121,6 +121,7 @@ async function sendAT() {
   const cmd = String(atCmd.value || '').trim()
   if (!cmd || atSending.value || !canUseATTerminal.value) return
   atSending.value = true
+  atCmd.value = ''
   commandMenuOpen.value = false
   try {
     const result = await devicesService.sendAT(props.deviceId, {
