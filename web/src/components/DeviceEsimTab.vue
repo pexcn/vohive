@@ -22,8 +22,6 @@ import editIcon from '@material-symbols/svg-400/outlined/edit.svg?raw'
 import deleteIcon from '@material-symbols/svg-400/outlined/delete.svg?raw'
 import downloadIcon from '@material-symbols/svg-400/outlined/download.svg?raw'
 import addIcon from '@material-symbols/svg-400/outlined/add.svg?raw'
-import refreshIcon from '@material-symbols/svg-400/outlined/refresh.svg?raw'
-import expandIcon from '@material-symbols/svg-400/outlined/keyboard_arrow_down.svg?raw'
 import enableIcon from '@material-symbols/svg-400/outlined/toggle_on.svg?raw'
 import disableIcon from '@material-symbols/svg-400/outlined/toggle_off.svg?raw'
 import { fieldValue } from '../utils/material'
@@ -770,7 +768,7 @@ onBeforeUnmount(() => {
               <article
                 v-for="item in notifications"
                 :key="item.sequence_number"
-                class="notification-row"
+                class="notification-card"
               >
                 <div class="notification-heading">
                   <div class="notification-identity">
@@ -780,7 +778,7 @@ onBeforeUnmount(() => {
                     <h3>{{ formatEsimNotificationEvent(item.event) }}</h3>
                     <span class="notification-sequence">#{{ item.sequence_number }}</span>
                   </div>
-                  <md-text-button
+                  <md-outlined-button
                     :aria-label="`重发通知 #${item.sequence_number}`"
                     :disabled="!item.can_retry || retryingNotificationSequence !== null"
                     @click="retryNotification(item)"
@@ -791,22 +789,14 @@ onBeforeUnmount(() => {
                       class="m3-progress"
                       indeterminate
                     />
-                    <SvgIcon v-else slot="icon" :svg="refreshIcon" />
                     {{ retryingNotificationSequence === item.sequence_number ? '重发中…' : '重发' }}
-                  </md-text-button>
+                  </md-outlined-button>
                 </div>
-                <div v-if="item.iccid || item.address || item.aid_hex" class="notification-data">
-                  <dl v-if="item.iccid || item.address" class="notification-meta">
-                    <div v-if="item.iccid"><dt>ICCID</dt><dd class="notification-identifier">{{ item.iccid }}</dd></div>
-                    <div v-if="item.address"><dt>地址</dt><dd>{{ item.address }}</dd></div>
-                  </dl>
-                  <details v-if="item.aid_hex" class="notification-details">
-                    <summary>技术详情<SvgIcon :svg="expandIcon" /></summary>
-                    <dl class="notification-meta">
-                      <div><dt>AID</dt><dd class="notification-identifier">{{ item.aid_hex }}</dd></div>
-                    </dl>
-                  </details>
-                </div>
+                <dl v-if="item.iccid || item.address || item.aid_hex" class="notification-meta">
+                  <div v-if="item.iccid"><dt>ICCID</dt><dd class="notification-identifier">{{ item.iccid }}</dd></div>
+                  <div v-if="item.address"><dt>地址</dt><dd>{{ item.address }}</dd></div>
+                  <div v-if="item.aid_hex" class="notification-aid"><dt>AID</dt><dd class="notification-identifier">{{ item.aid_hex }}</dd></div>
+                </dl>
               </article>
             </div>
           </template>
@@ -1159,14 +1149,16 @@ h4 {
   font-size: 12px;
   line-height: 20px;
 }
-.notification-list,
-.notification-row + .notification-row {
-  border-top: 1px solid var(--md-sys-color-outline-variant);
-}
-.notification-row {
+.notification-list {
   display: grid;
-  gap: 8px;
-  padding: 16px 0;
+  gap: 12px;
+}
+.notification-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container);
 }
 .notification-identity {
   min-width: 0;
@@ -1191,23 +1183,17 @@ h4 {
   width: 20px;
   height: 20px;
 }
-.notification-heading > md-text-button {
+.notification-heading > md-outlined-button {
   flex: none;
 }
 .notification-sequence,
 .notification-identifier {
   font-family: var(--vh-typeface-mono);
 }
-.notification-data,
 .notification-meta {
   display: grid;
   gap: 8px;
   min-width: 0;
-}
-.notification-data {
-  padding-left: 48px;
-}
-.notification-meta {
   margin: 0;
 }
 .notification-meta > div {
@@ -1232,35 +1218,6 @@ h4 {
 .notification-meta .notification-identifier {
   font-size: 12px;
   line-height: 20px;
-}
-.notification-details summary {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: fit-content;
-  color: var(--md-sys-color-primary);
-  font-size: 12px;
-  line-height: 24px;
-  list-style: none;
-  cursor: pointer;
-}
-.notification-details summary::-webkit-details-marker {
-  display: none;
-}
-.notification-details summary > .svg-icon {
-  width: 16px;
-  height: 16px;
-}
-.notification-details[open] summary > .svg-icon {
-  transform: rotate(180deg);
-}
-.notification-details[open] > .notification-meta {
-  margin-top: 8px;
-}
-.notification-details summary:focus-visible {
-  outline: 2px solid var(--md-sys-color-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
 }
 .notification-state {
   display: flex;
@@ -1287,8 +1244,20 @@ h4 {
   line-height: 24px;
 }
 @media (max-width: 600px) {
-  .notification-data {
-    padding-left: 0;
+  .notification-card {
+    padding: 12px;
+  }
+  .notification-avatar {
+    margin-right: 0;
+  }
+  .notification-heading > md-outlined-button {
+    --md-outlined-button-container-height: 36px;
+    --md-outlined-button-leading-space: 16px;
+    --md-outlined-button-trailing-space: 16px;
+  }
+  .notification-meta > .notification-aid {
+    display: grid;
+    gap: 4px;
   }
   .notification-meta > div {
     gap: 8px;
