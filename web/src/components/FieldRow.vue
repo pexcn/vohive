@@ -44,7 +44,7 @@ async function copy() {
       :is="canCopy ? 'button' : 'span'"
       :type="canCopy ? 'button' : undefined"
       :aria-label="canCopy ? `复制${label}：${displayValue}` : undefined"
-      class="field-value block min-w-0 max-w-full flex-1 truncate text-right"
+      class="field-value block min-w-0 max-w-full truncate text-right"
       :class="[
         monospace ? 'font-mono' : '',
         canCopy ? 'cursor-pointer hover:underline' : ''
