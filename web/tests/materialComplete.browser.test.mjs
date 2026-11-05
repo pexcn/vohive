@@ -687,7 +687,7 @@ const onFieldSubmit=()=>window.fieldSubmits++
       })
       await fill('md-outlined-text-field[name=ussd-command]', '*100#')
       await click('[aria-label="USSD 终端"] md-filled-button')
-      await wait('!!document.querySelector("[aria-label=\\\"USSD 终端\\\"] .m3-notice")')
+      await wait('!!document.querySelector(".ussd-session-strip")')
       await fill('md-outlined-text-field[name=ussd-command]', '1')
       await click('[aria-label="USSD 终端"] md-filled-button')
       await until(() => calls.some((c) => c.path.endsWith('/ussd/continue')), 'USSD continuation')
