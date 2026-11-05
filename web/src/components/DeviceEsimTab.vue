@@ -22,6 +22,10 @@ import editIcon from '@material-symbols/svg-400/outlined/edit.svg?raw'
 import deleteIcon from '@material-symbols/svg-400/outlined/delete.svg?raw'
 import downloadIcon from '@material-symbols/svg-400/outlined/download.svg?raw'
 import addIcon from '@material-symbols/svg-400/outlined/add.svg?raw'
+import refreshIcon from '@material-symbols/svg-400/outlined/refresh.svg?raw'
+import expandIcon from '@material-symbols/svg-400/outlined/keyboard_arrow_down.svg?raw'
+import enableIcon from '@material-symbols/svg-400/outlined/toggle_on.svg?raw'
+import disableIcon from '@material-symbols/svg-400/outlined/toggle_off.svg?raw'
 import { fieldValue } from '../utils/material'
 import { applyOptimisticActiveState } from './deviceEsimOptimistic'
 import { pickNextDownloadAid } from './deviceEsimOverviewRefresh'
@@ -37,6 +41,13 @@ const props = defineProps<{
 }>()
 
 // 数据状态
+const notificationIcons: Record<string, string> = {
+  install: downloadIcon,
+  enable: enableIcon,
+  disable: disableIcon,
+  delete: deleteIcon
+}
+
 const loading = ref(false)
 const profilesRefreshing = ref(false)
 const chipInfo = ref<EsimChipInfo | null>(null)
@@ -735,38 +746,75 @@ onBeforeUnmount(() => {
         <div slot="actions"><md-text-button @click="selectedChip = null">关闭</md-text-button></div>
       </md-dialog>
       <md-dialog
-        class="m3-dialog"
+        class="m3-dialog esim-notifications-dialog"
         :open="notificationsDialogOpen"
         @closed="notificationsDialogOpen = false"
-        ><div slot="headline">当前通知列表</div>
-        <div slot="content" class="m3-stack">
-          <p v-if="notificationsLoading" role="status">正在加载通知…</p>
-          <p v-else-if="!notifications.length" class="m3-muted">当前没有可展示的通知</p>
-          <article
-            v-for="item in notifications"
-            v-else
-            :key="item.sequence_number"
-            class="m3-inset m3-stack"
-          >
-            <div class="m3-row">
-              <h3>#{{ item.sequence_number }} · {{ formatEsimNotificationEvent(item.event) }}</h3>
-              <md-outlined-button
-                :disabled="!item.can_retry || retryingNotificationSequence !== null"
-                @click="retryNotification(item)"
-                >{{
-                  retryingNotificationSequence === item.sequence_number ? '重发中…' : '重发'
-                }}</md-outlined-button
-              >
+      >
+        <div slot="headline">当前通知</div>
+        <div slot="content" class="esim-notifications-content">
+          <div v-if="notificationsLoading" class="notification-state" role="status">
+            <md-circular-progress indeterminate />
+            <p>正在加载通知…</p>
+          </div>
+          <div v-else-if="!notifications.length" class="notification-state">
+            <span class="notification-state-icon"><SvgIcon :svg="notificationsIcon" /></span>
+            <h3>暂无通知</h3>
+            <p>目前没有可展示的 eSIM 通知。</p>
+          </div>
+          <template v-else>
+            <div class="notification-summary">
+              <span>{{ notifications.length }} 条通知</span>
+              <span>来自 eUICC</span>
             </div>
-            <p v-if="item.iccid" class="m3-muted">ICCID {{ item.iccid }}</p>
-            <p v-if="item.address" class="m3-muted">地址 {{ item.address }}</p>
-            <p v-if="item.aid_hex" class="m3-muted">AID {{ item.aid_hex }}</p>
-          </article>
+            <div class="notification-list">
+              <article
+                v-for="item in notifications"
+                :key="item.sequence_number"
+                class="notification-row"
+              >
+                <div class="notification-heading">
+                  <div class="notification-identity">
+                    <span class="esim-avatar notification-avatar">
+                      <SvgIcon :svg="notificationIcons[item.event] || notificationsIcon" />
+                    </span>
+                    <h3>{{ formatEsimNotificationEvent(item.event) }}</h3>
+                    <span class="notification-sequence">#{{ item.sequence_number }}</span>
+                  </div>
+                  <md-text-button
+                    :aria-label="`重发通知 #${item.sequence_number}`"
+                    :disabled="!item.can_retry || retryingNotificationSequence !== null"
+                    @click="retryNotification(item)"
+                  >
+                    <md-circular-progress
+                      v-if="retryingNotificationSequence === item.sequence_number"
+                      slot="icon"
+                      class="m3-progress"
+                      indeterminate
+                    />
+                    <SvgIcon v-else slot="icon" :svg="refreshIcon" />
+                    {{ retryingNotificationSequence === item.sequence_number ? '重发中…' : '重发' }}
+                  </md-text-button>
+                </div>
+                <div v-if="item.iccid || item.address || item.aid_hex" class="notification-data">
+                  <dl v-if="item.iccid || item.address" class="notification-meta">
+                    <div v-if="item.iccid"><dt>ICCID</dt><dd class="notification-identifier">{{ item.iccid }}</dd></div>
+                    <div v-if="item.address"><dt>地址</dt><dd>{{ item.address }}</dd></div>
+                  </dl>
+                  <details v-if="item.aid_hex" class="notification-details">
+                    <summary>技术详情<SvgIcon :svg="expandIcon" /></summary>
+                    <dl class="notification-meta">
+                      <div><dt>AID</dt><dd class="notification-identifier">{{ item.aid_hex }}</dd></div>
+                    </dl>
+                  </details>
+                </div>
+              </article>
+            </div>
+          </template>
         </div>
         <div slot="actions">
           <md-text-button @click="notificationsDialogOpen = false">关闭</md-text-button>
-        </div></md-dialog
-      >
+        </div>
+      </md-dialog>
       <section v-if="chipInfo" class="m3-inset esim-download-entry">
         <span class="esim-avatar download-avatar" aria-hidden="true"><SvgIcon :svg="downloadIcon" /></span>
         <div class="esim-download-heading">
@@ -1086,6 +1134,168 @@ h4 {
   margin-top: 4px;
   font-size: 12px;
   line-height: 16px;
+}
+.esim-notifications-dialog {
+  max-height: calc(100dvh - 48px);
+}
+.esim-notifications-content {
+  display: grid;
+  gap: 16px;
+}
+.notification-summary,
+.notification-heading,
+.notification-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.notification-summary,
+.notification-heading {
+  justify-content: space-between;
+}
+.notification-summary,
+.notification-sequence {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 20px;
+}
+.notification-list,
+.notification-row + .notification-row {
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+.notification-row {
+  display: grid;
+  gap: 8px;
+  padding: 16px 0;
+}
+.notification-identity {
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.notification-identity h3 {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.notification-avatar {
+  width: 36px;
+  height: 36px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.notification-avatar > .svg-icon {
+  width: 20px;
+  height: 20px;
+}
+.notification-heading > md-text-button {
+  flex: none;
+}
+.notification-sequence,
+.notification-identifier {
+  font-family: var(--vh-typeface-mono);
+}
+.notification-data,
+.notification-meta {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.notification-data {
+  padding-left: 48px;
+}
+.notification-meta {
+  margin: 0;
+}
+.notification-meta > div {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.notification-meta dt {
+  width: 44px;
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 20px;
+}
+.notification-meta dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--md-sys-color-on-surface);
+  overflow-wrap: anywhere;
+}
+.notification-meta .notification-identifier {
+  font-size: 12px;
+  line-height: 20px;
+}
+.notification-details summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  color: var(--md-sys-color-primary);
+  font-size: 12px;
+  line-height: 24px;
+  list-style: none;
+  cursor: pointer;
+}
+.notification-details summary::-webkit-details-marker {
+  display: none;
+}
+.notification-details summary > .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+.notification-details[open] summary > .svg-icon {
+  transform: rotate(180deg);
+}
+.notification-details[open] > .notification-meta {
+  margin-top: 8px;
+}
+.notification-details summary:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.notification-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 8px 32px;
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.notification-state-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 16px;
+  border-radius: 20px;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.notification-state h3 {
+  color: var(--md-sys-color-on-surface);
+  font-size: 16px;
+  line-height: 24px;
+}
+@media (max-width: 600px) {
+  .notification-data {
+    padding-left: 0;
+  }
+  .notification-meta > div {
+    gap: 8px;
+  }
+  .notification-meta dt {
+    width: 40px;
+  }
 }
 @container esim-panel (max-width: 639px) {
   .esim-chip-summary {
