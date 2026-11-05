@@ -646,6 +646,7 @@ const onFieldSubmit=()=>window.fieldSubmits++
       )
       await click('.esim-profile:last-of-type .esim-policy')
       await wait('document.querySelectorAll(".esim-profile md-switch").length===3')
+      await wait('!document.querySelector(".esim-profile .esim-collapse-enter-active")')
       failNext = true
       holdNext = true
       await click('.esim-profile md-switch')

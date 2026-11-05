@@ -402,6 +402,11 @@ function cancelRename() {
   renameValue.value = ''
 }
 
+function beforeProfileLeave(element: Element) {
+  const row = element as HTMLElement
+  row.style.setProperty('--esim-profile-height', `${row.getBoundingClientRect().height}px`)
+}
+
 // 删除 profile（需要输入 ICCID 后 4 位确认）
 async function deleteProfile(iccid: string, name: string, aidHex: string) {
   const last4 = iccid.slice(-4)
@@ -638,84 +643,99 @@ onBeforeUnmount(() => {
           class="m3-muted esim-space-delta"
           role="status"
         >{{ recentSpaceDelta.message }}</p>
-        <div v-if="group.profiles.length" class="esim-profile-list">
-          <div class="esim-profile-list-heading">
-            <span>eSIM 配置</span>
-          </div>
-          <article
-            v-for="profile in group.profiles"
-            :key="profile.iccid"
-            class="esim-profile"
-            :data-active="profile.state === 1"
-          >
-            <div v-if="renaming !== profile.iccid" class="esim-profile-row">
-              <span class="esim-avatar" aria-hidden="true"><SvgIcon :svg="simIcon" /></span>
-              <div class="esim-profile-identity">
-                <div class="esim-profile-heading">
-                  <h4><SensitiveText :concealed="!profile.name && !showSensitive">{{ profile.name || profile.iccid }}</SensitiveText></h4>
-                  <span class="esim-profile-state">
-                    <span v-if="profile.state === 1" class="esim-state-dot" aria-hidden="true"></span>
-                    {{ profile.state_text || (profile.state === 1 ? '已启用' : '未启用') }}
-                  </span>
+        <Transition name="esim-collapse" mode="out-in">
+          <div v-if="group.profiles.length" class="esim-collapse">
+            <TransitionGroup name="esim-profile" tag="div" class="esim-profile-list" @before-leave="beforeProfileLeave">
+              <div key="heading" class="esim-profile-list-heading">
+                <span>eSIM 配置</span>
+              </div>
+              <article
+                v-for="profile in group.profiles"
+                :key="profile.iccid"
+                class="esim-profile"
+                :data-active="profile.state === 1"
+              >
+                <div class="esim-profile-content">
+                  <Transition name="esim-rename">
+                    <div v-if="renaming !== profile.iccid" class="esim-profile-row">
+                      <span class="esim-avatar" aria-hidden="true"><SvgIcon :svg="simIcon" /></span>
+                      <div class="esim-profile-identity">
+                        <div class="esim-profile-heading">
+                          <h4><SensitiveText :concealed="!profile.name && !showSensitive">{{ profile.name || profile.iccid }}</SensitiveText></h4>
+                          <span class="esim-profile-state">
+                            <span v-if="profile.state === 1" class="esim-state-dot" aria-hidden="true"></span>
+                            {{ profile.state_text || (profile.state === 1 ? '已启用' : '未启用') }}
+                          </span>
+                        </div>
+                        <p class="m3-muted esim-profile-meta">
+                          <span v-if="profile.service_provider_name" class="esim-provider">{{ profile.service_provider_name }}</span>
+                          <span v-if="profile.service_provider_name" class="esim-meta-separator" aria-hidden="true">·</span>
+                          <span class="esim-profile-iccid" :title="showSensitive ? profile.iccid : undefined">
+                            <span class="esim-id-label">ICCID</span>
+                            <SensitiveText :concealed="!showSensitive">{{ profile.iccid }}</SensitiveText>
+                          </span>
+                        </p>
+                      </div>
+                      <div class="m3-actions esim-profile-actions">
+                        <md-outlined-button
+                          v-if="profile.state !== 1"
+                          class="esim-switch"
+                          :disabled="switchBusy || deleting !== null || downloading"
+                          @click="switchProfile(profile.iccid, profile.state, group.aid_hex)"
+                        >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-outlined-button>
+                        <md-text-button
+                          class="esim-policy"
+                          :aria-expanded="expandedPolicyIccid === profile.iccid"
+                          @click="togglePolicyPanel(profile.iccid)"
+                        >卡策略</md-text-button>
+                        <md-icon-button
+                          :id="`esim-profile-actions-${deviceId}-${index}-${profile.iccid}`"
+                          class="esim-profile-more"
+                          :aria-label="`更多操作：${profile.name || displayIdentifier(profile.iccid)}`"
+                          aria-haspopup="menu"
+                          :aria-expanded="profileMenuOpen && profileMenu?.profile.iccid === profile.iccid && profileMenu?.aidHex === group.aid_hex"
+                          :disabled="switchBusy || deleting !== null"
+                          @click="openProfileMenu($event, profile, group.aid_hex)"
+                        ><SvgIcon :svg="moreIcon" /></md-icon-button>
+                      </div>
+                    </div>
+                    <form v-else class="m3-form esim-rename-form" @submit.prevent="saveRename(profile.iccid, group.aid_hex)">
+                      <md-outlined-text-field
+                        label="eSIM 配置名称"
+                        name="esim-profile-name"
+                        autofocus
+                        :value="renameValue"
+                        @input="renameValue = fieldValue($event)"
+                        @keydown.escape.stop="cancelRename"
+                      />
+                      <div class="m3-actions">
+                        <md-text-button type="button" @click="cancelRename">取消</md-text-button>
+                        <md-filled-button type="submit">保存</md-filled-button>
+                      </div>
+                    </form>
+                  </Transition>
                 </div>
-                <p class="m3-muted esim-profile-meta">
-                  <span v-if="profile.service_provider_name" class="esim-provider">{{ profile.service_provider_name }}</span>
-                  <span v-if="profile.service_provider_name" class="esim-meta-separator" aria-hidden="true">·</span>
-                  <span class="esim-profile-iccid" :title="showSensitive ? profile.iccid : undefined">
-                    <span class="esim-id-label">ICCID</span>
-                    <SensitiveText :concealed="!showSensitive">{{ profile.iccid }}</SensitiveText>
-                  </span>
-                </p>
-              </div>
-              <div class="m3-actions esim-profile-actions">
-                <md-outlined-button
-                  v-if="profile.state !== 1"
-                  class="esim-switch"
-                  :disabled="switchBusy || deleting !== null || downloading"
-                  @click="switchProfile(profile.iccid, profile.state, group.aid_hex)"
-                >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-outlined-button>
-                <md-text-button
-                  class="esim-policy"
-                  :aria-expanded="expandedPolicyIccid === profile.iccid"
-                  @click="togglePolicyPanel(profile.iccid)"
-                >卡策略</md-text-button>
-                <md-icon-button
-                  :id="`esim-profile-actions-${deviceId}-${index}-${profile.iccid}`"
-                  class="esim-profile-more"
-                  :aria-label="`更多操作：${profile.name || displayIdentifier(profile.iccid)}`"
-                  aria-haspopup="menu"
-                  :aria-expanded="profileMenuOpen && profileMenu?.profile.iccid === profile.iccid && profileMenu?.aidHex === group.aid_hex"
-                  :disabled="switchBusy || deleting !== null"
-                  @click="openProfileMenu($event, profile, group.aid_hex)"
-                ><SvgIcon :svg="moreIcon" /></md-icon-button>
-              </div>
-            </div>
-            <form v-else class="m3-form esim-rename-form" @submit.prevent="saveRename(profile.iccid, group.aid_hex)">
-              <md-outlined-text-field
-                label="eSIM 配置名称"
-                name="esim-profile-name"
-                autofocus
-                :value="renameValue"
-                @input="renameValue = fieldValue($event)"
-                @keydown.escape.stop="cancelRename"
-              />
-              <div class="m3-actions">
-                <md-text-button type="button" @click="cancelRename">取消</md-text-button>
-                <md-filled-button type="submit">保存</md-filled-button>
-              </div>
-            </form>
-            <EsimCardPolicyInline
-              v-if="expandedPolicyIccid === profile.iccid"
-              class="esim-inline-policy"
-              :device-id="deviceId"
-              :iccid="profile.iccid"
-              :is-active-card="profile.state === 1"
-              :device-online="deviceOnline === true"
-              @policy-changed="fetchOverview(true)"
-            />
-          </article>
-        </div>
-        <p v-else class="m3-muted esim-empty-profiles">暂无 eSIM 配置</p>
+                <Transition name="esim-collapse">
+                  <div v-if="expandedPolicyIccid === profile.iccid" class="esim-collapse">
+                    <div>
+                      <EsimCardPolicyInline
+                        class="esim-inline-policy"
+                        :device-id="deviceId"
+                        :iccid="profile.iccid"
+                        :is-active-card="profile.state === 1"
+                        :device-online="deviceOnline === true"
+                        @policy-changed="fetchOverview(true)"
+                      />
+                    </div>
+                  </div>
+                </Transition>
+              </article>
+            </TransitionGroup>
+          </div>
+          <div v-else class="esim-collapse">
+            <p class="m3-muted esim-empty-profiles">暂无 eSIM 配置</p>
+          </div>
+        </Transition>
       </section>
       <md-menu
         class="esim-profile-menu"
@@ -1074,6 +1094,56 @@ h4 {
 }
 .esim-profile[data-active='true'] {
   background: color-mix(in srgb, var(--vh-success) 6%, transparent);
+}
+.esim-profile-content {
+  display: grid;
+  align-items: start;
+}
+.esim-profile-content > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+.esim-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  min-width: 0;
+}
+.esim-collapse > * {
+  min-height: 0;
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .esim-collapse-enter-active,
+  .esim-collapse-leave-active {
+    transition: grid-template-rows 220ms cubic-bezier(0.2, 0, 0, 1), opacity 220ms;
+  }
+  .esim-collapse-enter-from,
+  .esim-collapse-leave-to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  .esim-rename-enter-active,
+  .esim-rename-leave-active {
+    transition: opacity 180ms;
+  }
+  .esim-rename-enter-from,
+  .esim-rename-leave-to {
+    opacity: 0;
+  }
+  .esim-profile-leave-active {
+    height: var(--esim-profile-height);
+    overflow: hidden;
+    transition: height 220ms cubic-bezier(0.2, 0, 0, 1), opacity 180ms;
+  }
+  .esim-profile-leave-to {
+    height: 0;
+    opacity: 0;
+  }
+}
+.esim-collapse-leave-active,
+.esim-rename-leave-active,
+.esim-profile-leave-active {
+  pointer-events: none;
 }
 .esim-profile-row {
   display: grid;
