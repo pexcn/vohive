@@ -26,14 +26,15 @@ const atLog = ref<HTMLElement | null>(null)
 const atHistory = ref<Array<{ ts: number; cmd: string; ok: boolean; response: string }>>([])
 const displayedHistory = computed(() => atHistory.value.map(entry => {
   const firstLine = entry.response.match(/^\s*([^\r\n]+)(?:\r\n|\r|\n|$)/)
-  const response = firstLine?.[1].trim() === entry.cmd
+  const response = (firstLine?.[1].trim() === entry.cmd
     ? entry.response.slice(firstLine[0].length)
-    : entry.response
-  const okLine = entry.ok ? response.match(/(?:^|\r\n|\r|\n)[ \t]*OK\s*$/) : null
+    : entry.response).replace(/^(?:[ \t]*[\r\n])+/, '')
+  const resultLine = response.match(/(?:^|[\r\n])[ \t]*(OK|ERROR|\+CM[ES] ERROR:[^\r\n]*)\s*$/)
+  const statusLine = resultLine?.[1] === 'OK' && !entry.ok ? null : resultLine
   return {
     ...entry,
-    displayResponse: okLine ? response.slice(0, okLine.index).trimEnd() : response,
-    hasOkStatus: !!okLine
+    displayResponse: statusLine ? response.slice(0, statusLine.index).trimEnd() : response,
+    terminalStatus: statusLine?.[1].trimEnd() || ''
   }
 }))
 
@@ -142,7 +143,7 @@ function clearATHistory() {
             <pre class="terminal-command">{{ h.cmd }}</pre>
             <time :datetime="new Date(h.ts).toISOString()">{{ new Date(h.ts).toLocaleTimeString() }}</time>
           </header>
-          <pre class="terminal-response" :class="{ 'm3-error': !h.ok }">{{ h.displayResponse }}<span v-if="h.hasOkStatus" class="at-ok">{{ h.displayResponse ? '\nOK' : 'OK' }}</span></pre>
+          <pre class="terminal-response" :class="{ 'm3-error': !h.ok }">{{ h.displayResponse }}<span v-if="h.terminalStatus" :class="h.terminalStatus === 'OK' ? 'at-ok' : 'm3-error'">{{ (h.displayResponse ? '\n' : '') + h.terminalStatus }}</span></pre>
         </article>
         <p v-if="atSending" role="status" class="m3-muted">等待模组响应…</p>
       </div>
