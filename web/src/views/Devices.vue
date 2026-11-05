@@ -1324,6 +1324,7 @@ usePollingScheduler(async () => {
             class="device-tab-panel"
           >
             <DeviceAtTab
+              :is-active="activeTab === 'at'"
               :device-id="selectedDevice.id"
               :backend-mode="selectedDevice.backend_mode"
               :at-port="selectedDevice.at_port"

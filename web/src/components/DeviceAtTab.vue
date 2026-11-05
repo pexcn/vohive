@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { fieldValue } from '../utils/material'
 import { computed, ref, watch } from 'vue'
+import type { MdMenu } from '@material/web/menu/menu.js'
+import type { CloseMenuEvent } from '@material/web/menu/internal/controllers/shared.js'
+import type { MdOutlinedTextField } from '@material/web/textfield/outlined-text-field.js'
 import { AT_TEMPLATES } from '../constants/atTemplates'
 import { devicesService } from '../services/devices'
 import SvgIcon from './SvgIcon.vue'
@@ -8,16 +11,23 @@ import terminalIcon from '@material-symbols/svg-400/outlined/terminal.svg?raw'
 import sendIcon from '@material-symbols/svg-400/outlined/send.svg?raw'
 import clearIcon from '@material-symbols/svg-400/outlined/delete_sweep.svg?raw'
 import settingsIcon from '@material-symbols/svg-400/outlined/tune.svg?raw'
+import arrowIcon from '@material-symbols/svg-400/outlined/arrow_drop_down.svg?raw'
+import checkIcon from '@material-symbols/svg-400/outlined/check.svg?raw'
 
 const props = defineProps<{
   deviceId: string
   backendMode?: string
   atPort?: string
   running?: boolean
+  isActive?: boolean
 }>()
 
 const atCmd = ref('')
-const atTemplate = ref('')
+const commandField = ref<MdOutlinedTextField | null>(null)
+const commandMenu = ref<MdMenu | null>(null)
+const commandMenuOpen = ref(false)
+const commandMenuWidth = ref('')
+let focusCommandAfterMenu = false
 const atTimeoutSeconds = ref(10)
 const settingsOpen = ref(false)
 const timeoutOptions = [5, 10, 15, 30, 60]
@@ -38,7 +48,10 @@ const displayedHistory = computed(() => atHistory.value.map(entry => {
   }
 }))
 
-const atTemplates = AT_TEMPLATES
+const atTemplates = AT_TEMPLATES.map(group => ({
+  ...group,
+  items: group.items.map(item => ({ ...item, label: item.label.replace(/ \(AT.*$/, '') }))
+}))
 const hasATPort = computed(() => String(props.atPort || '').trim().length > 0)
 const canUseATTerminal = computed(() => Boolean(props.running) && hasATPort.value)
 const unavailableTitle = computed(() => {
@@ -59,13 +72,46 @@ const unavailableDescription = computed(() => {
   return '当前设备暂时无法提供 AT 串口终端，请稍后重试。'
 })
 
-watch(
-  () => atTemplate.value,
-  (v) => {
-    const cmd = String(v || '').trim()
-    if (cmd) atCmd.value = cmd
+watch([canUseATTerminal, () => props.isActive], ([available, active]) => {
+  if (!available || active === false) {
+    focusCommandAfterMenu = false
+    commandMenuOpen.value = false
   }
-)
+})
+
+function openCommandMenu() {
+  if (atSending.value || !canUseATTerminal.value || !commandField.value) return
+  commandMenuWidth.value = `min(${commandField.value.getBoundingClientRect().width}px, calc(100vw - 32px))`
+  focusCommandAfterMenu = false
+  commandMenuOpen.value = true
+}
+
+function focusCommandMenu() {
+  const items = commandMenu.value?.items || []
+  const target = items.find(item => item.dataset.command === atCmd.value.trim()) || items[0]
+  for (const item of items) {
+    item.selected = item === target
+    item.tabIndex = item === target ? 0 : -1
+  }
+  target?.focus()
+}
+
+function selectCommand(cmd: string, event: CloseMenuEvent) {
+  const reason = event.detail.reason
+  if (reason.kind === 'keydown' && reason.key === 'Escape') return
+  if (atSending.value || !canUseATTerminal.value) return
+  atCmd.value = cmd
+  focusCommandAfterMenu = true
+  commandMenuOpen.value = false
+}
+
+function closeCommandMenu() {
+  commandMenuOpen.value = false
+  if (focusCommandAfterMenu && !atSending.value && canUseATTerminal.value && props.isActive !== false) {
+    commandField.value?.focus()
+  }
+  focusCommandAfterMenu = false
+}
 
 watch([() => atHistory.value.length, atSending], () => {
   if (atLog.value) atLog.value.scrollTop = atLog.value.scrollHeight
@@ -75,7 +121,7 @@ async function sendAT() {
   const cmd = String(atCmd.value || '').trim()
   if (!cmd || atSending.value || !canUseATTerminal.value) return
   atSending.value = true
-  atCmd.value = '' // 清空输入框
+  commandMenuOpen.value = false
   try {
     const result = await devicesService.sendAT(props.deviceId, {
       cmd: cmd,
@@ -100,10 +146,18 @@ async function sendAT() {
   }
 }
 
-function sendFromKeyboard(event: KeyboardEvent) {
-  if (event.isComposing) return
-  event.preventDefault()
-  void sendAT()
+function onCommandKeydown(event: KeyboardEvent) {
+  if (event.isComposing || !(event.composedPath()[0] instanceof HTMLInputElement)) return
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    openCommandMenu()
+  } else if (event.key === 'Escape' && commandMenuOpen.value) {
+    event.preventDefault()
+    commandMenuOpen.value = false
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    if (!commandMenuOpen.value) void sendAT()
+  }
 }
 
 function clearATHistory() {
@@ -150,40 +204,35 @@ function clearATHistory() {
       <form class="m3-form at-composer" @submit.prevent="sendAT">
         <div class="at-command-line">
           <md-outlined-text-field
+            :id="`at-command-${deviceId}`"
+            ref="commandField"
             name="at-command"
             label="AT 指令"
-            placeholder="例如 AT+CSQ"
+            placeholder="输入或选择 AT 指令"
             :value="atCmd"
             :disabled="atSending"
             @input="atCmd = fieldValue($event)"
-            @keydown.enter="sendFromKeyboard"
-          />
+            @keydown="onCommandKeydown"
+          >
+            <md-icon-button
+              slot="trailing-icon"
+              class="at-command-toggle"
+              :class="{ 'at-command-toggle-open': commandMenuOpen }"
+              type="button"
+              aria-label="选择快捷指令"
+              aria-haspopup="menu"
+              :aria-expanded="commandMenuOpen"
+              :aria-controls="`at-command-menu-${deviceId}`"
+              :disabled="atSending"
+              @click="commandMenuOpen ? commandMenuOpen = false : openCommandMenu()"
+            ><SvgIcon :svg="arrowIcon" /></md-icon-button>
+          </md-outlined-text-field>
           <md-filled-button class="at-send" type="submit" :disabled="atSending || !atCmd.trim()">
             <SvgIcon slot="icon" :svg="sendIcon" />{{ atSending ? '发送中…' : '发送' }}
           </md-filled-button>
         </div>
-        <div>
+        <div class="at-settings">
           <div class="at-settings-row">
-            <md-outlined-select
-              class="at-template"
-              name="at-template"
-              label="快捷指令模板"
-              :value="atTemplate"
-              :disabled="atSending"
-              @change="atTemplate = fieldValue($event)"
-            >
-              <md-select-option value="" :selected="!atTemplate">
-                <div slot="headline">自由输入</div>
-              </md-select-option>
-              <template v-for="group in atTemplates" :key="group.label">
-                <md-select-option
-                  v-for="item in group.items"
-                  :key="item.value"
-                  :value="item.value"
-                  :selected="atTemplate === item.value"
-                ><div slot="headline">{{ group.label }} · {{ item.label }}</div></md-select-option>
-              </template>
-            </md-outlined-select>
             <md-text-button
               class="at-more-settings"
               type="button"
@@ -218,6 +267,37 @@ function clearATHistory() {
           </Transition>
         </div>
       </form>
+      <md-menu
+        :id="`at-command-menu-${deviceId}`"
+        ref="commandMenu"
+        class="at-command-menu"
+        :anchor="`at-command-${deviceId}`"
+        :open="commandMenuOpen"
+        :style="{ minWidth: commandMenuWidth, maxWidth: commandMenuWidth }"
+        positioning="popover"
+        anchor-corner="start-start"
+        menu-corner="end-start"
+        default-focus="none"
+        aria-label="快捷 AT 指令"
+        @opened="focusCommandMenu"
+        @closing="commandMenuOpen = false"
+        @closed="closeCommandMenu"
+      >
+        <template v-for="group in atTemplates" :key="group.label">
+          <div class="at-command-category" role="presentation">{{ group.label }}</div>
+          <md-menu-item
+            v-for="item in group.items"
+            :key="item.value"
+            :data-command="item.value"
+            :class="{ 'at-command-matched': atCmd.trim() === item.value }"
+            @close-menu="selectCommand(item.value, $event)"
+          >
+            <div slot="headline">{{ item.label }}</div>
+            <div slot="supporting-text">{{ item.value }}</div>
+            <SvgIcon v-if="atCmd.trim() === item.value" slot="end" :svg="checkIcon" />
+          </md-menu-item>
+        </template>
+      </md-menu>
     </div>
   </section>
 </template>
@@ -347,17 +427,36 @@ function clearATHistory() {
 }
 .at-settings-row {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  justify-content: flex-end;
 }
-.at-template {
-  flex: 0 1 360px;
-  width: 360px;
-  min-width: 0;
+.at-command-toggle-open .svg-icon {
+  transform: rotate(180deg);
 }
-.at-more-settings {
-  flex: none;
-  margin-left: auto;
+.at-command-menu {
+  max-height: 344px;
+  --md-menu-container-shape: 12px;
+  --md-menu-item-two-line-container-height: 64px;
+}
+.at-command-category {
+  padding: 12px 16px 8px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+}
+.at-command-menu [slot='supporting-text'] {
+  font: 12px/20px var(--vh-typeface-mono);
+  overflow-wrap: anywhere;
+}
+.at-command-matched {
+  background: var(--md-sys-color-secondary-container);
+  --md-menu-item-label-text-color: var(--md-sys-color-on-secondary-container);
+  --md-menu-item-supporting-text-color: var(--md-sys-color-on-secondary-container);
+}
+.at-command-matched .svg-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--md-sys-color-primary);
 }
 .at-settings-reveal {
   display: grid;
@@ -413,29 +512,39 @@ function clearATHistory() {
   }
   .at-composer {
     padding: 16px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px 8px;
   }
-  .at-command-line {
-    grid-template-columns: minmax(0, 1fr) 80px;
-    gap: 10px;
+  .at-command-line,
+  .at-settings,
+  .at-settings-row {
+    display: contents;
+  }
+  .at-command-line md-outlined-text-field {
+    grid-column: 1 / -1;
+    grid-row: 1;
   }
   .at-send {
-    --md-filled-button-leading-space: 12px;
-    --md-filled-button-trailing-space: 12px;
+    grid-column: 2;
+    grid-row: 2;
+    --md-filled-button-leading-space: 20px;
+    --md-filled-button-trailing-space: 20px;
   }
-  .at-send .svg-icon,
+  .at-more-settings {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    --md-text-button-leading-space: 8px;
+    --md-text-button-trailing-space: 8px;
+  }
   .at-more-settings .svg-icon {
     display: none;
   }
-  .at-settings-row {
-    gap: 8px;
+  .at-settings-reveal {
+    grid-column: 1 / -1;
   }
-  .at-template {
-    flex: 1;
-    width: auto;
-  }
-  .at-more-settings {
-    --md-text-button-leading-space: 10px;
-    --md-text-button-trailing-space: 10px;
+  .at-command-menu {
+    max-height: 320px;
   }
   .at-timeout {
     width: 100%;
