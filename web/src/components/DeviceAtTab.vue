@@ -22,7 +22,20 @@ const atTimeoutSeconds = ref(10)
 const settingsOpen = ref(false)
 const timeoutOptions = [5, 10, 15, 30, 60]
 const atSending = ref(false)
+const atLog = ref<HTMLElement | null>(null)
 const atHistory = ref<Array<{ ts: number; cmd: string; ok: boolean; response: string }>>([])
+const displayedHistory = computed(() => atHistory.value.map(entry => {
+  const firstLine = entry.response.match(/^\s*([^\r\n]+)(?:\r\n|\r|\n|$)/)
+  const response = firstLine?.[1].trim() === entry.cmd
+    ? entry.response.slice(firstLine[0].length)
+    : entry.response
+  const okLine = entry.ok ? response.match(/(?:^|\r\n|\r|\n)[ \t]*OK\s*$/) : null
+  return {
+    ...entry,
+    displayResponse: okLine ? response.slice(0, okLine.index).trimEnd() : response,
+    hasOkStatus: !!okLine
+  }
+}))
 
 const atTemplates = AT_TEMPLATES
 const hasATPort = computed(() => String(props.atPort || '').trim().length > 0)
@@ -52,6 +65,10 @@ watch(
     if (cmd) atCmd.value = cmd
   }
 )
+
+watch([() => atHistory.value.length, atSending], () => {
+  if (atLog.value) atLog.value.scrollTop = atLog.value.scrollHeight
+}, { flush: 'post' })
 
 async function sendAT() {
   const cmd = String(atCmd.value || '').trim()
@@ -113,19 +130,19 @@ function clearATHistory() {
           @click="clearATHistory"
         ><SvgIcon slot="icon" :svg="clearIcon" />清空记录</md-text-button>
       </div>
-      <div class="terminal-log at-log" role="log" aria-label="AT 会话记录" aria-live="polite">
+      <div ref="atLog" class="terminal-log at-log" role="log" aria-label="AT 会话记录" aria-live="polite">
         <div v-if="!atHistory.length && !atSending" class="at-empty">
           <SvgIcon :svg="terminalIcon" />
           <strong>暂无会话记录</strong>
           <p>输入 AT 指令，响应会显示在这里</p>
         </div>
-        <article v-for="(h, i) in atHistory" :key="h.ts + ':' + i" class="terminal-entry">
+        <article v-for="(h, i) in displayedHistory" :key="h.ts + ':' + i" class="terminal-entry">
           <header class="at-entry-heading">
             <span class="at-prompt" aria-hidden="true">›</span>
             <pre class="terminal-command">{{ h.cmd }}</pre>
             <time :datetime="new Date(h.ts).toISOString()">{{ new Date(h.ts).toLocaleTimeString() }}</time>
           </header>
-          <pre class="terminal-response" :class="{ 'm3-error': !h.ok }">{{ h.response }}</pre>
+          <pre class="terminal-response" :class="{ 'm3-error': !h.ok }">{{ h.displayResponse }}<span v-if="h.hasOkStatus" class="at-ok">{{ h.displayResponse ? '\nOK' : 'OK' }}</span></pre>
         </article>
         <p v-if="atSending" role="status" class="m3-muted">等待模组响应…</p>
       </div>
@@ -273,6 +290,9 @@ function clearATHistory() {
   padding-left: 16px;
   font-size: 13px;
   line-height: 22px;
+}
+.at-ok {
+  color: var(--vh-success);
 }
 .at-empty {
   display: grid;

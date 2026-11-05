@@ -2,6 +2,9 @@
   width: 6px;
   height: 6px;
 }
+::-webkit-scrollbar-button {
+  display: none;
+}
 ::-webkit-scrollbar-track {
   background: transparent;
 }

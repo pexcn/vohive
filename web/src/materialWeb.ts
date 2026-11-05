@@ -9,7 +9,7 @@ import '@material/web/button/text-button.js'
 import { MdDialog } from '@material/web/dialog/dialog.js'
 import scrollbarStyles from './scrollbars.css?inline'
 import '@material/web/iconbutton/icon-button.js'
-import '@material/web/menu/menu.js'
+import { MdMenu } from '@material/web/menu/menu.js'
 import '@material/web/menu/menu-item.js'
 import '@material/web/progress/circular-progress.js'
 import '@material/web/progress/linear-progress.js'
@@ -19,10 +19,12 @@ import '@material/web/select/select-option.js'
 import '@material/web/switch/switch.js'
 import '@material/web/tabs/tabs.js'
 import '@material/web/tabs/primary-tab.js'
-import '@material/web/textfield/outlined-text-field.js'
+import { MdOutlinedTextField } from '@material/web/textfield/outlined-text-field.js'
 
-// Dialog scrollers live in Shadow DOM. Add the global rules to Lit's
-// finalized styles before Vue creates any dialog instances.
-const dialogScrollbarStyles = new CSSStyleSheet()
-dialogScrollbarStyles.replaceSync(scrollbarStyles)
-MdDialog.elementStyles = [...MdDialog.elementStyles, dialogScrollbarStyles]
+// Reuse the global scrollbar rules inside Material's scrolling Shadow DOMs.
+// MdMenu also covers the menus created internally by select components.
+const globalScrollbarStyles = new CSSStyleSheet()
+globalScrollbarStyles.replaceSync(scrollbarStyles)
+for (const component of [MdDialog, MdMenu, MdOutlinedTextField]) {
+  component.elementStyles = [...component.elementStyles, globalScrollbarStyles]
+}
