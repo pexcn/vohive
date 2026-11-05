@@ -72,6 +72,10 @@ const renaming = ref<string | null>(null)
 const showSensitive = useSensitiveVisibility()
 const renameValue = ref('')
 const selectedChip = ref<EsimEUICCInfo | null>(null)
+const selectedChipNumber = computed(() => profileGroups.value.findIndex(({ chip }) =>
+  chip?.eid === selectedChip.value?.eid &&
+  normalizeAidHex(chip?.aid) === normalizeAidHex(selectedChip.value?.aid)
+) + 1)
 const downloadDialogOpen = ref(false)
 const profileMenuOpen = ref(false)
 const profileMenu = ref<{ anchor: string; profile: EsimProfileItem; aidHex: string; deviceId: string } | null>(null)
@@ -729,17 +733,47 @@ onBeforeUnmount(() => {
       </md-menu>
       <md-dialog class="m3-dialog esim-chip-dialog" :open="!!selectedChip" @closed="selectedChip = null">
         <div slot="headline">芯片与证书信息</div>
-        <div slot="content" class="m3-stack esim-chip-details">
-          <p class="esim-eid">
-            <span class="esim-id-label">EID</span>
-            <SensitiveText :concealed="!showSensitive">{{ selectedChip?.eid || '' }}</SensitiveText>
+        <div slot="content" class="esim-chip-details">
+          <section class="chip-details-card chip-details-identity">
+            <span class="esim-avatar chip-avatar"><SvgIcon :svg="simIcon" /></span>
+            <div>
+              <h3>{{ selectedChipNumber ? `eUICC #${selectedChipNumber}` : 'eUICC' }}</h3>
+              <p class="chip-details-caption">芯片标识</p>
+            </div>
+            <p class="esim-eid">
+              <span class="esim-id-label">EID</span>
+              <SensitiveText :concealed="!showSensitive">{{ selectedChip?.eid || '' }}</SensitiveText>
+            </p>
+          </section>
+          <section
+            v-if="selectedChip?.manufacturer || selectedChip?.sas_accreditation_number"
+            class="chip-details-card"
+          >
+            <h3>芯片信息</h3>
+            <dl class="chip-details-meta">
+              <div v-if="selectedChip?.manufacturer"><dt>生产商</dt><dd>{{ selectedChip.manufacturer }}</dd></div>
+              <div v-if="selectedChip?.sas_accreditation_number"><dt>SAS</dt><dd class="chip-details-code">{{ selectedChip.sas_accreditation_number }}</dd></div>
+            </dl>
+          </section>
+          <section
+            v-if="selectedChip?.certificates?.length || selectedChip?.default_smdp_address || selectedChip?.root_ds_address"
+            class="chip-details-card"
+          >
+            <h3>证书与服务</h3>
+            <dl class="chip-details-meta">
+              <div v-if="selectedChip?.certificates?.length">
+                <dt>证书</dt>
+                <dd class="chip-details-certificates">
+                  <p v-for="(certificate, index) in selectedChip.certificates" :key="index">{{ certificate }}</p>
+                </dd>
+              </div>
+              <div v-if="selectedChip?.default_smdp_address"><dt>Default SM-DP+</dt><dd>{{ selectedChip.default_smdp_address }}</dd></div>
+              <div v-if="selectedChip?.root_ds_address"><dt>Root SM-DS</dt><dd>{{ selectedChip.root_ds_address }}</dd></div>
+            </dl>
+          </section>
+          <p v-if="selectedChip?.info_source" class="chip-details-source">
+            <span>信息来源</span><span class="chip-details-code">{{ selectedChip.info_source }}</span>
           </p>
-          <p v-if="selectedChip?.manufacturer">生产商：{{ selectedChip.manufacturer }}</p>
-          <p v-if="selectedChip?.certificates?.length">证书：{{ selectedChip.certificates.join(' · ') }}</p>
-          <p v-if="selectedChip?.default_smdp_address">Default SM-DP+：{{ selectedChip.default_smdp_address }}</p>
-          <p v-if="selectedChip?.root_ds_address">Root SM-DS：{{ selectedChip.root_ds_address }}</p>
-          <p v-if="selectedChip?.sas_accreditation_number">SAS：{{ selectedChip.sas_accreditation_number }}</p>
-          <p v-if="selectedChip?.info_source">来源：{{ selectedChip.info_source }}</p>
         </div>
         <div slot="actions"><md-text-button @click="selectedChip = null">关闭</md-text-button></div>
       </md-dialog>
@@ -1100,8 +1134,99 @@ h4 {
   --md-menu-item-label-text-color: var(--md-sys-color-error);
   --md-menu-item-leading-icon-color: var(--md-sys-color-error);
 }
+.esim-chip-dialog {
+  max-height: calc(100dvh - 48px);
+}
 .esim-chip-details {
+  display: grid;
+  gap: 12px;
   overflow-wrap: anywhere;
+}
+.chip-details-card {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface-container);
+}
+.chip-details-card > h3 {
+  font-size: 14px;
+  line-height: 20px;
+}
+.chip-details-identity {
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 4px;
+}
+.chip-details-caption {
+  margin-top: 2px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 16px;
+}
+.chip-details-identity .esim-eid {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 4px;
+  white-space: normal;
+}
+.chip-details-meta {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+.chip-details-meta > div {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  min-width: 0;
+}
+.chip-details-meta dt {
+  width: 96px;
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 20px;
+}
+.chip-details-meta dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--md-sys-color-on-surface);
+  font-size: 14px;
+  line-height: 22px;
+}
+.chip-details-meta .chip-details-code,
+.chip-details-code {
+  font: 12px/20px var(--vh-typeface-mono);
+}
+.chip-details-certificates {
+  display: grid;
+  gap: 8px;
+}
+.chip-details-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 4px 4px 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 20px;
+}
+@media (max-width: 600px) {
+  .chip-details-meta > div {
+    display: grid;
+    gap: 4px;
+  }
+  .chip-details-meta dt {
+    width: auto;
+  }
+  .chip-details-identity .esim-eid {
+    display: grid;
+    gap: 6px;
+  }
 }
 .esim-download-entry {
   display: grid;
