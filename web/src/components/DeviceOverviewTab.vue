@@ -6,7 +6,7 @@ import CountryFlag from './CountryFlag.vue'
 import visibleIcon from '@material-symbols/svg-400/outlined/visibility.svg?raw'
 import hiddenIcon from '@material-symbols/svg-400/outlined/visibility_off.svg?raw'
 import settingsIcon from '@material-symbols/svg-400/outlined/tune.svg?raw'
-import roamingIconSvg from '@material-symbols/svg-400/rounded/r_mobiledata.svg?raw'
+import roamingIcon from '../assets/roaming.svg?raw'
 import type { DeviceOverviewItem } from '../types/api'
 import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
 import { activeEsimProfileDisplayName } from './deviceOverviewActiveEsim'
@@ -34,8 +34,6 @@ const emit = defineEmits<{
 
 const showSensitive = useSensitiveVisibility()
 const showOperatorSelection = ref(false)
-// The Material R sits in a signal canvas corner; crop its padding for inline use.
-const roamingIcon = roamingIconSvg.replace('viewBox="0 -960 960 960"', 'viewBox="40 -920 360 400"')
 
 const trafficStateLabel = computed(() => {
   const status = props.device?.traffic_meta?.status
@@ -578,8 +576,8 @@ const networkPanelMessage = computed(() => {
   display: inline-flex;
 }
 .registration-status .roaming-indicator > .svg-icon {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 .network-empty {
   margin-top: 12px;

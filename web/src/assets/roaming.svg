@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <circle cx="12" cy="12" r="11" fill="var(--md-sys-color-secondary-container)"/>
+  <path d="M8.5 17V7h4a3.2 3.2 0 0 1 0 6.4h-4m3.3 0 4 3.6" fill="none" stroke="var(--md-sys-color-on-secondary-container)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
