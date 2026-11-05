@@ -116,7 +116,7 @@ function changePolicy(field: keyof PolicyMirror, event: Event) {
 </script>
 
 <template>
-  <section class="m3-inset m3-stack" aria-label="此 Profile 的卡策略">
+  <section class="m3-inset m3-stack" aria-label="此 eSIM 配置的卡策略">
     <p v-if="loading" class="m3-muted" role="status">正在加载策略…</p>
     <div v-else-if="loadFailed" class="m3-row">
       <span class="m3-error">策略加载失败</span

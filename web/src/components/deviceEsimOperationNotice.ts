@@ -39,7 +39,7 @@ export function describeDeleteResultNotice(result: { warning?: string; space_del
   const delta = describeSpaceDelta(result.space_delta)
   return {
     tone: 'success',
-    message: delta ? `Profile 删除成功，${delta}` : 'Profile 删除成功'
+    message: delta ? `eSIM 配置删除成功，${delta}` : 'eSIM 配置删除成功'
   }
 }
 
@@ -59,6 +59,6 @@ export function describeDownloadTerminalNotice(event: { step: string; msg: strin
   const delta = describeSpaceDelta(event.space_delta)
   return {
     tone: 'success',
-    message: delta ? `Profile 下载成功，${delta}` : 'Profile 下载成功'
+    message: delta ? `eSIM 配置下载成功，${delta}` : 'eSIM 配置下载成功'
   }
 }

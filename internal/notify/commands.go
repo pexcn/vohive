@@ -457,7 +457,7 @@ func (m *Manager) handleCmdEsim(cmdCtx CommandContext, args []string) string {
 
 	profileGroups, err := worker.EsimMgr.GetProfiles()
 	if err != nil {
-		return fmt.Sprintf("❌ 获取 eSIM profiles 失败: %v", err)
+		return fmt.Sprintf("❌ 获取 eSIM 配置失败: %v", err)
 	}
 
 	if len(profileGroups) == 0 {
@@ -528,7 +528,7 @@ func (m *Manager) handleCmdSwitch(cmdCtx CommandContext, args []string) string {
 	// 获取当前 profiles 列表（用于序号匹配和获取 aidHex）
 	profileGroups, err := worker.EsimMgr.GetProfiles()
 	if err != nil {
-		return fmt.Sprintf("❌ 获取 eSIM profiles 失败: %v", err)
+		return fmt.Sprintf("❌ 获取 eSIM 配置失败: %v", err)
 	}
 
 	// 将所有 profiles 展平为有序列表，同时记录每个 profile 的 aidHex
@@ -580,7 +580,7 @@ func (m *Manager) handleCmdSwitch(cmdCtx CommandContext, args []string) string {
 	}
 
 	if !found {
-		return fmt.Sprintf("❌ 未找到匹配的 profile: %s\n请使用 /esim %s 查看可用列表", target, deviceID)
+		return fmt.Sprintf("❌ 未找到匹配的 eSIM 配置: %s\n请使用 /esim %s 查看可用列表", target, deviceID)
 	}
 
 	profileName := targetProfile.name
@@ -598,7 +598,7 @@ func (m *Manager) handleCmdSwitch(cmdCtx CommandContext, args []string) string {
 				deviceID, profileName, targetProfile.iccid, err))
 		} else {
 
-			cmdCtx.Reply(fmt.Sprintf("✅ eSIM 切换成功 [%s]\n新 Profile: %s\nICCID: %s\n",
+			cmdCtx.Reply(fmt.Sprintf("✅ eSIM 切换成功 [%s]\n新 eSIM 配置: %s\nICCID: %s\n",
 				deviceID, profileName, targetProfile.iccid))
 		}
 	}()

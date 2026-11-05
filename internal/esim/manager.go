@@ -1609,7 +1609,7 @@ func (m *Manager) loadProfilesFresh() ([]EUICCProfiles, error) {
 			"AID", aidHex,
 			"EID", eidStr,
 			"profileCount", len(profiles))
-		logger.Info("获取 eUICC profiles",
+		logger.Info("获取 eUICC eSIM 配置",
 			"device", m.deviceID,
 			"AID", aidHex,
 			"EID", eidStr,
@@ -1663,7 +1663,7 @@ func (m *Manager) loadOverviewFresh() (*EsimOverview, error) {
 			"AID", aidHex,
 			"EID", eidStr,
 			"profileCount", len(profiles))
-		logger.Info("获取 eUICC 信息和 profiles",
+		logger.Info("获取 eUICC 信息和 eSIM 配置",
 			"device", m.deviceID,
 			"AID", aidHex,
 			"EID", eidStr,
@@ -2006,7 +2006,7 @@ func (m *Manager) finalizeEnableProfileResult(targetICCID string, enableErr erro
 			"target", targetICCID)
 		return nil
 	}
-	return fmt.Errorf("启用 profile %s 失败: %w", targetICCID, enableErr)
+	return fmt.Errorf("启用 eSIM 配置 %s 失败: %w", targetICCID, enableErr)
 }
 
 type apduSwitchBarrier interface {
@@ -2127,7 +2127,7 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 			_ = m.closeLPAClientForOperation("switch_profile_deferred", client)
 		}
 	}()
-	logger.Info("开始切换 eSIM profile",
+	logger.Info("开始切换 eSIM 配置",
 		"device", m.deviceID, "target", targetICCID, "AID", fmt.Sprintf("%X", targetAID))
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -2180,7 +2180,7 @@ func (m *Manager) SwitchProfileWithResult(ctx context.Context, targetICCID strin
 	patched := m.patchCachedActiveProfile(targetICCID, fmt.Sprintf("%X", targetAID))
 	result.CachePatched = patched
 
-	logger.Info("eSIM profile 切换指令已提交，后处理将异步继续",
+	logger.Info("eSIM 配置切换指令已提交，后处理将异步继续",
 		"device", m.deviceID, "target", targetICCID, "cache_patched", patched, "degraded_reason", result.DegradedReason)
 
 	// 6. 切卡后回调改为 Ready + Delay 门控，避免与 eSIM 重读/VoWiFi 鉴权冲突。
@@ -2240,7 +2240,7 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 		switchToken, err = m.onBeforeSwitch(operation, "")
 		disableStarted = switchToken != 0 || err == nil
 		if err != nil {
-			return fmt.Errorf("禁用 profile 准备失败: %w", err)
+			return fmt.Errorf("禁用 eSIM 配置准备失败: %w", err)
 		}
 	}
 	switchBarrier, err := m.beginSwitchAPDUBarrier(ctx)
@@ -2256,7 +2256,7 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 	}
 	defer releaseSwitchBarrier("")
 	if err != nil {
-		return fmt.Errorf("等待禁用 profile APDU barrier 失败: %w", err)
+		return fmt.Errorf("等待禁用 eSIM 配置 APDU barrier 失败: %w", err)
 	}
 	if aidHex == "" {
 		targetAID, err = m.findAIDForICCID(targetICCID)
@@ -2274,7 +2274,7 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 			_ = m.closeLPAClientForOperation("disable_profile_deferred", client)
 		}
 	}()
-	logger.Info("开始禁用 eSIM profile",
+	logger.Info("开始禁用 eSIM 配置",
 		"device", m.deviceID, "ICCID", targetICCID, "AID", fmt.Sprintf("%X", targetAID))
 	if err := ctx.Err(); err != nil {
 		return err
@@ -2295,7 +2295,7 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 				"device", m.deviceID,
 				"target", targetICCID)
 		} else {
-			return fmt.Errorf("禁用 profile %s 失败: %w", targetICCID, disableErr)
+			return fmt.Errorf("禁用 eSIM 配置 %s 失败: %w", targetICCID, disableErr)
 		}
 	}
 	m.beginSwitchOverviewSuppression()
@@ -2303,7 +2303,7 @@ func (m *Manager) DisableProfile(ctx context.Context, targetICCID string, aidHex
 	m.invalidateOverviewCache("disable_profile")
 	m.triggerOverviewReload("disable_profile")
 
-	logger.Info("eSIM profile 禁用指令已提交",
+	logger.Info("eSIM 配置禁用指令已提交",
 		"device", m.deviceID,
 		"target", targetICCID)
 
@@ -2529,19 +2529,19 @@ func downloadNotificationBaseline(preDownloadNotifications []*sgp22.Notification
 func downloadNotificationResult(observed bool, retrieveErr error, handleErr error) DownloadProfileResult {
 	if !observed {
 		return DownloadProfileResult{
-			Warning:     "Profile 下载完成，但通知未完全确认",
+			Warning:     "eSIM 配置下载完成，但通知未完全确认",
 			WarningCode: "download_notification_not_observed",
 		}
 	}
 	if retrieveErr != nil {
 		return DownloadProfileResult{
-			Warning:     "Profile 下载完成，但通知未完全确认",
+			Warning:     "eSIM 配置下载完成，但通知未完全确认",
 			WarningCode: "download_notification_retrieve_failed",
 		}
 	}
 	if handleErr != nil {
 		return DownloadProfileResult{
-			Warning:     "Profile 下载完成，但通知未完全确认",
+			Warning:     "eSIM 配置下载完成，但通知未完全确认",
 			WarningCode: "download_notification_handle_failed",
 		}
 	}
@@ -2550,7 +2550,7 @@ func downloadNotificationResult(observed bool, retrieveErr error, handleErr erro
 
 func downloadFinalizeRecoveredResult() DownloadProfileResult {
 	return DownloadProfileResult{
-		Warning:     "Profile 已安装，下载会话收尾返回异常；安装通知已发送，已按成功处理",
+		Warning:     "eSIM 配置已安装，下载会话收尾返回异常；安装通知已发送，已按成功处理",
 		WarningCode: "download_installed_finalize_error_recovered",
 	}
 }
@@ -2629,19 +2629,19 @@ func isRecoverableDownloadInstallFinalizeError(err error) bool {
 func deleteNotificationResult(observed bool, retrieveErr error, handleErr error) DeleteProfileResult {
 	if !observed {
 		return DeleteProfileResult{
-			Warning:     "Profile 已删除，但删除通知发送未完全确认",
+			Warning:     "eSIM 配置已删除，但删除通知发送未完全确认",
 			WarningCode: "delete_notification_not_observed",
 		}
 	}
 	if retrieveErr != nil {
 		return DeleteProfileResult{
-			Warning:     "Profile 已删除，但删除通知发送未完全确认",
+			Warning:     "eSIM 配置已删除，但删除通知发送未完全确认",
 			WarningCode: "delete_notification_retrieve_failed",
 		}
 	}
 	if handleErr != nil {
 		return DeleteProfileResult{
-			Warning:     "Profile 已删除，但删除通知发送未完全确认",
+			Warning:     "eSIM 配置已删除，但删除通知发送未完全确认",
 			WarningCode: "delete_notification_handle_failed",
 		}
 	}
@@ -3067,7 +3067,7 @@ func (m *Manager) DownloadProfile(ctx context.Context, aidHex, smdp, matchingID,
 		m.parseEUICCInfo2ForEID(client, &checkInfo)
 		beforeFreeNvramBytes = checkInfo.FreeNvramBytes
 		if checkInfo.FreeNvramBytes > 0 && checkInfo.FreeNvramBytes < 81920 {
-			return DownloadProfileResult{}, fmt.Errorf("已触发防炸卡保护拦截：目标 EID 剩余空间极度紧张（%d Bytes / %s，低于安全阈值 80KB）。请先删除多余的 Profile 释放空间后再试。",
+			return DownloadProfileResult{}, fmt.Errorf("已触发防炸卡保护拦截：目标 EID 剩余空间极度紧张（%d Bytes / %s，低于安全阈值 80KB）。请先删除多余的 eSIM 配置释放空间后再试。",
 				checkInfo.FreeNvramBytes, checkInfo.FreeNvram)
 		}
 		logger.Info("防炸卡预检通过", "device", m.deviceID, "freeNvram", checkInfo.FreeNvram)
@@ -3097,7 +3097,7 @@ func (m *Manager) DownloadProfile(ctx context.Context, aidHex, smdp, matchingID,
 		ConfirmationCode: strings.TrimSpace(confirmationCode),
 	}
 
-	logger.Info("开始下载 eSIM profile",
+	logger.Info("开始下载 eSIM 配置",
 		"device", m.deviceID,
 		"smdp", parsedURL.Host,
 		"matchingID", matchingID,
@@ -3110,17 +3110,17 @@ func (m *Manager) DownloadProfile(ctx context.Context, aidHex, smdp, matchingID,
 			case lpa.DownloadStageAuthenticateClient:
 				report("auth_client", "正在向 SM-DP+ 进行客户端身份认证...", 30)
 			case lpa.DownloadStageAuthenticateServer:
-				report("auth_server", "正在向 SM-DP+ 请求 Profile 数据包...", 60)
+				report("auth_server", "正在向 SM-DP+ 请求 eSIM 配置数据包...", 60)
 			case lpa.DownloadStageInstall:
 				installStarted = true
-				report("install", "正在将 Profile 写入 eUICC...", 80)
+				report("install", "正在将 eSIM 配置写入 eUICC...", 80)
 			}
 		},
 	}
 	downloadResult, err := client.DownloadProfile(ctx, activationCode, opts)
 	if err != nil {
 		downloadErr := NewDownloadProfileError(err)
-		logger.Warn("下载 eSIM profile 失败",
+		logger.Warn("下载 eSIM 配置失败",
 			"device", m.deviceID,
 			"smdp", parsedURL.Host,
 			"matchingID", matchingID,
@@ -3154,7 +3154,7 @@ func (m *Manager) DownloadProfile(ctx context.Context, aidHex, smdp, matchingID,
 	afterFreeNvramBytes := m.readFreeNvramBytesWithRetry(client, 3, 300*time.Millisecond)
 	result.SpaceDelta = buildSpaceDeltaForOperation(spaceDeltaOperationDownload, beforeFreeNvramBytes, afterFreeNvramBytes)
 
-	logger.Info("eSIM profile 下载完成",
+	logger.Info("eSIM 配置下载完成",
 		"device", m.deviceID,
 		"AID", aidHex,
 		"warning_code", result.WarningCode,
@@ -3274,10 +3274,10 @@ func (m *Manager) RenameProfile(targetICCID string, newName string, aidHex strin
 
 	// 3. 设置新名称
 	if err := client.SetNickname(iccid, newName); err != nil {
-		return fmt.Errorf("修改 profile 名称失败: %w", err)
+		return fmt.Errorf("修改 eSIM 配置名称失败: %w", err)
 	}
 
-	logger.Info("eSIM profile 名称修改成功",
+	logger.Info("eSIM 配置名称修改成功",
 		"device", m.deviceID,
 		"ICCID", targetICCID,
 		"newName", newName)
@@ -3334,7 +3334,7 @@ func (m *Manager) DeleteProfile(targetICCID string, aidHex string) (DeleteProfil
 	}
 	defer m.closeLPAClientForOperation("delete_profile", client)
 
-	logger.Info("开始删除 eSIM profile",
+	logger.Info("开始删除 eSIM 配置",
 		"device", m.deviceID,
 		"ICCID", targetICCID,
 		"AID", fmt.Sprintf("%X", targetAID))
@@ -3354,7 +3354,7 @@ func (m *Manager) DeleteProfile(targetICCID string, aidHex string) (DeleteProfil
 	if err := client.DeleteProfile(iccid); err != nil {
 		return DeleteProfileResult{}, NewDeleteProfileError(
 			DeleteProfileErrorInternal,
-			fmt.Sprintf("删除 profile %s 失败: %v", targetICCID, err),
+			fmt.Sprintf("删除 eSIM 配置 %s 失败: %v", targetICCID, err),
 			err,
 		)
 	}
@@ -3410,7 +3410,7 @@ func (m *Manager) DeleteProfile(targetICCID string, aidHex string) (DeleteProfil
 	afterFreeNvramBytes := m.readFreeNvramBytesWithRetry(client, 3, 300*time.Millisecond)
 	result.SpaceDelta = buildSpaceDeltaForOperation(spaceDeltaOperationDelete, beforeFreeNvramBytes, afterFreeNvramBytes)
 
-	logger.Info("eSIM profile 删除完成",
+	logger.Info("eSIM 配置删除完成",
 		"device", m.deviceID,
 		"ICCID", targetICCID,
 		"delete_ok", true,

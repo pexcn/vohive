@@ -1776,7 +1776,7 @@ func respondEsimBusy(c *gin.Context, reason string, err error) {
 func esimDeleteSuccessBody(result esim.DeleteProfileResult) gin.H {
 	body := gin.H{
 		"status":  "ok",
-		"message": "Profile 删除成功",
+		"message": "eSIM 配置删除成功",
 	}
 	if warning := strings.TrimSpace(result.Warning); warning != "" {
 		body["warning"] = warning
@@ -1791,7 +1791,7 @@ func esimDeleteSuccessBody(result esim.DeleteProfileResult) gin.H {
 }
 
 func formatEsimDownloadDoneEvent(result esim.DownloadProfileResult) string {
-	base := `{"step":"done","msg":"Profile 下载完成","pct":100`
+	base := `{"step":"done","msg":"eSIM 配置下载完成","pct":100`
 	if result.SpaceDelta != nil {
 		spaceDeltaJSON, err := json.Marshal(result.SpaceDelta)
 		if err == nil {
@@ -1951,7 +1951,7 @@ func (s *Server) handleEsimSwitchProfile(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, esimSwitchResponse{
-		Message:            "eSIM Profile 切换指令已提交，设备信息将异步刷新",
+		Message:            "eSIM 配置切换指令已提交，设备信息将异步刷新",
 		TargetICCID:        result.TargetICCID,
 		SwitchToken:        result.SwitchToken,
 		SwitchPhase:        string(result.Phase),
@@ -2061,7 +2061,7 @@ func (s *Server) handleEsimGetOverview(c *gin.Context) {
 //	{"step":"auth_server","msg":"...","pct":60}
 //	{"step":"install","msg":"...","pct":80}
 //	{"step":"notify","msg":"...","pct":90}
-//	{"step":"done","msg":"Profile 下载完成","pct":100}
+//	{"step":"done","msg":"eSIM 配置下载完成","pct":100}
 //	{"step":"error","msg":"<错误信息>","pct":-1}
 func (s *Server) handleEsimDownloadProfile(c *gin.Context) {
 	id := deviceIDParam(c)
@@ -2148,7 +2148,7 @@ func (s *Server) handleEsimRenameProfile(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "Profile 名称修改成功"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "eSIM 配置名称修改成功"})
 }
 
 // handleEsimDeleteProfile 删除 eSIM profile
@@ -2176,7 +2176,7 @@ func (s *Server) handleEsimDeleteProfile(c *gin.Context) {
 			respondEsimBusy(c, "delete_profile", err)
 			return
 		}
-		c.JSON(esimDeleteHTTPStatus(err), gin.H{"error": "删除 profile 失败: " + err.Error()})
+		c.JSON(esimDeleteHTTPStatus(err), gin.H{"error": "删除 eSIM 配置失败: " + err.Error()})
 		return
 	}
 

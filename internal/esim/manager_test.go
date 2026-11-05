@@ -1968,7 +1968,7 @@ func TestNotifyModemResetSkipsReloadDuringSwitchSuppressionWindow(t *testing.T) 
 
 func TestDeleteProfileResultPreservesWarningDetails(t *testing.T) {
 	result := DeleteProfileResult{
-		Warning:     "Profile 已删除，但删除通知发送未完全确认",
+		Warning:     "eSIM 配置已删除，但删除通知发送未完全确认",
 		WarningCode: "delete_notification_not_observed",
 		SpaceDelta: &SpaceDelta{
 			Direction: SpaceDeltaDirectionReleased,
@@ -1976,7 +1976,7 @@ func TestDeleteProfileResultPreservesWarningDetails(t *testing.T) {
 		},
 	}
 
-	if result.Warning != "Profile 已删除，但删除通知发送未完全确认" {
+	if result.Warning != "eSIM 配置已删除，但删除通知发送未完全确认" {
 		t.Fatalf("Warning=%q want delete warning", result.Warning)
 	}
 	if result.WarningCode != "delete_notification_not_observed" {
@@ -2204,7 +2204,7 @@ func TestClassifyDownloadErrorDoesNotTreatNonLoadProfileElementsReason10AsInsuff
 
 func TestClassifyDownloadErrorSeesWrappedBPPError(t *testing.T) {
 	baseErr := &sgp22.LoadBoundProfilePackageError{BPPCommandID: 5, ErrorReason: 9}
-	err := fmt.Errorf("下载 profile 失败: %w (cancel session error: remote failed)", baseErr)
+	err := fmt.Errorf("下载 eSIM 配置失败: %w (cancel session error: remote failed)", baseErr)
 
 	info := ClassifyDownloadError(err)
 	if info.Code != DownloadErrorEUICCIccidAlreadyExists {

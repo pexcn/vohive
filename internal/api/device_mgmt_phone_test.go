@@ -463,7 +463,7 @@ func TestHandleEsimGetOverviewRefreshPreservesResponseSemanticsWhenGetFailsAfter
 
 func TestEsimDeleteSuccessBodyIncludesWarningFields(t *testing.T) {
 	body := esimDeleteSuccessBody(esim.DeleteProfileResult{
-		Warning:     "Profile 已删除，但删除通知发送未完全确认",
+		Warning:     "eSIM 配置已删除，但删除通知发送未完全确认",
 		WarningCode: "delete_notification_not_observed",
 		SpaceDelta: &esim.SpaceDelta{
 			Direction: esim.SpaceDeltaDirectionReleased,
@@ -471,10 +471,10 @@ func TestEsimDeleteSuccessBodyIncludesWarningFields(t *testing.T) {
 		},
 	})
 
-	if body["status"] != "ok" || body["message"] != "Profile 删除成功" {
+	if body["status"] != "ok" || body["message"] != "eSIM 配置删除成功" {
 		t.Fatalf("body=%v want ok delete success base fields", body)
 	}
-	if body["warning"] != "Profile 已删除，但删除通知发送未完全确认" {
+	if body["warning"] != "eSIM 配置已删除，但删除通知发送未完全确认" {
 		t.Fatalf("warning=%v want propagated warning", body["warning"])
 	}
 	if body["warning_code"] != "delete_notification_not_observed" {
@@ -501,18 +501,18 @@ func TestFormatEsimDownloadDoneEventIncludesSpaceDelta(t *testing.T) {
 		},
 	})
 
-	if !containsAll(event, `"step":"done"`, `"msg":"Profile 下载完成"`, `"pct":100`, `"space_delta":{"direction":"consumed","bytes":8192}`) {
+	if !containsAll(event, `"step":"done"`, `"msg":"eSIM 配置下载完成"`, `"pct":100`, `"space_delta":{"direction":"consumed","bytes":8192}`) {
 		t.Fatalf("event=%q want done payload with space_delta", event)
 	}
 }
 
 func TestFormatEsimDownloadDoneEventIncludesWarningFields(t *testing.T) {
 	event := formatEsimDownloadDoneEvent(esim.DownloadProfileResult{
-		Warning:     "Profile 下载完成，但通知未完全确认",
+		Warning:     "eSIM 配置下载完成，但通知未完全确认",
 		WarningCode: "download_notification_handle_failed",
 	})
 
-	if !containsAll(event, `"step":"done"`, `"msg":"Profile 下载完成"`, `"pct":100`, `"warning":"Profile 下载完成，但通知未完全确认"`, `"warning_code":"download_notification_handle_failed"`) {
+	if !containsAll(event, `"step":"done"`, `"msg":"eSIM 配置下载完成"`, `"pct":100`, `"warning":"eSIM 配置下载完成，但通知未完全确认"`, `"warning_code":"download_notification_handle_failed"`) {
 		t.Fatalf("event=%q want done payload with warning fields", event)
 	}
 }
@@ -521,12 +521,12 @@ func TestWriteEsimDownloadDoneEventWritesSingleWarningDoneFrame(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	writeEsimDownloadDoneEvent(ctx, esim.DownloadProfileResult{
-		Warning:     "Profile 下载完成，但通知未完全确认",
+		Warning:     "eSIM 配置下载完成，但通知未完全确认",
 		WarningCode: "download_notification_handle_failed",
 	})
 
 	body := recorder.Body.String()
-	if !containsAll(body, `data: {"step":"done"`, `"warning":"Profile 下载完成，但通知未完全确认"`, `"warning_code":"download_notification_handle_failed"`) {
+	if !containsAll(body, `data: {"step":"done"`, `"warning":"eSIM 配置下载完成，但通知未完全确认"`, `"warning_code":"download_notification_handle_failed"`) {
 		t.Fatalf("body=%q want SSE done frame with warning fields", body)
 	}
 }
@@ -539,7 +539,7 @@ func TestFormatEsimDownloadErrorEventKeepsLegacyFieldsAndAddsCode(t *testing.T) 
 
 	if !containsAll(event,
 		`"step":"error"`,
-		`"msg":"下载失败: eUICC 安装 profile 时空间不足，请删除未使用的 profile 后重试"`,
+		`"msg":"下载失败: eUICC 安装 eSIM 配置时空间不足，请删除未使用的 eSIM 配置后重试"`,
 		`"pct":-1`,
 		`"code":"euicc_insufficient_memory"`,
 		`"details":"loadProfileElements,installFailedDueToInsufficientMemoryForProfile"`,
@@ -563,14 +563,14 @@ func TestWriteEsimDeleteSuccessJSONWritesWarningFields(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	writeEsimDeleteSuccessJSON(ctx, esim.DeleteProfileResult{
-		Warning:     "Profile 已删除，但删除通知发送未完全确认",
+		Warning:     "eSIM 配置已删除，但删除通知发送未完全确认",
 		WarningCode: "delete_notification_not_observed",
 	})
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status=%d want=%d body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
 	}
-	if body := recorder.Body.String(); body == "" || !containsAll(body, `"status":"ok"`, `"message":"Profile 删除成功"`, `"warning":"Profile 已删除，但删除通知发送未完全确认"`, `"warning_code":"delete_notification_not_observed"`) {
+	if body := recorder.Body.String(); body == "" || !containsAll(body, `"status":"ok"`, `"message":"eSIM 配置删除成功"`, `"warning":"eSIM 配置已删除，但删除通知发送未完全确认"`, `"warning_code":"delete_notification_not_observed"`) {
 		t.Fatalf("body=%q want success-with-warning delete payload", body)
 	}
 }
@@ -580,7 +580,7 @@ func TestEsimDownloadExecPropagatesWarningResult(t *testing.T) {
 	result, err := esimDownloadExec(func(ctx context.Context, aidHex, smdp, matchingID, confirmationCode, imei string, progressFn esim.DownloadProgressFn) (esim.DownloadProfileResult, error) {
 		gotIMEI = imei
 		return esim.DownloadProfileResult{
-			Warning:     "Profile 下载完成，但通知未完全确认",
+			Warning:     "eSIM 配置下载完成，但通知未完全确认",
 			WarningCode: "download_notification_handle_failed",
 		}, nil
 	}, context.Background(), "A000", "example.com", "", "", "350225641234561", nil)
@@ -598,7 +598,7 @@ func TestEsimDownloadExecPropagatesWarningResult(t *testing.T) {
 func TestEsimDeleteExecPropagatesWarningResult(t *testing.T) {
 	result, err := esimDeleteExec(func(string, string) (esim.DeleteProfileResult, error) {
 		return esim.DeleteProfileResult{
-			Warning:     "Profile 已删除，但删除通知发送未完全确认",
+			Warning:     "eSIM 配置已删除，但删除通知发送未完全确认",
 			WarningCode: "delete_notification_not_observed",
 		}, nil
 	}, "8986001234567890123", "A000")

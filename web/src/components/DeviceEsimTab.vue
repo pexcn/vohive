@@ -56,7 +56,7 @@ const profileGroups = computed(() => profiles.value.map(group => {
   const entries = group.profiles || []
   const chip = chips.find(item => !!aid && normalizeAidHex(item.aid) === aid) ||
     chips.find(item => !!group.eid && item.eid === group.eid)
-  return { ...group, profiles: entries, chip, enabledCount: entries.filter(profile => profile.state === 1).length }
+  return { ...group, profiles: entries, chip }
 }))
 
 // 操作状态
@@ -319,7 +319,7 @@ async function fetchProfiles(refresh = false) {
   } catch (e: unknown) {
     notify({
       tone: 'error',
-      message: errorMessage(e, '获取 eSIM Profiles 失败')
+      message: errorMessage(e, '获取 eSIM 配置失败')
     })
   } finally {
     profilesRefreshing.value = false
@@ -338,8 +338,8 @@ async function switchProfile(iccid: string, currentState: number, aidHex: string
   const isCurrent = () => props.deviceId === deviceId && requestId === switchRequestId
   const action = currentState === 1 ? '禁用' : '启用'
   const confirmed = await requestConfirmation({
-    message: `确定要${action}此 Profile (${iccid}) 吗？切换后设备会短暂断网。`,
-    title: `${action} Profile`,
+    message: `确定要${action}此 eSIM 配置 (${iccid}) 吗？切换后设备会短暂断网。`,
+    title: `${action} eSIM 配置`,
     confirmLabel: action,
     cancelLabel: '取消',
     danger: true
@@ -403,8 +403,8 @@ function cancelRename() {
 async function deleteProfile(iccid: string, name: string, aidHex: string) {
   const last4 = iccid.slice(-4)
   const { value: input } = await requestConfirmation({
-    message: `此操作不可逆！请输入 ICCID 后 4 位「${last4}」以确认删除 Profile「${name}」`,
-    title: '⚠️ 删除 Profile',
+    message: `此操作不可逆！请输入 ICCID 后 4 位「${last4}」以确认删除 eSIM 配置「${name}」`,
+    title: '⚠️ 删除 eSIM 配置',
     confirmLabel: '确认删除',
     cancelLabel: '取消',
     danger: true,
@@ -496,7 +496,7 @@ async function downloadProfile() {
           const evt = JSON.parse(payload) as { step: string; msg: string; pct: number; code?: string; warning?: string; space_delta?: EsimSpaceDelta }
           if (evt.step === 'error') {
             downloadError.value = evt.code === 'euicc_insufficient_memory'
-              ? 'eUICC 安装 profile 时空间不足，请删除未使用的 profile 后重试。'
+              ? 'eUICC 安装 eSIM 配置时空间不足，请删除未使用的 eSIM 配置后重试。'
               : evt.msg
             break outer
           }
@@ -572,7 +572,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="m3-stack esim-page" aria-label="eSIM 管理">
-    <LoadingScreen v-if="loading" title="读取 eUICC…" subtitle="正在获取芯片和 Profile 信息" />
+    <LoadingScreen v-if="loading" title="读取 eUICC…" subtitle="正在获取芯片和 eSIM 配置信息" />
     <template v-else>
       <div class="m3-row esim-toolbar">
         <div class="m3-heading">
@@ -612,7 +612,7 @@ onBeforeUnmount(() => {
           <div class="esim-chip-identity">
             <div class="esim-chip-title">
               <h3>eUICC #{{ index + 1 }}</h3>
-              <span class="m3-muted esim-count">{{ group.profiles.length }} 个 Profile</span>
+              <span class="m3-muted esim-count">{{ group.profiles.length }} 项 eSIM 配置</span>
             </div>
             <p class="m3-muted esim-eid" :title="showSensitive ? group.eid : undefined">
               <span class="esim-id-label">EID</span>
@@ -637,8 +637,7 @@ onBeforeUnmount(() => {
         >{{ recentSpaceDelta.message }}</p>
         <div v-if="group.profiles.length" class="esim-profile-list">
           <div class="esim-profile-list-heading">
-            <span>Profiles</span>
-            <span>{{ group.enabledCount }} 个已启用 · {{ group.profiles.length - group.enabledCount }} 个未启用</span>
+            <span>eSIM 配置</span>
           </div>
           <article
             v-for="profile in group.profiles"
@@ -688,7 +687,7 @@ onBeforeUnmount(() => {
             </div>
             <form v-else class="m3-form esim-rename-form" @submit.prevent="saveRename(profile.iccid, group.aid_hex)">
               <md-outlined-text-field
-                label="Profile 名称"
+                label="eSIM 配置名称"
                 name="esim-profile-name"
                 autofocus
                 :value="renameValue"
@@ -711,7 +710,7 @@ onBeforeUnmount(() => {
             />
           </article>
         </div>
-        <p v-else class="m3-muted esim-empty-profiles">暂无 Profile</p>
+        <p v-else class="m3-muted esim-empty-profiles">暂无 eSIM 配置</p>
       </section>
       <md-menu
         class="esim-profile-menu"
@@ -842,7 +841,7 @@ onBeforeUnmount(() => {
       <section v-if="chipInfo" class="m3-inset esim-download-entry">
         <span class="esim-avatar download-avatar" aria-hidden="true"><SvgIcon :svg="downloadIcon" /></span>
         <div class="esim-download-heading">
-          <h3>下载新 Profile</h3>
+          <h3>下载新 eSIM 配置</h3>
           <p
             class="m3-muted"
             :class="{ 'm3-error': !!downloadError }"
@@ -851,11 +850,11 @@ onBeforeUnmount(() => {
         </div>
         <md-filled-tonal-button @click="downloadDialogOpen = true">
           <SvgIcon slot="icon" :svg="addIcon" />
-          {{ downloadError ? '查看详情' : downloading ? '查看进度' : '下载 Profile' }}
+          {{ downloadError ? '查看详情' : downloading ? '查看进度' : '下载 eSIM 配置' }}
         </md-filled-tonal-button>
       </section>
       <md-dialog class="m3-dialog esim-download-dialog" :open="downloadDialogOpen" @closed="downloadDialogOpen = false">
-        <div slot="headline">下载新 Profile</div>
+        <div slot="headline">下载新 eSIM 配置</div>
         <form :id="`esim-download-form-${deviceId}`" slot="content" class="m3-form" @submit.prevent="downloadProfile">
           <div class="m3-form-grid">
             <md-outlined-text-field
@@ -903,7 +902,7 @@ onBeforeUnmount(() => {
               :key="downloadSessionId"
               :value="downloadProgress / 100"
               :indeterminate="downloading && downloadProgress === 0"
-              aria-label="Profile 下载进度"
+              aria-label="eSIM 配置下载进度"
             />
             <p
               :class="downloadError ? 'm3-error' : 'm3-muted'"
@@ -1033,10 +1032,6 @@ h4 {
   border-radius: 12px;
 }
 .esim-profile-list-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   padding: 12px 16px;
   font-size: 12px;
   line-height: 16px;

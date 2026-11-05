@@ -31,7 +31,7 @@ func (e *DeleteProfileError) Error() string {
 	if e.Err != nil {
 		return e.Err.Error()
 	}
-	return "delete profile failed"
+	return "删除 eSIM 配置失败"
 }
 
 func (e *DeleteProfileError) Unwrap() error { return e.Err }
