@@ -648,7 +648,13 @@ onBeforeUnmount(() => {
             <div v-if="renaming !== profile.iccid" class="esim-profile-row">
               <span class="esim-avatar" aria-hidden="true"><SvgIcon :svg="simIcon" /></span>
               <div class="esim-profile-identity">
-                <h4><SensitiveText :concealed="!profile.name && !showSensitive">{{ profile.name || profile.iccid }}</SensitiveText></h4>
+                <div class="esim-profile-heading">
+                  <h4><SensitiveText :concealed="!profile.name && !showSensitive">{{ profile.name || profile.iccid }}</SensitiveText></h4>
+                  <span class="esim-profile-state">
+                    <span v-if="profile.state === 1" class="esim-state-dot" aria-hidden="true"></span>
+                    {{ profile.state_text || (profile.state === 1 ? '已启用' : '未启用') }}
+                  </span>
+                </div>
                 <p class="m3-muted esim-profile-meta">
                   <span v-if="profile.service_provider_name" class="esim-provider">{{ profile.service_provider_name }}</span>
                   <span v-if="profile.service_provider_name" class="esim-meta-separator" aria-hidden="true">·</span>
@@ -658,17 +664,13 @@ onBeforeUnmount(() => {
                   </span>
                 </p>
               </div>
-              <span class="esim-profile-state">
-                <span v-if="profile.state === 1" class="esim-state-dot" aria-hidden="true"></span>
-                {{ profile.state_text || (profile.state === 1 ? '已启用' : '未启用') }}
-              </span>
               <div class="m3-actions esim-profile-actions">
-                <md-text-button
+                <md-outlined-button
                   v-if="profile.state !== 1"
                   class="esim-switch"
                   :disabled="switchBusy || deleting !== null || downloading"
                   @click="switchProfile(profile.iccid, profile.state, group.aid_hex)"
-                >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-text-button>
+                >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-outlined-button>
                 <md-text-button
                   class="esim-policy"
                   :aria-expanded="expandedPolicyIccid === profile.iccid"
@@ -1046,13 +1048,20 @@ h4 {
 }
 .esim-profile-row {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto auto;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   min-height: 88px;
   padding: 12px 16px;
 }
+.esim-profile-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .esim-profile-identity h4 {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1088,6 +1097,7 @@ h4 {
 }
 .esim-profile-state {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
@@ -1111,7 +1121,12 @@ h4 {
 }
 .esim-profile-actions {
   flex-wrap: nowrap;
-  gap: 0;
+  gap: 4px;
+}
+.esim-switch {
+  --md-outlined-button-container-height: 36px;
+  --md-outlined-button-leading-space: 20px;
+  --md-outlined-button-trailing-space: 20px;
 }
 .esim-rename-form {
   padding: 16px;
@@ -1404,13 +1419,21 @@ h4 {
     text-align: left;
   }
   .esim-profile-row {
-    grid-template-columns: 40px minmax(0, 1fr) auto;
+    grid-template-columns: 40px minmax(0, 1fr);
     gap: 8px;
     padding: 12px;
   }
+  .esim-profile-heading {
+    flex-wrap: wrap;
+  }
+  .esim-profile-identity h4 {
+    max-width: 100%;
+  }
   .esim-profile-actions {
-    grid-column: 2 / -1;
+    grid-column: 1 / -1;
     justify-self: end;
+    max-width: 100%;
+    flex-wrap: wrap;
   }
   .esim-profile-meta,
   .esim-provider {
