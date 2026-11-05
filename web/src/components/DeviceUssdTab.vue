@@ -286,7 +286,7 @@ function sendFromKeyboard(event: KeyboardEvent) {
   --md-text-button-trailing-space: 12px;
 }
 .ussd-log {
-  height: 360px;
+  height: 328px;
   padding: 20px;
   border-radius: 0;
 }
@@ -451,7 +451,7 @@ function sendFromKeyboard(event: KeyboardEvent) {
 }
 @media (max-width: 640px) {
   .ussd-log-heading {
-    padding: 8px 8px 8px 12px;
+    padding: 0 8px 0 12px;
   }
   .ussd-log-title {
     gap: 6px;
@@ -469,6 +469,7 @@ function sendFromKeyboard(event: KeyboardEvent) {
     display: none;
   }
   .ussd-log {
+    height: 340px;
     padding: 16px 12px;
   }
   .ussd-response {
