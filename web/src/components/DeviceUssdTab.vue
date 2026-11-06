@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { fieldValue } from '../utils/material'
 import { computed, ref, watch } from 'vue'
+import type { MdMenu } from '@material/web/menu/menu.js'
+import type { CloseMenuEvent } from '@material/web/menu/internal/controllers/shared.js'
+import type { MdOutlinedTextField } from '@material/web/textfield/outlined-text-field.js'
+import { USSD_TEMPLATES } from '../constants/ussdTemplates'
 import { devicesService } from '../services/devices'
 import { errorMessage } from '../services/http'
 import SvgIcon from './SvgIcon.vue'
@@ -8,10 +12,13 @@ import dialpadIcon from '@material-symbols/svg-400/outlined/dialpad.svg?raw'
 import sendIcon from '@material-symbols/svg-400/outlined/send.svg?raw'
 import clearIcon from '@material-symbols/svg-400/outlined/delete_sweep.svg?raw'
 import settingsIcon from '@material-symbols/svg-400/outlined/tune.svg?raw'
+import arrowIcon from '@material-symbols/svg-400/outlined/arrow_drop_down.svg?raw'
+import checkIcon from '@material-symbols/svg-400/outlined/check.svg?raw'
 
 const props = defineProps<{
   deviceId: string
   vowifiActive?: boolean
+  isActive?: boolean
 }>()
 
 type UssdMessage = {
@@ -23,6 +30,11 @@ type UssdMessage = {
 }
 
 const ussdCmd = ref('')
+const commandField = ref<MdOutlinedTextField | null>(null)
+const commandMenu = ref<MdMenu | null>(null)
+const commandMenuOpen = ref(false)
+const commandMenuWidth = ref('')
+let focusCommandAfterMenu = false
 const timeoutSeconds = ref(45)
 const timeoutOptions = [15, 30, 45, 60]
 const settingsOpen = ref(false)
@@ -44,7 +56,47 @@ const rounds = computed(() => {
 
 const isMultiRound = computed(() => !!sessionId.value)
 const sessionEnded = computed(() => history.value.length > 0 && !isMultiRound.value && !busy.value)
-const inputPlaceholder = computed(() => isMultiRound.value ? '输入菜单选项，例如 1' : '例如 *100#')
+const inputPlaceholder = computed(() => isMultiRound.value ? '输入菜单选项，例如 1' : '输入或选择 USSD 代码')
+const canChooseTemplate = computed(() => !busy.value && !isMultiRound.value && props.isActive !== false)
+
+watch(canChooseTemplate, available => {
+  if (!available) {
+    focusCommandAfterMenu = false
+    commandMenuOpen.value = false
+  }
+})
+
+function openCommandMenu() {
+  if (!canChooseTemplate.value || !commandField.value) return
+  commandMenuWidth.value = `min(440px, ${commandField.value.getBoundingClientRect().width}px, calc(100vw - 32px))`
+  focusCommandAfterMenu = false
+  commandMenuOpen.value = true
+}
+
+function focusCommandMenu() {
+  const items = commandMenu.value?.items || []
+  const target = items.find(item => item.dataset.command === ussdCmd.value.trim()) || items[0]
+  for (const item of items) {
+    item.selected = item === target
+    item.tabIndex = item === target ? 0 : -1
+  }
+  target?.focus()
+}
+
+function selectCommand(code: string, event: CloseMenuEvent) {
+  const reason = event.detail.reason
+  if (reason.kind === 'keydown' && reason.key === 'Escape') return
+  if (!canChooseTemplate.value) return
+  ussdCmd.value = code
+  focusCommandAfterMenu = true
+  commandMenuOpen.value = false
+}
+
+function closeCommandMenu() {
+  commandMenuOpen.value = false
+  if (focusCommandAfterMenu && canChooseTemplate.value) commandField.value?.focus()
+  focusCommandAfterMenu = false
+}
 
 watch([() => history.value.length, busy], () => {
   if (ussdLog.value) ussdLog.value.scrollTop = ussdLog.value.scrollHeight
@@ -58,6 +110,7 @@ async function sendUSSD() {
   history.value.push({ ts: Date.now(), type: 'req', content: cmd })
   sending.value = true
   ussdCmd.value = ''
+  commandMenuOpen.value = false
 
   try {
     let d: { status?: number; text?: string; rawText?: string; dcs?: number; sessionId?: string; channel?: string }
@@ -138,10 +191,18 @@ function clearHistory() {
   endSession()
 }
 
-function sendFromKeyboard(event: KeyboardEvent) {
-  if (event.isComposing) return
-  event.preventDefault()
-  void sendUSSD()
+function onCommandKeydown(event: KeyboardEvent) {
+  if (event.isComposing || !(event.composedPath()[0] instanceof HTMLInputElement)) return
+  if (event.key === 'ArrowDown' && canChooseTemplate.value) {
+    event.preventDefault()
+    openCommandMenu()
+  } else if (event.key === 'Escape' && commandMenuOpen.value) {
+    event.preventDefault()
+    commandMenuOpen.value = false
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    if (!commandMenuOpen.value) void sendUSSD()
+  }
 }
 </script>
 
@@ -195,14 +256,30 @@ function sendFromKeyboard(event: KeyboardEvent) {
         </div>
         <div class="ussd-command-line">
           <md-outlined-text-field
+            :id="`ussd-command-${deviceId}`"
+            ref="commandField"
             name="ussd-command"
             :label="isMultiRound ? '菜单回复' : 'USSD 代码'"
             :placeholder="inputPlaceholder"
             :value="ussdCmd"
             :disabled="busy"
             @input="ussdCmd = fieldValue($event)"
-            @keydown.enter="sendFromKeyboard"
-          />
+            @keydown="onCommandKeydown"
+          >
+            <md-icon-button
+              v-if="!isMultiRound"
+              slot="trailing-icon"
+              class="ussd-command-toggle"
+              :class="{ 'ussd-command-toggle-open': commandMenuOpen }"
+              type="button"
+              aria-label="选择运营商模板"
+              aria-haspopup="menu"
+              :aria-expanded="commandMenuOpen"
+              :aria-controls="`ussd-command-menu-${deviceId}`"
+              :disabled="!canChooseTemplate"
+              @click="commandMenuOpen ? commandMenuOpen = false : openCommandMenu()"
+            ><SvgIcon :svg="arrowIcon" /></md-icon-button>
+          </md-outlined-text-field>
           <md-filled-button class="ussd-send" type="submit" :disabled="busy || !ussdCmd.trim()">
             <SvgIcon slot="icon" :svg="sendIcon" />{{ sending ? '发送中…' : isMultiRound ? '回复' : '发送' }}
           </md-filled-button>
@@ -243,6 +320,38 @@ function sendFromKeyboard(event: KeyboardEvent) {
           </Transition>
         </div>
       </form>
+      <md-menu
+        :id="`ussd-command-menu-${deviceId}`"
+        ref="commandMenu"
+        class="ussd-command-menu"
+        :anchor="`ussd-command-${deviceId}`"
+        :open="commandMenuOpen"
+        :style="{ minWidth: commandMenuWidth, maxWidth: commandMenuWidth }"
+        positioning="popover"
+        anchor-corner="start-end"
+        menu-corner="end-end"
+        default-focus="none"
+        aria-label="运营商模板"
+        @opened="focusCommandMenu"
+        @closing="commandMenuOpen = false"
+        @closed="closeCommandMenu"
+      >
+        <div class="ussd-command-menu-heading" role="presentation">
+          <strong>运营商模板</strong>
+          <span>选择后填入，点击发送执行</span>
+        </div>
+        <md-menu-item
+          v-for="item in USSD_TEMPLATES"
+          :key="item.code"
+          :data-command="item.code"
+          :class="{ 'ussd-command-matched': ussdCmd.trim() === item.code }"
+          @close-menu="selectCommand(item.code, $event)"
+        >
+          <div slot="headline">{{ item.carrier }}</div>
+          <div slot="supporting-text"><span class="ussd-template-code">{{ item.code }}</span> · {{ item.description }}</div>
+          <SvgIcon v-if="ussdCmd.trim() === item.code" slot="end" :svg="checkIcon" />
+        </md-menu-item>
+      </md-menu>
     </div>
   </section>
 </template>
@@ -418,6 +527,45 @@ function sendFromKeyboard(event: KeyboardEvent) {
 .ussd-settings-row {
   display: flex;
   justify-content: flex-end;
+}
+.ussd-command-toggle-open .svg-icon {
+  transform: rotate(180deg);
+}
+.ussd-command-menu {
+  max-height: 440px;
+  --md-menu-container-shape: 16px;
+  --md-menu-item-two-line-container-height: 64px;
+}
+.ussd-command-menu-heading {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.ussd-command-menu-heading strong {
+  font-size: 14px;
+  font-weight: 500;
+}
+.ussd-command-menu-heading span,
+.ussd-command-menu [slot='supporting-text'] {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 12px;
+  line-height: 20px;
+}
+.ussd-template-code {
+  font-family: var(--vh-typeface-mono);
+}
+.ussd-command-matched {
+  background: var(--md-sys-color-secondary-container);
+  --md-menu-item-label-text-color: var(--md-sys-color-on-secondary-container);
+  --md-menu-item-supporting-text-color: var(--md-sys-color-on-secondary-container);
+}
+.ussd-command-matched [slot='supporting-text'] {
+  color: var(--md-sys-color-on-secondary-container);
+}
+.ussd-command-matched .svg-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--md-sys-color-primary);
 }
 .ussd-settings-reveal {
   display: grid;

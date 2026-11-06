@@ -1339,7 +1339,7 @@ usePollingScheduler(async () => {
             aria-labelledby="device-tab-ussd"
             class="device-tab-panel"
           >
-            <DeviceUssdTab :device-id="selectedDevice.id" />
+            <DeviceUssdTab :device-id="selectedDevice.id" :is-active="activeTab === 'ussd'" />
           </div>
           <div
             v-if="visitedTabs.has('card')"

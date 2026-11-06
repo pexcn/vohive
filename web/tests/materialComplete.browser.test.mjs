@@ -232,9 +232,11 @@ const config=ref({id:'fixture',name:'Fixture modem',device_backend:'qmi',control
 window.feedbackFixture={notify,requestConfirmation,results:[]}
 const fieldSensitive=ref(true)
 window.setFieldSensitive=value=>fieldSensitive.value=value
+const ussdActive=ref(true)
+window.setUssdActive=value=>ussdActive.value=value
 window.fieldSubmits=0
 const onFieldSubmit=()=>window.fieldSubmits++
-</script><template><main class="fixture m3-stack"><DeviceEsimTab device-id="fixture" :is-active="true" :device-online="true"/><DeviceAtTab device-id="fixture" :running="true" at-port="/dev/fixture-at" backend-mode="qmi"/><DeviceUssdTab device-id="fixture" :vowifi-active="true"/><DeviceConfigTab :edit-config="config" :saving="false" :deleting="false"/><form @submit.prevent="onFieldSubmit"><FieldRow id="field-copy" label="测试字段" value="fixture-copy" :sensitive="fieldSensitive" copyable/><FieldRow id="field-empty" label="空值" value="--" copyable/><FieldRow id="field-plain" label="文本" value="plain"/></form><StatusLight id="status-motion" tone="success"/></main><MaterialFeedback/></template><style>.fixture{padding:24px;max-width:1000px;margin:auto}</style>`
+</script><template><main class="fixture m3-stack"><DeviceEsimTab device-id="fixture" :is-active="true" :device-online="true"/><DeviceAtTab device-id="fixture" :running="true" at-port="/dev/fixture-at" backend-mode="qmi"/><DeviceUssdTab v-show="ussdActive" device-id="fixture" :vowifi-active="true" :is-active="ussdActive"/><DeviceConfigTab :edit-config="config" :saving="false" :deleting="false"/><form @submit.prevent="onFieldSubmit"><FieldRow id="field-copy" label="测试字段" value="fixture-copy" :sensitive="fieldSensitive" copyable/><FieldRow id="field-empty" label="空值" value="--" copyable/><FieldRow id="field-plain" label="文本" value="plain"/></form><StatusLight id="status-motion" tone="success"/></main><MaterialFeedback/></template><style>.fixture{padding:24px;max-width:1000px;margin:auto}</style>`
           },
           configureServer(dev) {
             dev.middlewares.use(async (req, res, next) => {
@@ -685,9 +687,28 @@ const onFieldSubmit=()=>window.fieldSubmits++
         cmd: 'AT+CSQ',
         timeout_ms: 10000
       })
-      await fill('md-outlined-text-field[name=ussd-command]', '*100#')
+      // Carrier templates fill an editable draft; selecting must never send a request.
+      const ussdCalls = () => calls.filter(c => c.path.endsWith('/actions/ussd'))
+      const ussdField = 'md-outlined-text-field[name=ussd-command]'
+      const ussdMenu = '#ussd-command-menu-fixture'
+      const menuOpen = `document.querySelector('${ussdMenu}').open && document.querySelector('${ussdMenu}').shadowRoot.querySelector('[popover]').matches(':popover-open') && !document.querySelector('${ussdMenu}').shadowRoot.querySelector('[popover]').classList.contains('animating')`
+      await click('.ussd-command-toggle')
+      await wait(menuOpen)
+      assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('${ussdMenu} md-menu-item')).map(item=>[item.querySelector('[slot=headline]').textContent,item.querySelector('[slot=supporting-text]').textContent])`), [
+        ['Club Sim', '*109# · 余额查询'],
+        ['Vodafone DE', '*100# · 服务菜单'],
+        ['Vodafone DE', '*106# · 余额查询'],
+        ['Vodafone UK', '*#1345# · 余额查询'],
+        ['CTExcel UK', '*125# · 余额查询']
+      ])
+      await click(`${ussdMenu} [data-command="*100#"]`)
+      await wait(`!document.querySelector('${ussdMenu}').open && !document.querySelector('${ussdMenu}').shadowRoot.querySelector('[popover]').matches(':popover-open') && document.querySelector('${ussdField}').value==='*100#'`)
+      assert.equal(ussdCalls().length, 0)
       await click('[aria-label="USSD 终端"] md-filled-button')
       await wait('!!document.querySelector(".ussd-session-strip")')
+      assert.equal(await evaluate(`document.querySelector('${ussdField}').value`), '')
+      assert.equal(await evaluate('!!document.querySelector(".ussd-command-toggle")'), false)
+      assert.deepEqual(ussdCalls()[0].body, { command: '*100#', timeout_ms: 45000 })
       await fill('md-outlined-text-field[name=ussd-command]', '1')
       await click('[aria-label="USSD 终端"] md-filled-button')
       await until(() => calls.some((c) => c.path.endsWith('/ussd/continue')), 'USSD continuation')
@@ -696,6 +717,42 @@ const onFieldSubmit=()=>window.fieldSubmits++
         input: '1',
         timeout_ms: 45000
       })
+      await wait('!!document.querySelector(".ussd-command-toggle") && !document.querySelector(".ussd-session-strip")')
+      await fill(ussdField, '*100#')
+      await key('ArrowDown', 'ArrowDown', 40)
+      await wait(menuOpen)
+      await wait(`document.activeElement?.dataset.command==='*100#'`)
+      await key('ArrowDown', 'ArrowDown', 40)
+      await key('Enter', 'Enter', 13)
+      await wait(`document.querySelector('${ussdField}').value==='*106#' && !document.querySelector('${ussdMenu}').open && !document.querySelector('${ussdMenu}').shadowRoot.querySelector('[popover]').matches(':popover-open')`)
+      assert.equal(ussdCalls().length, 1, 'Keyboard selection only fills the draft')
+      await click('.ussd-command-toggle')
+      await wait(menuOpen)
+      await key('Escape', 'Escape', 27)
+      await wait(`!document.querySelector('${ussdMenu}').open && !document.querySelector('${ussdMenu}').shadowRoot.querySelector('[popover]').matches(':popover-open')`)
+      assert.equal(await evaluate(`document.querySelector('${ussdField}').value`), '*106#')
+      await click('.ussd-command-toggle')
+      await wait(menuOpen)
+      await evaluate('window.setUssdActive(false)')
+      await wait(`!document.querySelector('${ussdMenu}').open && !document.querySelector('${ussdMenu}').shadowRoot.querySelector('[popover]').matches(':popover-open')`)
+      await evaluate('window.setUssdActive(true)')
+      await fill(ussdField, '*106#')
+      holdNext = true
+      await key('Enter', 'Enter', 13)
+      await until(() => !!releaseMutation, 'Pending USSD request')
+      assert.equal(await evaluate(`document.querySelector('${ussdField}').value`), '')
+      assert.equal(await evaluate('document.querySelector(".ussd-command-toggle").disabled'), true)
+      releaseMutation()
+      releaseMutation = undefined
+      await wait('!!document.querySelector(".ussd-session-strip")')
+      assert.deepEqual(ussdCalls()[1].body, { command: '*106#', timeout_ms: 45000 })
+      await click('.ussd-cancel')
+      await wait('!document.querySelector(".ussd-session-strip")')
+      await click('.ussd-command-toggle')
+      await wait(menuOpen)
+      await click(`${ussdMenu} [data-command="*106#"]`)
+      await wait(`document.querySelector('${ussdField}').value==='*106#' && !document.querySelector('${ussdMenu}').shadowRoot.querySelector('[popover]').matches(':popover-open')`)
+      assert.equal(ussdCalls().length, 2, 'The same template can be selected again after sending')
       await evaluate(
         `window.progress=feedbackFixture.notify({message:'progress',duration:0});feedbackFixture.notify({message:'new result'});progress.close();void 0`
       )
