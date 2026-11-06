@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/iniwex5/vohive/internal/db"
@@ -63,15 +64,26 @@ func (s *Server) handleListCardPolicies(c *gin.Context) {
 func (s *Server) handlePutCardPolicy(c *gin.Context) {
 	iccid := c.Param("iccid")
 	var req struct {
-		NetworkEnabled  *bool  `json:"network_enabled"`
-		VoWiFiEnabled   *bool  `json:"vowifi_enabled"`
-		AirplaneEnabled *bool  `json:"airplane_enabled"`
-		IPVersion       string `json:"ip_version"`
-		APN             string `json:"apn"`
+		NetworkEnabled  *bool   `json:"network_enabled"`
+		VoWiFiEnabled   *bool   `json:"vowifi_enabled"`
+		AirplaneEnabled *bool   `json:"airplane_enabled"`
+		IPVersion       string  `json:"ip_version"`
+		APN             *string `json:"apn"`
+		ApplyDeviceID   string  `json:"apply_device_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if req.ApplyDeviceID != "" {
+		if s.pool == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "设备服务未就绪"})
+			return
+		}
+		if err := s.pool.ValidateCardPolicyTarget(req.ApplyDeviceID, iccid); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	// 查出当前策略（查不到则用默认值）
@@ -92,8 +104,8 @@ func (s *Server) handlePutCardPolicy(c *gin.Context) {
 	if req.IPVersion != "" {
 		pol.IPVersion = req.IPVersion
 	}
-	if req.APN != "" {
-		pol.APN = req.APN
+	if req.APN != nil {
+		pol.APN = strings.TrimSpace(*req.APN)
 	}
 	pol.Source = "user"
 
@@ -102,5 +114,14 @@ func (s *Server) handlePutCardPolicy(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, pol)
+	var applyError string
+	if req.ApplyDeviceID != "" {
+		if err := s.pool.ApplySavedCardPolicy(req.ApplyDeviceID, iccid); err != nil {
+			applyError = "设置已保存，但未能应用：" + err.Error()
+		}
+	}
+	c.JSON(http.StatusOK, struct {
+		db.CardPolicy
+		ApplyError string `json:"apply_error,omitempty"`
+	}{CardPolicy: pol, ApplyError: applyError})
 }

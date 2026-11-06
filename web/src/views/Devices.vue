@@ -13,7 +13,6 @@ import DeviceEsimTab from '../components/DeviceEsimTab.vue'
 import DeviceAtTab from '../components/DeviceAtTab.vue'
 import DeviceUssdTab from '../components/DeviceUssdTab.vue'
 import DeviceConfigTab from '../components/DeviceConfigTab.vue'
-import CardPolicyPanel from '../components/CardPolicyPanel.vue'
 import DeviceAddDialog from '../components/DeviceAddDialog.vue'
 import CarrierWebsheetDialog from '../components/CarrierWebsheetDialog.vue'
 import TrafficAnalysisPanel from '../components/TrafficAnalysisPanel.vue'
@@ -24,11 +23,10 @@ import { useDevicesStore } from '../stores/devices'
 import { debugCollector } from '../debug/collector'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
 import { getMccMncIndex, type MccMncRow } from '../utils/mcc-mnc'
-import type { CardPolicy, CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
+import type { CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
 import type { AppError } from '../types/domain'
 import { toAppError } from '../services/http'
 import { devicesService } from '../services/devices'
-import { cardsService } from '../services/cards'
 import { createEmptyTrafficAnalysis, trafficService, type TrafficRange } from '../services/traffic'
 import SvgIcon from '../components/SvgIcon.vue'
 import scanIcon from '@material-symbols/svg-400/outlined/search.svg?raw'
@@ -57,13 +55,12 @@ const discovered = ref<DiscoveredDevice[]>([])
 const selectedId = ref('')
 const selectedDetail = ref<DeviceOverviewItem | null>(null)
 const hasAutoSelected = ref(false)
-const deviceTabs = new Set(['overview', 'esim', 'at', 'ussd', 'config', 'card'])
+const deviceTabs = new Set(['overview', 'esim', 'at', 'ussd', 'config'])
 const detailTabs = [
   { key: 'overview', label: '概览' },
   { key: 'esim', label: 'eSIM' },
   { key: 'at', label: 'AT 终端' },
   { key: 'ussd', label: 'USSD 终端' },
-  { key: 'card', label: '卡策略' },
   { key: 'config', label: '配置' }
 ]
 const visitedTabs = reactive(new Set(['overview']))
@@ -88,9 +85,6 @@ const e911WebsheetOpen = ref(false)
 const e911Websheet = ref<CarrierWebsheetInfo | null>(null)
 const deleting = ref(false)
 const rescanning = ref(false)
-
-// 卡策略（跟当前选中设备的 ICCID 绑定）
-const cardPolicy = ref<CardPolicy | null>(null)
 
 const trafficSpeedRx = ref('')
 const trafficSpeedTx = ref('')
@@ -168,7 +162,9 @@ function firstQueryValue(value: unknown): string {
 }
 
 function applyRouteSelection(): boolean {
-  const tab = firstQueryValue(route.query.tab).trim()
+  const requestedTab = firstQueryValue(route.query.tab).trim()
+  const tab = requestedTab === 'card' ? 'config' : requestedTab
+  if (requestedTab === 'card') void router.replace({ name: 'Devices', query: { ...route.query, tab } })
   activeTab.value = deviceTabs.has(tab) ? tab : 'overview'
 
   const deviceID = firstQueryValue(route.query.device).trim()
@@ -562,30 +558,9 @@ watch(
   { deep: true }
 )
 
-async function fetchCardPolicy(iccid: string | undefined) {
-  if (!iccid) {
-    cardPolicy.value = null
-    return
-  }
-  const result = await cardsService.getPolicy(iccid)
-  if (result.ok) {
-    cardPolicy.value = result.data
-  }
-}
-
-// 卡策略热切换后：刷新卡策略 + 概览详情（让概览即时反映网络/VoWiFi/飞行模式面板切换）
 async function onCardPolicyChanged() {
-  await Promise.all([
-    fetchCardPolicy(selectedDetail.value?.modem?.iccid),
-    refreshSelectedDetailOnly()
-  ])
+  await refreshSelectedDetailOnly()
 }
-
-watch(
-  () => selectedDetail.value?.modem?.iccid,
-  (iccid) => { void fetchCardPolicy(iccid) },
-  { immediate: true }
-)
 
 async function fetchAll() {
   loading.value = true
@@ -1313,6 +1288,7 @@ usePollingScheduler(async () => {
               :device-imei="selectedDevice.modem?.imei || ''"
               :is-active="activeTab === 'esim'"
               :device-online="selectedDevice.running === true"
+              @policy-changed="onCardPolicyChanged"
             />
           </div>
           <div
@@ -1342,22 +1318,6 @@ usePollingScheduler(async () => {
             <DeviceUssdTab :device-id="selectedDevice.id" :is-active="activeTab === 'ussd'" />
           </div>
           <div
-            v-if="visitedTabs.has('card')"
-            v-show="activeTab === 'card'"
-            id="device-panel-card"
-            role="tabpanel"
-            aria-labelledby="device-tab-card"
-            class="device-tab-panel"
-          >
-            <CardPolicyPanel
-              :device-id="selectedDevice.id"
-              :iccid="selectedDetail?.modem?.iccid"
-              :policy="cardPolicy"
-              :device-online="selectedDevice.running === true"
-              @policy-changed="onCardPolicyChanged"
-            />
-          </div>
-          <div
             v-if="visitedTabs.has('config')"
             v-show="activeTab === 'config'"
             id="device-panel-config"
@@ -1368,6 +1328,9 @@ usePollingScheduler(async () => {
             <DeviceConfigTab
               :edit-config="editConfig"
               :device-status="selectedDetail"
+              :card-name="selectedDevice.active_esim_profile_name || selectedSimOperatorDisplay"
+              :is-active="activeTab === 'config'"
+              @policy-changed="onCardPolicyChanged"
               :saving="saving"
               :deleting="deleting"
               @save="saveConfig"
@@ -1421,6 +1384,12 @@ usePollingScheduler(async () => {
 }
 .device-detail-tabs {
   --md-tabs-container-color: transparent;
+}
+@container (max-width: 600px) {
+  .device-detail-tabs md-primary-tab {
+    padding-inline: 6px;
+    --md-primary-tab-label-text-size: 12px;
+  }
 }
 .device-tab-panel {
   padding-top: 16px;

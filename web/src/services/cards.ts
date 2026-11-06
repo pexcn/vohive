@@ -8,6 +8,7 @@ type PutCardPolicyRequest = {
   airplane_enabled?: boolean
   ip_version?: string
   apn?: string
+  apply_device_id?: string
 }
 
 export const cardsService = {
@@ -20,7 +21,7 @@ export const cardsService = {
 
   putPolicy(iccid: string, req: PutCardPolicyRequest) {
     return callService(async () => {
-      const res = await api.put<CardPolicy>(`/cards/${iccid}/policy`, req)
+      const res = await api.put<CardPolicy & { apply_error?: string }>(`/cards/${iccid}/policy`, req)
       return res.data
     })
   },

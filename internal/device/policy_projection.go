@@ -1,6 +1,7 @@
 package device
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,6 +10,59 @@ import (
 	"github.com/iniwex5/vohive/internal/db"
 	"github.com/iniwex5/vohive/pkg/logger"
 )
+
+// ValidateCardPolicyTarget prevents an editor opened for one SIM from applying
+// its settings to a replacement SIM or a device in the middle of switching.
+func (p *Pool) ValidateCardPolicyTarget(deviceID, iccid string) error {
+	if p == nil {
+		return fmt.Errorf("设备服务未就绪")
+	}
+	w := p.GetWorker(deviceID)
+	if w == nil {
+		return fmt.Errorf("设备已离线，请刷新后重试")
+	}
+	if p.IsESIMSwitching(deviceID) {
+		return fmt.Errorf("设备正在切卡，请稍后保存")
+	}
+	if db.CanonicalICCID(iccid) == "" || db.CanonicalICCID(w.CurrentICCID()) != db.CanonicalICCID(iccid) {
+		return fmt.Errorf("当前 SIM 卡已变化，请刷新后重试")
+	}
+	return nil
+}
+
+// ApplySavedCardPolicy reuses the same projection path as startup and SIM
+// switching. The saved intent remains available if runtime application fails.
+func (p *Pool) ApplySavedCardPolicy(deviceID, iccid string) error {
+	if err := p.ValidateCardPolicyTarget(deviceID, iccid); err != nil {
+		return err
+	}
+	if p.policyResolver == nil {
+		return fmt.Errorf("卡设置服务未就绪")
+	}
+	pol, err := p.policyResolver.Resolve(iccid)
+	if err != nil {
+		return err
+	}
+	if db.CanonicalICCID(pol.ICCID) != db.CanonicalICCID(iccid) {
+		return fmt.Errorf("当前 SIM 卡已变化，请刷新后重试")
+	}
+	if !pol.VoWiFiEnabled && (p.IsVoWiFiActive(deviceID) || p.voWiFiHost().Starting(deviceID)) {
+		if err := p.voWiFiHost().Disable(p.ctx, deviceID, "card_policy_saved", false); err != nil {
+			return err
+		}
+	}
+	if err := p.ValidateCardPolicyTarget(deviceID, iccid); err != nil {
+		return err
+	}
+	result := p.resolveAndApplyPolicy(p.GetWorker(deviceID), "card_policy_saved")
+	if result.Err != nil {
+		return result.Err
+	}
+	if !result.Applied || db.CanonicalICCID(result.ICCID) != db.CanonicalICCID(iccid) {
+		return fmt.Errorf("设备未能应用当前卡设置，请稍后重试")
+	}
+	return nil
+}
 
 // applyPolicyToWorker 把卡策略投影进 worker.Config 的运行时有效字段。
 // 不在此触发 re-apply，仅做纯投影，便于单测。
@@ -44,6 +98,7 @@ type policyApplyResult struct {
 	Applied bool
 	ICCID   string
 	Reason  string
+	Err     error
 }
 
 // resolveAndApplyPolicy 解析 worker 当前 ICCID 的策略，投影并复用现有 apply 路径。
@@ -72,6 +127,7 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 
 	// 三态分支：VoWiFi / 纯飞行 / 在线(含连网)。射频模式按策略真正切换，
 	// 补齐此前“airplane 字段被投影但从不执行”的缺口。
+	var applyErr error
 	switch {
 	case pol.VoWiFiEnabled || pol.AirplaneEnabled:
 		if err := p.enterAirplaneModeFromPolicy(worker, reason); err != nil {
@@ -84,9 +140,12 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 		logger.Debug("切卡中，在线策略由切卡收尾统一应用", "device", worker.ID, "reason", reason)
 	default:
 		// 在线(待机或连网)：若当前在飞行先退出飞行，再按 network 偏好。
-		p.exitAirplaneModeIfNeeded(worker, reason)
+		applyErr = p.exitAirplaneModeIfNeeded(worker, reason)
 		if err := p.applyNetworkPreference(worker); err != nil {
 			logger.Warn("应用网络偏好失败", "device", worker.ID, "err", err)
+			if applyErr == nil {
+				applyErr = err
+			}
 		}
 	}
 	if pol.VoWiFiEnabled {
@@ -94,7 +153,7 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 	} else {
 		p.clearDesiredVoWiFiRecoverState(worker.ID)
 	}
-	return policyApplyResult{Applied: true, ICCID: iccid, Reason: reason}
+	return policyApplyResult{Applied: true, ICCID: iccid, Reason: reason, Err: applyErr}
 }
 
 // enterAirplaneModeFromPolicy 按策略进入纯飞行：先断数据网，再把射频切到 RFOff。
@@ -112,23 +171,27 @@ func (p *Pool) enterAirplaneModeFromPolicy(w *Worker, reason string) error {
 }
 
 // exitAirplaneModeIfNeeded 当设备当前处于飞行(RFOff/LowPower)且策略不要求飞行时，切回 Online。
-func (p *Pool) exitAirplaneModeIfNeeded(w *Worker, reason string) {
+func (p *Pool) exitAirplaneModeIfNeeded(w *Worker, reason string) error {
 	if w == nil {
-		return
+		return nil
 	}
 	ctrl, ok := w.Backend.(backend.OperatingModeController)
 	if !ok {
-		return
+		return nil
 	}
 	cur, err := ctrl.GetOperatingMode(p.ctx)
-	if err != nil || !isFlightOperatingMode(cur) {
-		return
+	if err != nil {
+		return err
+	}
+	if !isFlightOperatingMode(cur) {
+		return nil
 	}
 	if err := ctrl.SetOperatingMode(p.ctx, backend.ModeOnline); err != nil {
 		logger.Warn("退出飞行模式失败", "device", w.ID, "reason", reason, "err", err)
-		return
+		return err
 	}
 	logger.Info("已按策略退出飞行模式", "device", w.ID, "reason", reason)
+	return nil
 }
 
 // CurrentICCIDForDevice 返回指定设备当前 worker 的 ICCID（无 worker 或未就绪返回空串）。

@@ -272,3 +272,84 @@ func TestPutCardPolicyAirplaneField(t *testing.T) {
 		t.Fatalf("未传的 network 被错误覆盖: %+v", got)
 	}
 }
+
+func TestPutCardPolicyAPNClearAndOmission(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	openTestDB(t)
+	for _, tc := range []struct{ name, body, want string }{
+		{"omitted", `{"ip_version":"v6"}`, "old.apn"},
+		{"empty", `{"apn":""}`, ""},
+		{"whitespace", `{"apn":"   "}`, ""},
+		{"trimmed", `{"apn":" new.apn "}`, "new.apn"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := db.UpsertCardPolicy(db.CardPolicy{ICCID: "8986009", APN: "old.apn", IPVersion: "v4", Source: "user"}); err != nil {
+				t.Fatal(err)
+			}
+			s := &Server{}
+			r := gin.New()
+			r.PUT("/api/cards/:iccid/policy", s.handlePutCardPolicy)
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPut, "/api/cards/8986009/policy", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			r.ServeHTTP(w, req)
+			got, err := db.GetCardPolicy("8986009")
+			if w.Code != http.StatusOK || err != nil || got.APN != tc.want {
+				t.Fatalf("code=%d policy=%+v error=%v", w.Code, got, err)
+			}
+		})
+	}
+}
+
+func TestPutCardPolicyRejectsChangedSIMBeforeSaving(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	openTestDB(t)
+	if err := db.UpsertCardPolicy(db.CardPolicy{ICCID: "old", APN: "old.apn", IPVersion: "v4", Source: "user"}); err != nil {
+		t.Fatal(err)
+	}
+	p := device.NewPool(&config.Config{})
+	worker := &device.Worker{ID: "modem"}
+	setNestedPrivateField(t, worker, []string{"state", "Identity", "ICCID"}, "replacement")
+	injectWorker(p, worker)
+	s := &Server{pool: p}
+	r := gin.New()
+	r.PUT("/api/cards/:iccid/policy", s.handlePutCardPolicy)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/cards/old/policy", strings.NewReader(`{"apn":"new.apn","apply_device_id":"modem"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	got, err := db.GetCardPolicy("old")
+	if w.Code != http.StatusConflict || err != nil || got.APN != "old.apn" {
+		t.Fatalf("code=%d policy=%+v error=%v", w.Code, got, err)
+	}
+	if _, err := db.GetCardPolicy("replacement"); err != db.ErrCardPolicyNotFound {
+		t.Fatalf("replacement SIM was changed: %v", err)
+	}
+}
+
+func TestPutCardPolicyReportsSavedButNotApplied(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	openTestDB(t)
+	p := device.NewPool(&config.Config{})
+	worker := &device.Worker{ID: "modem"}
+	setNestedPrivateField(t, worker, []string{"state", "Identity", "ICCID"}, "current")
+	injectWorker(p, worker)
+	s := &Server{pool: p}
+	r := gin.New()
+	r.PUT("/api/cards/:iccid/policy", s.handlePutCardPolicy)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/cards/current/policy", strings.NewReader(`{"apn":"saved.apn","apply_device_id":"modem"}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	var response struct {
+		db.CardPolicy
+		ApplyError string `json:"apply_error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := db.GetCardPolicy("current")
+	if w.Code != http.StatusOK || response.ApplyError == "" || response.APN != "saved.apn" || err != nil || stored.APN != "saved.apn" {
+		t.Fatalf("code=%d response=%+v stored=%+v error=%v", w.Code, response, stored, err)
+	}
+}

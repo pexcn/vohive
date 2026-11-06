@@ -226,3 +226,42 @@ func TestRefreshIdentityAndApplyCardPolicyDoesNotFallbackToConfiguredNetworkWith
 		t.Fatal("无 policy resolver 时不应回退到旧 worker.Config 连接数据网络")
 	}
 }
+
+func TestApplySavedCardPolicyTargetsCurrentSIM(t *testing.T) {
+	p := NewPool(nil)
+	defer p.cancel()
+	stub := &workerStatusBackendStub{opMode: backend.ModeOnline}
+	w := &Worker{ID: "modem", Backend: stub}
+	w.state.Identity.ICCID = "current"
+	p.workers[w.ID] = w
+	p.SetPolicyResolver(&stubPolicyResolver{pol: cardpolicy.Policy{ICCID: "current", AirplaneEnabled: true, IPVersion: "v6", APN: "new.apn"}})
+	if err := p.ApplySavedCardPolicy(w.ID, "old"); err == nil {
+		t.Fatal("stale card should not apply")
+	}
+	if stub.opMode != backend.ModeOnline {
+		t.Fatal("stale request changed radio")
+	}
+	p.switchingDevices[w.ID] = true
+	if err := p.ApplySavedCardPolicy(w.ID, "current"); err == nil {
+		t.Fatal("switching card should not apply")
+	}
+	delete(p.switchingDevices, w.ID)
+	if err := p.ApplySavedCardPolicy(w.ID, "current"); err != nil {
+		t.Fatal(err)
+	}
+	if stub.opMode != backend.ModeRFOff || !w.Config.AirplaneEnabled || w.Config.IPVersion != "v6" || w.Config.APN != "new.apn" {
+		t.Fatalf("saved policy not applied: mode=%v config=%+v", stub.opMode, w.Config)
+	}
+}
+
+func TestApplySavedCardPolicyReportsNetworkFailure(t *testing.T) {
+	p := NewPool(nil)
+	defer p.cancel()
+	w := &Worker{ID: "modem"}
+	w.state.Identity.ICCID = "current"
+	p.workers[w.ID] = w
+	p.SetPolicyResolver(&stubPolicyResolver{pol: cardpolicy.Policy{ICCID: "current", NetworkEnabled: true}})
+	if err := p.ApplySavedCardPolicy(w.ID, "current"); err == nil {
+		t.Fatal("missing data-plane capability must not be reported as applied")
+	}
+}

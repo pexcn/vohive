@@ -6,7 +6,7 @@ import { devicesService } from '../services/devices'
 import { errorMessage } from '../services/http'
 import { api } from '../stores/auth'
 import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
-import EsimCardPolicyInline from './EsimCardPolicyInline.vue'
+import CardPolicyPanel from './CardPolicyPanel.vue'
 import RefreshButton from './RefreshButton.vue'
 import LoadingScreen from './LoadingScreen.vue'
 import EmptyState from './EmptyState.vue'
@@ -92,6 +92,7 @@ function hasChipDetails(chip?: EsimEUICCInfo) {
 
 function openProfileMenu(event: Event, profile: EsimProfileItem, aidHex: string) {
   profileMenu.value = { anchor: (event.currentTarget as HTMLElement).id, profile, aidHex, deviceId: props.deviceId }
+  selectedPolicyIccid.value = null
   pendingProfileAction = null
   profileMenuOpen.value = true
 }
@@ -120,10 +121,16 @@ function closeTransientViews() {
   selectedChip.value = null
   downloadDialogOpen.value = false
 }
-// 行内卡策略展开态（手风琴，一次只展开一行，按 iccid 记）
-const expandedPolicyIccid = ref<string | null>(null)
-function togglePolicyPanel(iccid: string) {
-  expandedPolicyIccid.value = expandedPolicyIccid.value === iccid ? null : iccid
+const emit = defineEmits<{ policyChanged: [] }>()
+const selectedPolicyIccid = ref<string | null>(null)
+const policySaving = ref(false)
+const selectedPolicyProfile = computed(() => profileGroups.value.flatMap(group => group.profiles).find(profile => profile.iccid === selectedPolicyIccid.value))
+function openPolicyPanel(iccid: string) {
+  selectedPolicyIccid.value = iccid
+}
+function onProfilePolicyChanged() {
+  void fetchOverview(true)
+  emit('policyChanged')
 }
 const notifications = ref<EsimNotificationItem[]>([])
 const notificationsLoading = ref(false)
@@ -541,7 +548,7 @@ watch(
     if (fetchAbortController) {
       fetchAbortController.abort()
     }
-    expandedPolicyIccid.value = null
+    selectedPolicyIccid.value = null
     if (!newId || !newActive) {
       closeTransientViews()
       return
@@ -685,8 +692,10 @@ onBeforeUnmount(() => {
                         >{{ switching === profile.iccid ? '切换中…' : '切换' }}</md-outlined-button>
                         <md-text-button
                           class="esim-policy"
-                          :aria-expanded="expandedPolicyIccid === profile.iccid"
-                          @click="togglePolicyPanel(profile.iccid)"
+                          aria-haspopup="dialog"
+                          :aria-expanded="selectedPolicyIccid === profile.iccid"
+                          :disabled="switchBusy || deleting !== null"
+                          @click="openPolicyPanel(profile.iccid)"
                         >卡策略</md-text-button>
                         <md-icon-button
                           :id="`esim-profile-actions-${deviceId}-${index}-${profile.iccid}`"
@@ -715,20 +724,6 @@ onBeforeUnmount(() => {
                     </form>
                   </Transition>
                 </div>
-                <Transition name="esim-collapse">
-                  <div v-if="expandedPolicyIccid === profile.iccid" class="esim-collapse">
-                    <div>
-                      <EsimCardPolicyInline
-                        class="esim-inline-policy"
-                        :device-id="deviceId"
-                        :iccid="profile.iccid"
-                        :is-active-card="profile.state === 1"
-                        :device-online="deviceOnline === true"
-                        @policy-changed="fetchOverview(true)"
-                      />
-                    </div>
-                  </div>
-                </Transition>
               </article>
             </TransitionGroup>
           </div>
@@ -737,6 +732,31 @@ onBeforeUnmount(() => {
           </div>
         </Transition>
       </section>
+      <md-dialog
+        class="m3-dialog esim-policy-dialog"
+        :open="!!selectedPolicyProfile"
+        @cancel="policySaving && $event.preventDefault()"
+        @closed="selectedPolicyIccid = null"
+      >
+        <div slot="headline" class="esim-policy-title">SIM 卡设置 <span class="m3-badge">跟随 SIM 卡保存</span></div>
+        <div slot="content">
+          <CardPolicyPanel
+            v-if="selectedPolicyProfile"
+            :key="`${deviceId}:${selectedPolicyProfile.iccid}`"
+            :device-id="deviceId"
+            :iccid="selectedPolicyProfile.iccid"
+            :card-name="selectedPolicyProfile.name || selectedPolicyProfile.service_provider_name"
+            :conceal-iccid="!showSensitive"
+            embedded
+            :is-active-card="selectedPolicyProfile.state === 1"
+            :device-online="deviceOnline === true"
+            :esim-switching="switchBusy"
+            @saving-changed="policySaving = $event"
+            @policy-changed="onProfilePolicyChanged"
+          />
+        </div>
+        <div slot="actions"><md-text-button :disabled="policySaving" @click="selectedPolicyIccid = null">关闭</md-text-button></div>
+      </md-dialog>
       <md-menu
         class="esim-profile-menu"
         :anchor="profileMenu?.anchor || ''"
@@ -1230,9 +1250,7 @@ h4 {
 .esim-rename-form {
   padding: 16px;
 }
-.esim-inline-policy {
-  margin: 0 16px 16px;
-}
+
 .esim-empty-profiles {
   padding: 16px;
 }
@@ -1646,5 +1664,22 @@ h4 {
     grid-column: 2;
     justify-self: start;
   }
+}
+.esim-policy-dialog {
+  width: min(960px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+  max-height: calc(100dvh - 48px);
+}
+.esim-policy-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.esim-policy-dialog [slot='content'] {
+  padding-top: 8px;
+}
+@media (max-width: 640px) {
+  .esim-policy-dialog { width: calc(100vw - 32px); max-width: calc(100vw - 32px); }
 }
 </style>
