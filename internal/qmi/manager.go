@@ -464,6 +464,7 @@ func summarizeQMIEvent(event qmimanager.Event) qmiEventSummary {
 			fields = append(fields,
 				"ussd_len", qmiUSSDPayloadLen(info.USSData),
 				"alpha_len", qmiUSSDPayloadLen(info.Alpha),
+				"encoded_utf16_len", len(info.USSDataUTF16),
 			)
 		}
 		return qmiEventSummary{

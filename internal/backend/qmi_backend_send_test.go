@@ -265,6 +265,10 @@ type qmiBackendUSSDSourceStub struct {
 	deliver           bool
 	deliverNoWait     bool
 	blockOriginate    bool
+	originateHook     func()
+	cancelErr         error
+	cancelContextErr  error
+	cancelDeadline    bool
 	response          *qmi.VoiceUSSDResponse
 	responseErr       error
 	noWait            *qmi.VoiceUSSDNoWaitIndication
@@ -280,11 +284,15 @@ type qmiBackendUSSDNoWaitSourceStub struct {
 	*qmiBackendUSSDSourceStub
 	noWaitRequests []qmi.VoiceUSSDRequest
 	noWaitErr      error
+	noWaitHook     func(context.Context) error
 }
 
 func (s *qmiBackendUSSDNoWaitSourceStub) VOICEOriginateUSSDNoWait(ctx context.Context, req qmi.VoiceUSSDRequest) error {
 	s.events = append(s.events, "originate-no-wait")
 	s.noWaitRequests = append(s.noWaitRequests, req)
+	if s.noWaitHook != nil {
+		return s.noWaitHook(ctx)
+	}
 	if s.noWaitErr != nil {
 		return s.noWaitErr
 	}
@@ -304,6 +312,9 @@ func (s *qmiBackendUSSDSourceStub) VOICEOriginateUSSD(ctx context.Context, req q
 	}
 	s.events = append(s.events, "originate")
 	s.originateRequests = append(s.originateRequests, req)
+	if s.originateHook != nil {
+		s.originateHook()
+	}
 	if s.blockOriginate {
 		<-ctx.Done()
 		return nil, ctx.Err()
@@ -317,7 +328,7 @@ func (s *qmiBackendUSSDSourceStub) VOICEOriginateUSSD(ctx context.Context, req q
 			}
 		}()
 	}
-	if s.deliverNoWait {
+	if s.deliverNoWait && s.responseErr == nil {
 		go func() {
 			if s.onNoWait != nil {
 				s.onNoWait(s.noWait)
@@ -348,7 +359,9 @@ func (s *qmiBackendUSSDSourceStub) VOICEGetConfig(ctx context.Context, query qmi
 
 func (s *qmiBackendUSSDSourceStub) VOICECancelUSSD(ctx context.Context) error {
 	s.cancelCalls++
-	return nil
+	s.cancelContextErr = ctx.Err()
+	_, s.cancelDeadline = ctx.Deadline()
+	return s.cancelErr
 }
 
 func (s *qmiBackendUSSDSourceStub) OnVoiceUSSD(h func(*qmi.VoiceUSSDIndication)) error {
@@ -574,125 +587,45 @@ func TestQMIBackendExecuteUSSDNamesWrongStateFailureCause(t *testing.T) {
 	}
 }
 
-func TestQMIBackendExecuteUSSDPreparesCSVoiceDomainWhenPSOnly(t *testing.T) {
-	src := &qmiBackendUSSDSourceStub{
-		systemSelection: &qmi.SystemSelectionPreference{
-			ServiceDomainPreference:    qmi.NASServiceDomainPreferencePSOnly,
-			HasServiceDomainPreference: true,
-			VoiceDomainPreference:      qmi.NASVoiceDomainPreferencePSOnly,
-			HasVoiceDomainPreference:   true,
-		},
-		voiceConfig: &qmi.VoiceConfig{
-			CurrentVoiceDomainPreference:    uint8(qmi.NASVoiceDomainPreferencePSOnly),
-			HasCurrentVoiceDomainPreference: true,
-		},
-		response: &qmi.VoiceUSSDResponse{
-			USSData: &qmi.VoiceUSSDPayload{DCS: 0x01, Text: "balance 10"},
-		},
-	}
-	be, err := NewQMIBackend("/dev/null", src)
-	if err != nil {
-		t.Fatalf("NewQMIBackend() error=%v", err)
-	}
-
-	got, err := be.ExecuteUSSD(context.Background(), "*100#", time.Second)
-	if err != nil {
-		t.Fatalf("ExecuteUSSD() error=%v", err)
-	}
-	if got.Text != "balance 10" {
-		t.Fatalf("ExecuteUSSD()=%+v want synchronous response", got)
-	}
-	if len(src.nasPrefs) != 1 {
-		t.Fatalf("NASSetSystemSelectionPreference calls=%d want 1", len(src.nasPrefs))
-	}
-	pref := src.nasPrefs[0]
-	if !pref.HasServiceDomainPreference || pref.ServiceDomainPreference != qmi.NASServiceDomainPreferenceCSPS {
-		t.Fatalf("service domain pref=%+v want CS+PS", pref)
-	}
-	if !pref.HasVoiceDomainPreference || pref.VoiceDomainPreference != qmi.NASVoiceDomainPreferenceCSPreferred {
-		t.Fatalf("voice domain pref=%+v want CS preferred", pref)
-	}
-	if !pref.HasChangeDuration || pref.ChangeDuration != qmi.NASChangeDurationPowerCycle {
-		t.Fatalf("change duration pref=%+v want power-cycle scoped", pref)
-	}
-	if gotEvents, wantEvents := strings.Join(src.events, ","), "nas-get,voice-get-config,nas-set,originate"; gotEvents != wantEvents {
-		t.Fatalf("events=%s want %s", gotEvents, wantEvents)
-	}
-}
-
-func TestQMIBackendExecuteUSSDPreparesCSVoiceDomainWhenPSPreferred(t *testing.T) {
-	src := &qmiBackendUSSDSourceStub{
-		systemSelection: &qmi.SystemSelectionPreference{
-			ServiceDomainPreference:    qmi.NASServiceDomainPreferenceCSPS,
-			HasServiceDomainPreference: true,
-			VoiceDomainPreference:      qmi.NASVoiceDomainPreferencePSPreferred,
-			HasVoiceDomainPreference:   true,
-		},
-		voiceConfig: &qmi.VoiceConfig{
-			CurrentVoiceDomainPreference:    uint8(qmi.NASVoiceDomainPreferenceCSOnly),
-			HasCurrentVoiceDomainPreference: true,
-		},
-		response: &qmi.VoiceUSSDResponse{
-			USSData: &qmi.VoiceUSSDPayload{DCS: 0x01, Text: "balance 10"},
-		},
-	}
-	be, err := NewQMIBackend("/dev/null", src)
-	if err != nil {
-		t.Fatalf("NewQMIBackend() error=%v", err)
-	}
-
-	if _, err := be.ExecuteUSSD(context.Background(), "*100#", time.Second); err != nil {
-		t.Fatalf("ExecuteUSSD() error=%v", err)
-	}
-	if len(src.nasPrefs) != 1 {
-		t.Fatalf("NASSetSystemSelectionPreference calls=%d want 1", len(src.nasPrefs))
-	}
-	pref := src.nasPrefs[0]
-	if pref.HasServiceDomainPreference {
-		t.Fatalf("service domain pref=%+v want unchanged", pref)
-	}
-	if !pref.HasVoiceDomainPreference || pref.VoiceDomainPreference != qmi.NASVoiceDomainPreferenceCSPreferred {
-		t.Fatalf("voice domain pref=%+v want CS preferred", pref)
-	}
-	if gotEvents, wantEvents := strings.Join(src.events, ","), "nas-get,voice-get-config,nas-set,originate"; gotEvents != wantEvents {
-		t.Fatalf("events=%s want %s", gotEvents, wantEvents)
-	}
-}
-
-func TestQMIBackendExecuteUSSDUsesVoiceConfigWhenSystemSelectionOmitsVoiceDomain(t *testing.T) {
-	src := &qmiBackendUSSDSourceStub{
-		systemSelection: &qmi.SystemSelectionPreference{
-			ServiceDomainPreference:    qmi.NASServiceDomainPreferenceCSPS,
-			HasServiceDomainPreference: true,
-		},
-		voiceConfig: &qmi.VoiceConfig{
-			CurrentVoiceDomainPreference:    uint8(qmi.NASVoiceDomainPreferencePSOnly),
-			HasCurrentVoiceDomainPreference: true,
-		},
-		response: &qmi.VoiceUSSDResponse{
-			USSData: &qmi.VoiceUSSDPayload{DCS: 0x01, Text: "balance 10"},
-		},
-	}
-	be, err := NewQMIBackend("/dev/null", src)
-	if err != nil {
-		t.Fatalf("NewQMIBackend() error=%v", err)
-	}
-
-	if _, err := be.ExecuteUSSD(context.Background(), "*100#", time.Second); err != nil {
-		t.Fatalf("ExecuteUSSD() error=%v", err)
-	}
-	if len(src.nasPrefs) != 1 {
-		t.Fatalf("NASSetSystemSelectionPreference calls=%d want 1", len(src.nasPrefs))
-	}
-	pref := src.nasPrefs[0]
-	if pref.HasServiceDomainPreference {
-		t.Fatalf("service domain pref=%+v want unchanged", pref)
-	}
-	if !pref.HasVoiceDomainPreference || pref.VoiceDomainPreference != qmi.NASVoiceDomainPreferenceCSPreferred {
-		t.Fatalf("voice domain pref=%+v want CS preferred", pref)
-	}
-	if gotEvents, wantEvents := strings.Join(src.events, ","), "nas-get,voice-get-config,nas-set,originate"; gotEvents != wantEvents {
-		t.Fatalf("events=%s want %s", gotEvents, wantEvents)
+func TestQMIBackendExecuteUSSDPreservesNetworkPreferences(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		service     uint32
+		voice       uint32
+		hasVoice    bool
+		voiceConfig uint8
+	}{
+		{"PSOnly", qmi.NASServiceDomainPreferencePSOnly, qmi.NASVoiceDomainPreferencePSOnly, true, uint8(qmi.NASVoiceDomainPreferencePSOnly)},
+		{"PSPreferred", qmi.NASServiceDomainPreferenceCSPS, qmi.NASVoiceDomainPreferencePSPreferred, true, uint8(qmi.NASVoiceDomainPreferenceCSOnly)},
+		{"voice config only", qmi.NASServiceDomainPreferenceCSPS, 0, false, uint8(qmi.NASVoiceDomainPreferencePSOnly)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pref := qmi.SystemSelectionPreference{
+				ServiceDomainPreference: tc.service, HasServiceDomainPreference: true,
+				VoiceDomainPreference: tc.voice, HasVoiceDomainPreference: tc.hasVoice,
+			}
+			src := &qmiBackendUSSDSourceStub{
+				systemSelection: &pref,
+				voiceConfig: &qmi.VoiceConfig{
+					CurrentVoiceDomainPreference: tc.voiceConfig, HasCurrentVoiceDomainPreference: true,
+				},
+				response: &qmi.VoiceUSSDResponse{USSData: &qmi.VoiceUSSDPayload{DCS: 0x01, Text: "balance 10"}},
+			}
+			be, err := NewQMIBackend("/dev/null", src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := be.ExecuteUSSD(context.Background(), "*109#", time.Second)
+			if err != nil || got.Text != "balance 10" {
+				t.Fatalf("ExecuteUSSD()=%+v, err=%v", got, err)
+			}
+			if len(src.nasPrefs) != 0 {
+				t.Fatalf("USSD changed global NAS preferences: %+v", src.nasPrefs)
+			}
+			if gotEvents := strings.Join(src.events, ","); gotEvents != "nas-get,voice-get-config,originate" {
+				t.Fatalf("events=%s", gotEvents)
+			}
+		})
 	}
 }
 

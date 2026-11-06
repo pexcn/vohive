@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/pkg/logger"
@@ -28,7 +29,6 @@ type qmiUSSDNoWaitSource interface {
 
 type qmiUSSDSystemSelectionSource interface {
 	NASGetSystemSelectionPreference(ctx context.Context) (*qmi.SystemSelectionPreference, error)
-	NASSetSystemSelectionPreference(ctx context.Context, pref qmi.SystemSelectionPreference) error
 }
 
 type qmiUSSDVoiceConfigSource interface {
@@ -65,9 +65,15 @@ func (q *QMIBackend) ExecuteUSSD(ctx context.Context, command string, timeout ti
 
 	opCtx, opCancel := context.WithTimeout(ctx, timeout)
 	defer opCancel()
+	if err := opCtx.Err(); err != nil {
+		return nil, err
+	}
 
 	req := qmi.VoiceUSSDRequest{DCS: qmiUSSDDCSDefault, Data: []byte(command)}
-	q.prepareQMIUSSDVoiceState(opCtx, src)
+	q.logQMIUSSDVoiceState(opCtx, src)
+	if err := opCtx.Err(); err != nil {
+		return nil, err
+	}
 	if noWaitSrc, ok := any(src).(qmiUSSDNoWaitSource); ok {
 		err := noWaitSrc.VOICEOriginateUSSDNoWait(opCtx, req)
 		if err == nil {
@@ -75,19 +81,14 @@ func (q *QMIBackend) ExecuteUSSD(ctx context.Context, command string, timeout ti
 			return q.waitQMIUSSDResult(opCtx, src)
 		}
 		if !qmiUSSDNoWaitUnsupported(err) {
-			if qmiUSSDOperationDeadlineExceeded(opCtx, err) {
-				q.ussdAwaitRelease = true
-				_ = src.VOICECancelUSSD(context.Background())
-				return nil, errors.New("USSD 响应网络超时（QMI 异步请求超时）")
-			}
-			return nil, fmt.Errorf("发送 QMI USSD 失败: %w", qmiUSSDDecorateQMIError(err))
+			return nil, q.qmiUSSDSendError(opCtx, src, err)
+		}
+		if ctxErr := opCtx.Err(); ctxErr != nil {
+			return nil, ctxErr
 		}
 		logger.Debug("QMI USSD NoWait 不可用，回退同步 originate",
-			"control_path", q.controlPath,
-			"err", qmiUSSDDecorateQMIError(err),
-		)
+			"control_path", q.controlPath, "err", qmiUSSDDecorateQMIError(err))
 	}
-
 	resp, err := src.VOICEOriginateUSSD(opCtx, req)
 	if result, resultErr, ok := qmiUSSDResultFromResponse(resp); ok {
 		if resultErr != nil {
@@ -96,18 +97,26 @@ func (q *QMIBackend) ExecuteUSSD(ctx context.Context, command string, timeout ti
 			}
 			return nil, resultErr
 		}
-		return result, nil
+		if err == nil {
+			return result, nil
+		}
 	}
 	if err != nil {
-		if qmiUSSDOperationDeadlineExceeded(opCtx, err) {
-			q.ussdAwaitRelease = true
-			_ = src.VOICECancelUSSD(context.Background())
-			return nil, errors.New("USSD 响应网络超时（QMI 请求超时）")
-		}
-		return nil, fmt.Errorf("发送 QMI USSD 失败: %w", qmiUSSDDecorateQMIError(err))
+		return nil, q.qmiUSSDSendError(opCtx, src, err)
 	}
 
 	return q.waitQMIUSSDResult(opCtx, src)
+}
+
+func (q *QMIBackend) qmiUSSDSendError(ctx context.Context, src qmiUSSDSource, err error) error {
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		q.cancelInterruptedQMIUSSD(src)
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return errors.New("USSD 响应网络超时（QMI 请求超时）")
+		}
+		return ctx.Err()
+	}
+	return fmt.Errorf("发送 QMI USSD 失败: %w", qmiUSSDDecorateQMIError(err))
 }
 
 func (q *QMIBackend) waitQMIUSSDResult(ctx context.Context, src qmiUSSDSource) (*USSDResult, error) {
@@ -120,14 +129,22 @@ func (q *QMIBackend) waitQMIUSSDResult(ctx context.Context, src qmiUSSDSource) (
 		q.ussdAwaitRelease = false
 		return &USSDResult{Status: 2, Text: "", RawText: "", DCS: int(qmiUSSDDCSDefault)}, nil
 	case <-ctx.Done():
+		q.cancelInterruptedQMIUSSD(src)
 		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			q.ussdAwaitRelease = true
-			_ = src.VOICECancelUSSD(context.Background())
 			return nil, ctx.Err()
 		}
-		q.ussdAwaitRelease = true
-		_ = src.VOICECancelUSSD(context.Background())
 		return nil, errors.New("USSD 响应网络超时（无回调）")
+	}
+}
+
+// Called with ussdMu held. A cancel acknowledgement alone does not confirm that
+// the network session has released; keep blocking new requests until its indication.
+func (q *QMIBackend) cancelInterruptedQMIUSSD(src qmiUSSDSource) {
+	q.ussdAwaitRelease = true
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if err := src.VOICECancelUSSD(cleanupCtx); err != nil {
+		logger.Warn("QMI USSD 中断后取消失败，等待会话释放", "control_path", q.controlPath, "err", err)
 	}
 }
 
@@ -150,10 +167,6 @@ func (q *QMIBackend) qmiUSSDSource() (qmiUSSDSource, error) {
 	return src, nil
 }
 
-func qmiUSSDOperationDeadlineExceeded(ctx context.Context, err error) bool {
-	return err != nil && errors.Is(err, context.DeadlineExceeded) && ctx != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
-}
-
 func qmiUSSDNoWaitUnsupported(err error) bool {
 	var qmiErr *qmi.QMIError
 	if !errors.As(err, &qmiErr) {
@@ -167,7 +180,9 @@ func qmiUSSDNoWaitUnsupported(err error) bool {
 	}
 }
 
-func (q *QMIBackend) prepareQMIUSSDVoiceState(ctx context.Context, src qmiUSSDSource) {
+// USSD must not change global NAS preferences: doing so can trigger network
+// reselection and the preference would outlive this request.
+func (q *QMIBackend) logQMIUSSDVoiceState(ctx context.Context, src qmiUSSDSource) {
 	sysSrc, hasSystemSelection := any(src).(qmiUSSDSystemSelectionSource)
 	var pref *qmi.SystemSelectionPreference
 	if hasSystemSelection {
@@ -181,7 +196,7 @@ func (q *QMIBackend) prepareQMIUSSDVoiceState(ctx context.Context, src qmiUSSDSo
 
 	voiceDomainFromConfig, hasVoiceDomainFromConfig := q.queryQMIUSSDVoiceDomain(ctx, src)
 	if hasSystemSelection && pref != nil {
-		q.prepareQMIUSSDSystemSelection(ctx, sysSrc, pref, voiceDomainFromConfig, hasVoiceDomainFromConfig)
+		q.logQMIUSSDSystemSelection(pref, voiceDomainFromConfig, hasVoiceDomainFromConfig)
 	}
 }
 
@@ -207,7 +222,7 @@ func (q *QMIBackend) queryQMIUSSDVoiceDomain(ctx context.Context, src qmiUSSDSou
 	return uint32(cfg.CurrentVoiceDomainPreference), true
 }
 
-func (q *QMIBackend) prepareQMIUSSDSystemSelection(ctx context.Context, src qmiUSSDSystemSelectionSource, current *qmi.SystemSelectionPreference, voiceDomainFromConfig uint32, hasVoiceDomainFromConfig bool) {
+func (q *QMIBackend) logQMIUSSDSystemSelection(current *qmi.SystemSelectionPreference, voiceDomainFromConfig uint32, hasVoiceDomainFromConfig bool) {
 	if current == nil {
 		logger.Debug("QMI USSD 前置 NAS 系统选择为空", "control_path", q.controlPath)
 		return
@@ -233,69 +248,6 @@ func (q *QMIBackend) prepareQMIUSSDSystemSelection(ctx context.Context, src qmiU
 		)
 	}
 	logger.Debug("QMI USSD 前置 NAS 系统选择", fields...)
-
-	next := qmi.SystemSelectionPreference{
-		ChangeDuration:    qmi.NASChangeDurationPowerCycle,
-		HasChangeDuration: true,
-	}
-	needsUpdate := false
-	if current.HasServiceDomainPreference && current.ServiceDomainPreference == qmi.NASServiceDomainPreferencePSOnly {
-		next.ServiceDomainPreference = qmi.NASServiceDomainPreferenceCSPS
-		next.HasServiceDomainPreference = true
-		needsUpdate = true
-	}
-	currentVoiceDomain := current.VoiceDomainPreference
-	hasCurrentVoiceDomain := current.HasVoiceDomainPreference
-	if !hasCurrentVoiceDomain && hasVoiceDomainFromConfig {
-		currentVoiceDomain = voiceDomainFromConfig
-		hasCurrentVoiceDomain = true
-	}
-	if hasCurrentVoiceDomain && (currentVoiceDomain == qmi.NASVoiceDomainPreferencePSOnly || currentVoiceDomain == qmi.NASVoiceDomainPreferencePSPreferred) {
-		next.VoiceDomainPreference = qmi.NASVoiceDomainPreferenceCSPreferred
-		next.HasVoiceDomainPreference = true
-		needsUpdate = true
-	}
-	if !needsUpdate {
-		return
-	}
-	if err := src.NASSetSystemSelectionPreference(ctx, next); err != nil {
-		fields := []any{
-			"control_path", q.controlPath,
-			"err", err,
-		}
-		if next.HasServiceDomainPreference {
-			fields = append(fields,
-				"set_service_domain", next.ServiceDomainPreference,
-				"set_service_domain_name", qmiUSSDServiceDomainName(next.ServiceDomainPreference),
-			)
-		}
-		if next.HasVoiceDomainPreference {
-			fields = append(fields,
-				"set_voice_domain", next.VoiceDomainPreference,
-				"set_voice_domain_name", qmiUSSDVoiceDomainName(next.VoiceDomainPreference),
-			)
-		}
-		logger.Warn("QMI USSD 前置 CS/Voice 域准备失败，继续尝试发起 USSD",
-			fields...,
-		)
-		return
-	}
-	fields = []any{
-		"control_path", q.controlPath,
-	}
-	if next.HasServiceDomainPreference {
-		fields = append(fields,
-			"set_service_domain", next.ServiceDomainPreference,
-			"set_service_domain_name", qmiUSSDServiceDomainName(next.ServiceDomainPreference),
-		)
-	}
-	if next.HasVoiceDomainPreference {
-		fields = append(fields,
-			"set_voice_domain", next.VoiceDomainPreference,
-			"set_voice_domain_name", qmiUSSDVoiceDomainName(next.VoiceDomainPreference),
-		)
-	}
-	logger.Info("QMI USSD 前置 CS/Voice 域已准备", fields...)
 }
 
 func (q *QMIBackend) initUSSDCallbacks(src qmiUSSDSource) {
@@ -407,6 +359,10 @@ func qmiUSSDResultFromResponse(resp *qmi.VoiceUSSDResponse) (*USSDResult, error,
 		result := qmiUSSDPayloadResult(0, resp.USSData)
 		return &result, nil, true
 	}
+	if len(resp.USSDataUTF16) > 0 {
+		result := qmiUSSDUTF16Result(resp.USSDataUTF16)
+		return &result, nil, true
+	}
 	if resp.Alpha != nil {
 		result := qmiUSSDPayloadResult(0, resp.Alpha)
 		return &result, nil, true
@@ -415,29 +371,51 @@ func qmiUSSDResultFromResponse(resp *qmi.VoiceUSSDResponse) (*USSDResult, error,
 }
 
 func qmiUSSDResultFromIndication(info *qmi.VoiceUSSDIndication) (USSDResult, bool) {
-	if info == nil || info.USSData == nil {
+	if info == nil {
 		return USSDResult{}, false
 	}
-	return qmiUSSDPayloadResult(0, info.USSData), true
+	if info.USSData != nil {
+		return qmiUSSDPayloadResult(0, info.USSData), true
+	}
+	if len(info.USSDataUTF16) > 0 {
+		return qmiUSSDUTF16Result(info.USSDataUTF16), true
+	}
+	return USSDResult{}, false
 }
 
 func qmiUSSDResultFromNoWait(info *qmi.VoiceUSSDNoWaitIndication) (USSDResult, error, bool) {
 	if info == nil {
 		return USSDResult{}, nil, false
 	}
-	if info.HasErrorCode {
-		return USSDResult{}, fmt.Errorf("QMI USSD 失败: error_code=0x%04X", info.ErrorCode), true
+	var details []string
+	if info.HasErrorCode && info.ErrorCode != 0 {
+		detail := fmt.Sprintf("error_code=0x%04X", info.ErrorCode)
+		if name := qmiUSSDProtocolErrorName(info.ErrorCode); name != "" {
+			detail += " (" + name + ")"
+		}
+		details = append(details, detail)
 	}
 	if info.HasFailureCause {
-		return USSDResult{}, fmt.Errorf("QMI USSD 失败: %s", qmiUSSDFailureCauseDetail(info.FailureCause)), true
+		details = append(details, qmiUSSDFailureCauseDetail(info.FailureCause))
+	}
+	if len(details) > 0 {
+		return USSDResult{}, fmt.Errorf("QMI USSD 失败: %s", strings.Join(details, "; ")), true
 	}
 	if info.USSData != nil {
 		return qmiUSSDPayloadResult(0, info.USSData), nil, true
+	}
+	if len(info.USSDataUTF16) > 0 {
+		return qmiUSSDUTF16Result(info.USSDataUTF16), nil, true
 	}
 	if info.Alpha != nil {
 		return qmiUSSDPayloadResult(0, info.Alpha), nil, true
 	}
 	return USSDResult{}, nil, false
+}
+
+func qmiUSSDUTF16Result(data []uint16) USSDResult {
+	text := string(utf16.Decode(data))
+	return USSDResult{Status: 0, Text: strings.TrimSpace(text), RawText: text, DCS: 0x03}
 }
 
 func qmiUSSDPayloadResult(status int, payload *qmi.VoiceUSSDPayload) USSDResult {
@@ -470,6 +448,8 @@ func qmiUSSDDecorateQMIError(err error) error {
 
 func qmiUSSDProtocolErrorName(code uint16) string {
 	switch code {
+	case 0x000d:
+		return "NO_NETWORK_FOUND"
 	case 0x005c:
 		return "SUPS_FAILURE_CASE"
 	case qmi.QMIErrInvalidArg:
@@ -492,6 +472,8 @@ func qmiUSSDFailureCauseDetail(cause uint16) string {
 
 func qmiUSSDFailureCauseName(cause uint16) string {
 	switch cause {
+	case 25:
+		return "ReleaseNormal"
 	case 110:
 		return "SUPSUnknownSubscriber"
 	case 111:
@@ -556,6 +538,8 @@ func qmiUSSDFailureCauseName(cause uint16) string {
 		return "SUPSResourcesNotAvailable"
 	case 218:
 		return "VOICEWrongState/MMGMMWrongState"
+	case 219:
+		return "AccessClassBlocked"
 	default:
 		return ""
 	}
