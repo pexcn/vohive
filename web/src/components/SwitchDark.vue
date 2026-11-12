@@ -14,14 +14,9 @@ const themes = {
 }
 const current = computed(() => themes[mode.value])
 
-function changeTheme(event: MouseEvent) {
-  let { clientX: x, clientY: y } = event
-  if (event.detail === 0) {
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    x = rect.left + rect.width / 2
-    y = rect.top + rect.height / 2
-  }
-  void cycle({ x, y })
+function changeTheme(event: Event) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  void cycle({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
 }
 </script>
 

@@ -351,11 +351,40 @@ try {
   await click('.log-follow md-switch')
   assert.equal(await evaluate('document.querySelector(".log-follow md-switch").selected'),false)
   await snapshot('logs-dark-desktop')
-  await click('md-icon-button[aria-label="深色模式"]')
-  await wait('!document.documentElement.classList.contains("theme-transition")')
+  const themeButton = `Array.from(document.querySelectorAll('md-icon-button')).find(el=>['深色模式','浅色模式','跟随设备'].includes(el.ariaLabel) && el.checkVisibility())`
+  // Fractional positioning catches accidental rounding as well as a reveal
+  // following the pointer instead of the trigger's geometric center.
+  await evaluate(`${themeButton}.style.translate='0.375px 0.625px'`)
+  const expectCenteredReveal = async (input, activate) => {
+    const bounds = await evaluate(`${themeButton}.getBoundingClientRect().toJSON()`)
+    await activate(bounds)
+    const origin = await until(()=>evaluate(`document.querySelector('style[data-theme-reveal]') && getComputedStyle(document.documentElement,'::view-transition-group(theme-reveal)').transformOrigin.split(' ').slice(0,2).map(parseFloat)`),input+' theme reveal')
+    assert.ok(Math.abs(origin[0]-(bounds.x+bounds.width/2))<0.05,input+' reveal must be centered horizontally: '+JSON.stringify({origin,bounds}))
+    assert.ok(Math.abs(origin[1]-(bounds.y+bounds.height/2))<0.05,input+' reveal must be centered vertically: '+JSON.stringify({origin,bounds}))
+    await wait('!document.documentElement.classList.contains("theme-transition")')
+  }
+  await expectCenteredReveal('off-center mouse',async bounds=>{
+    const point={x:bounds.x+8,y:bounds.y+5}
+    await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point})
+    await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point})
+  })
   await click('md-icon-button[aria-label="跟随设备"]')
   await wait('!document.documentElement.classList.contains("theme-transition")')
+  await expectCenteredReveal('keyboard',async()=>{
+    await send('Page.bringToFront')
+    await evaluate(`${themeButton}.shadowRoot.querySelector('button').focus()`)
+    await key(' ','Space',32)
+  })
+  await send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1})
+  await expectCenteredReveal('off-center touch',async bounds=>{
+    await send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:bounds.x+8,y:bounds.y+5}]})
+    await send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]})
+  })
+  await send('Emulation.setTouchEmulationEnabled',{enabled:false})
+  await click('md-icon-button[aria-label="跟随设备"]')
+  await evaluate(`${themeButton}.style.removeProperty('translate')`)
   await wait('!document.documentElement.classList.contains("dark")')
+  assert.equal(await evaluate('localStorage.getItem("theme")'),'light')
   await snapshot('logs-light-desktop')
   await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
   await wait('!document.querySelector(".navigation")')
