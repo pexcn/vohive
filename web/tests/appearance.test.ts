@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { colorSchemes, findColorScheme } from '../src/theme/colorSchemes'
+import { colorSchemes, findColorScheme, type ColorScheme } from '../src/theme/colorSchemes'
+import { createCustomColorScheme, normalizeCustomColor } from '../src/theme/customColor'
 import { appearanceBootstrap } from '../src/theme/bootstrap'
 import { runInNewContext } from 'node:vm'
 
@@ -15,7 +16,7 @@ test('the default blue preserves VoHive original light and dark colors', () => {
   assert.equal(findColorScheme('green').dark['--md-sys-color-primary'], '#55dfa5')
 })
 
-export function assertReadable(scheme: typeof colorSchemes[number]) {
+function assertReadable(scheme: ColorScheme) {
   function luminance(hex: string) {
     const rgb = hex.slice(1).match(/../g)!.map(value => {
       const channel = parseInt(value, 16) / 255
@@ -43,6 +44,36 @@ export function assertReadable(scheme: typeof colorSchemes[number]) {
 test('both presets provide complete palettes with readable text', () => {
   assert.equal(new Set(colorSchemes.map(scheme => scheme.id)).size, colorSchemes.length)
   for (const scheme of colorSchemes) assertReadable(scheme)
+})
+
+test('custom colors validate input and produce readable complete palettes for extreme seeds', () => {
+  assert.equal(normalizeCustomColor('  #AABBcc '), '#aabbcc')
+  for (const value of [null, {}, 123, '#fff', 'red', '#12345678', '#gggggg', '123456', 'url(example)']) {
+    assert.equal(normalizeCustomColor(value), null)
+    assert.throws(() => createCustomColorScheme(value as string))
+  }
+  for (const r of [0, 128, 255]) for (const g of [0, 128, 255]) for (const b of [0, 128, 255]) {
+    const seed = '#' + [r, g, b].map(channel => channel.toString(16).padStart(2, '0')).join('')
+    assertReadable(createCustomColorScheme(seed))
+  }
+})
+
+test('the pre-paint custom cache requires a matching seed and complete, safe colors', () => {
+  const custom = createCustomColorScheme('#ff0000')
+  const good = { version: 1, seed: '#ff0000', light: custom.light, dark: custom.dark }
+  for (const cache of [good, null, { ...good, seed: '#00ff00' }, { ...good, version: 0 },
+    { ...good, light: {} }, { ...good, light: { ...custom.light, '--md-sys-color-primary': 'url(example)' } }]) {
+    for (const dark of [true, false]) {
+      const styles: Record<string, string> = {}
+      runInNewContext(appearanceBootstrap(), {
+        document: { documentElement: { classList: { toggle() {} }, dataset: {}, style: { setProperty: (key: string, value: string) => { styles[key] = value } } }, querySelector: () => null },
+        localStorage: { getItem: (key: string) => ({ theme: 'system', 'color-scheme': 'custom', 'custom-color': '#ff0000', 'custom-palette': JSON.stringify(cache) })[key] },
+        matchMedia: () => ({ matches: dark })
+      })
+      const expected = cache === good ? custom : colorSchemes[0]
+      assert.equal(styles['--md-sys-color-primary'], (dark ? expected.dark : expected.light)['--md-sys-color-primary'])
+    }
+  }
 })
 
 test('the inline bootstrap restores colors before application modules, including blocked storage', () => {

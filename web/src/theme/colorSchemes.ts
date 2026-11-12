@@ -2,6 +2,7 @@ import presets from './colorSchemes.json'
 
 export type ColorPalette = Record<keyof typeof presets[0]['light'], string>
 export type ColorSchemeId = 'blue' | 'green'
+export type AppearanceColorId = ColorSchemeId | 'custom'
 export type ColorScheme = {
   id: string
   label: string

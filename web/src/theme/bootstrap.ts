@@ -21,12 +21,27 @@ export function applyAppearance(palette: ColorPalette, dark: boolean, id: string
 function restoreAppearance(schemes: ColorScheme[], apply: typeof applyAppearance) {
   let mode: string | null = null
   let color: string | null = null
+  let seed: string | null = null
+  let cache = ''
   try {
     mode = localStorage.getItem('theme')
     color = localStorage.getItem('color-scheme')
+    seed = localStorage.getItem('custom-color')
+    cache = localStorage.getItem('custom-palette') || ''
   } catch { /* A blocked store still gets the default palette and system mode. */ }
   const dark = mode === 'dark' || (mode !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
-  const scheme = schemes.find(scheme => scheme.id === color) || schemes[0]
+  let scheme = schemes.find(scheme => scheme.id === color) || schemes[0]
+  if (color === 'custom' && seed && /^#[0-9a-f]{6}$/i.test(seed)) {
+    try {
+      const stored = JSON.parse(cache)
+      const keys = Object.keys(schemes[0].light)
+      if (stored?.version === 1 && stored.seed === seed.toLowerCase() &&
+          ['light', 'dark'].every(mode => stored[mode] && Object.keys(stored[mode]).length === keys.length &&
+            keys.every(key => typeof stored[mode][key] === 'string' && /^#[0-9a-f]{6}$/i.test(stored[mode][key])))) {
+        scheme = { id: 'custom', label: '自定义', light: stored.light, dark: stored.dark }
+      }
+    } catch { /* Invalid or incomplete caches fall back to the original blue. */ }
+  }
   apply(dark ? scheme.dark : scheme.light, dark, scheme.id)
 }
 

@@ -1,7 +1,30 @@
 <script setup lang="ts">
 import { themeOrigin, useTheme, type ThemeMode } from '../composables/useTheme'
+import { ref, watch } from 'vue'
+import { normalizeCustomColor } from '../theme/customColor'
+import { fieldValue } from '../utils/material'
 
-const { mode, isDark, colorScheme, colorSchemes, isTransitioning, setMode, setColorScheme } = useTheme()
+const { mode, isDark, colorScheme, colorSchemes, customColor, isTransitioning, setMode, setColorScheme, setCustomColor, resetColors } = useTheme()
+const draft = ref(customColor.value)
+const error = ref('')
+watch([customColor, () => colorScheme.value.id], () => {
+  draft.value = customColor.value
+  error.value = ''
+})
+
+function updateDraft(event: Event) {
+  draft.value = fieldValue(event)
+  error.value = ''
+}
+
+function applyCustom(event: Event) {
+  if (!normalizeCustomColor(draft.value)) {
+    error.value = '请输入 #RRGGBB 格式的颜色代码，例如 #65568C。'
+    return
+  }
+  error.value = ''
+  void setCustomColor(draft.value, themeOrigin(event))
+}
 const modes: { id: ThemeMode; label: string }[] = [
   { id: 'system', label: '跟随设备' },
   { id: 'light', label: '浅色模式' },
@@ -40,6 +63,21 @@ const modes: { id: ThemeMode; label: string }[] = [
         </label>
       </div>
     </fieldset>
+    <form v-if="colorScheme.id === 'custom'" class="appearance-custom" @submit.prevent>
+      <div class="appearance-custom-fields">
+        <label class="appearance-picker">
+          <span>选取主色</span>
+          <input type="color" aria-label="选取自定义主色"
+            :value="normalizeCustomColor(draft) || customColor" :disabled="isTransitioning" @input="updateDraft" />
+        </label>
+        <md-outlined-text-field label="主色代码" :value="draft" :error="!!error" :disabled="isTransitioning"
+          @input="updateDraft" @keydown.enter.prevent="applyCustom" />
+        <md-filled-button type="button" :disabled="isTransitioning" @click="applyCustom">应用颜色</md-filled-button>
+      </div>
+      <p v-if="error" class="appearance-error" role="alert">{{ error }}</p>
+      <p class="m3-muted">从主色生成完整的深浅配色，点击“应用颜色”后保存。</p>
+    </form>
+    <div><md-text-button :disabled="isTransitioning" @click="resetColors(themeOrigin($event))">恢复默认配色</md-text-button></div>
   </section>
 </template>
 
@@ -77,6 +115,12 @@ legend { margin-bottom: 12px; font-size: 14px; font-weight: 500; }
 .appearance-swatch { width: 28px; height: 28px; flex: none; border-radius: 50%; }
 .appearance-name { white-space: nowrap; }
 .appearance-name small { display: block; font-size: 12px; }
+.appearance-custom { display: grid; gap: 12px; }
+.appearance-custom-fields { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+.appearance-custom-fields md-outlined-text-field { flex: 1; min-width: 140px; }
+.appearance-picker { display: grid; gap: 8px; font-size: 12px; }
+.appearance-picker input { width: 48px; height: 48px; padding: 4px; border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-shape-sm); background: var(--md-sys-color-surface-container); cursor: pointer; }
+.appearance-error { margin: 0; color: var(--md-sys-color-error); }
 @media (max-width: 480px) {
   .appearance-modes, .appearance-colors { gap: 8px; }
   .appearance-modes button { flex: 1; padding: 12px 6px; font-size: 14px; white-space: nowrap; }

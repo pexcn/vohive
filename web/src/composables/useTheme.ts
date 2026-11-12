@@ -1,7 +1,8 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { revealTheme } from '../utils/themeTransition'
 import { applyAppearance } from '../theme/bootstrap'
-import { colorSchemes, findColorScheme, loadPreference, type ColorSchemeId } from '../theme/colorSchemes'
+import { colorSchemes, findColorScheme, loadPreference, type AppearanceColorId } from '../theme/colorSchemes'
+import { createCustomColorScheme, defaultCustomColor, normalizeCustomColor } from '../theme/customColor'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 const modes: ThemeMode[] = ['system', 'light', 'dark']
@@ -17,8 +18,13 @@ function loadTheme(): ThemeMode {
 }
 
 const mode = ref<ThemeMode>(loadTheme())
-const colorId = ref<ColorSchemeId>(findColorScheme(loadPreference('color-scheme')).id)
-const colorScheme = computed(() => findColorScheme(colorId.value))
+const storedCustomColor = normalizeCustomColor(loadPreference('custom-color'))
+const customColor = ref(storedCustomColor || defaultCustomColor)
+const storedColorId = loadPreference('color-scheme')
+const colorId = ref<AppearanceColorId>(storedColorId === 'custom' && storedCustomColor ? 'custom' : findColorScheme(storedColorId).id)
+const customScheme = computed(() => createCustomColorScheme(customColor.value))
+const availableColorSchemes = computed(() => [...colorSchemes, customScheme.value])
+const colorScheme = computed(() => colorId.value === 'custom' ? customScheme.value : findColorScheme(colorId.value))
 const isTransitioning = ref(false)
 const media = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(media.matches)
@@ -31,12 +37,18 @@ const isDark = computed(
 )
 const palette = computed(() => isDark.value ? colorScheme.value.dark : colorScheme.value.light)
 watch(
-  [mode, isDark, palette],
+  [mode, isDark, palette, customColor],
   () => {
     applyAppearance(palette.value, isDark.value, colorScheme.value.id)
     try {
       localStorage.setItem('theme', mode.value)
       localStorage.setItem('color-scheme', colorId.value)
+      localStorage.setItem('custom-color', customColor.value)
+      if (colorId.value === 'custom') {
+        // A derived cache restores custom colors before the algorithm loads.
+        // The HTML bootstrap validates its schema and matching seed first.
+        localStorage.setItem('custom-palette', JSON.stringify({ version: 1, seed: customColor.value, light: customScheme.value.light, dark: customScheme.value.dark }))
+      }
     } catch {
       /* Keep the in-memory preference. */
     }
@@ -49,16 +61,18 @@ export function themeOrigin(event: Event) {
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
 }
 
-async function changeAppearance(nextMode: ThemeMode, nextColor: ColorSchemeId, origin?: { x: number; y: number }) {
+async function changeAppearance(nextMode: ThemeMode, nextColor: AppearanceColorId, origin?: { x: number; y: number }, seed = customColor.value) {
   if (isTransitioning.value) return
-  if (nextMode === mode.value && nextColor === colorId.value) return
+  if (nextMode === mode.value && nextColor === colorId.value && seed === customColor.value) return
   const nextIsDark = nextMode === 'dark' || (nextMode === 'system' && systemDark.value)
   const applyTheme = async () => {
     mode.value = nextMode
     colorId.value = nextColor
+    customColor.value = seed
     await nextTick()
   }
-  if (!origin || (nextIsDark === isDark.value && nextColor === colorId.value) ||
+  const sameAppearance = nextIsDark === isDark.value && nextColor === colorId.value && (nextColor !== 'custom' || seed === customColor.value)
+  if (!origin || sameAppearance ||
       typeof document.startViewTransition !== 'function' ||
       window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     await applyTheme()
@@ -77,8 +91,17 @@ function setMode(next: ThemeMode, origin?: { x: number; y: number }) {
   return changeAppearance(next, colorId.value, origin)
 }
 
-function setColorScheme(next: ColorSchemeId, origin?: { x: number; y: number }) {
+function setColorScheme(next: AppearanceColorId, origin?: { x: number; y: number }) {
   return changeAppearance(mode.value, next, origin)
+}
+
+function setCustomColor(value: string, origin?: { x: number; y: number }) {
+  const seed = normalizeCustomColor(value)
+  if (seed) return changeAppearance(mode.value, 'custom', origin, seed)
+}
+
+function resetColors(origin?: { x: number; y: number }) {
+  return changeAppearance(mode.value, 'blue', origin, defaultCustomColor)
 }
 
 function cycle(origin?: { x: number; y: number }) {
@@ -91,10 +114,13 @@ export function useTheme() {
     isDark,
     palette,
     colorScheme,
-    colorSchemes,
+    colorSchemes: availableColorSchemes,
+    customColor: computed(() => customColor.value),
     isTransitioning: computed(() => isTransitioning.value),
     cycle,
     setMode,
     setColorScheme,
+    setCustomColor,
+    resetColors,
   }
 }
