@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, inject, ref, shallowRef, watchEffect, type Ref } from 'vue'
+import { computed, ref, shallowRef, watchEffect } from 'vue'
+import { useTheme } from '../composables/useTheme'
 import ErrorState from './ErrorState.vue'
 import SvgIcon from './SvgIcon.vue'
 import checkIcon from '@material-symbols/svg-400/outlined/check.svg?raw'
@@ -217,12 +218,9 @@ const deviceSeriesName = computed(() => {
   return analysisChartData.value?.devices?.[0] || '当前设备'
 })
 
-const isDark = inject<Ref<boolean>>('isDark', ref(false))
+const { palette } = useTheme()
 const chartColors = computed(() => {
-  // Re-read the CSS roles after the app switches its theme class.
-  void isDark.value
-  const style = getComputedStyle(document.documentElement)
-  const color = (role: string) => style.getPropertyValue(`--md-sys-color-${role}`).trim()
+  const color = (role: string) => palette.value[`--md-sys-color-${role}` as keyof typeof palette.value]
   return {
     primary: color('primary'),
     onPrimary: color('on-primary'),

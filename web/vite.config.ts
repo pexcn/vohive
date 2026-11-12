@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { appearanceBootstrap } from './src/theme/bootstrap'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
@@ -7,6 +8,13 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [
+      {
+        name: 'vohive-appearance-bootstrap',
+        transformIndexHtml: {
+          order: 'pre',
+          handler: () => [{ tag: 'script', children: appearanceBootstrap(), injectTo: 'head' }]
+        }
+      },
       vue({
         template: {
           compilerOptions: {

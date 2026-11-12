@@ -5,17 +5,8 @@
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f9f6ef" />
   <title>VoHive</title>
-  <script>
-    try {
-      const theme = localStorage.getItem('theme')
-      if (theme === 'dark' || (theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
-    } catch { }
-  </script>
   <style>
     :root {
       color-scheme: light dark;
@@ -28,11 +19,7 @@
     }
 
     body {
-      background: #f9f6ef;
-    }
-
-    html.dark body {
-      background: #111318;
+      background: var(--md-sys-color-surface, #f9f6ef);
     }
   </style>
 </head>

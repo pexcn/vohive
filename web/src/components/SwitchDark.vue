@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import autoMode from '@material-symbols/svg-400/outlined/brightness_auto.svg?raw'
 import darkMode from '@material-symbols/svg-400/outlined/dark_mode.svg?raw'
 import lightMode from '@material-symbols/svg-400/outlined/light_mode.svg?raw'
-import { useTheme } from '../composables/useTheme'
+import { themeOrigin, useTheme } from '../composables/useTheme'
 import SvgIcon from './SvgIcon.vue'
 
 const { mode, isTransitioning, cycle } = useTheme()
@@ -15,8 +15,7 @@ const themes = {
 const current = computed(() => themes[mode.value])
 
 function changeTheme(event: Event) {
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  void cycle({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+  void cycle(themeOrigin(event))
 }
 </script>
 
