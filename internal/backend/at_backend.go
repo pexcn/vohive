@@ -39,12 +39,16 @@ func (a *ATBackend) GetIMEI(ctx context.Context) (string, error) {
 }
 
 func (a *ATBackend) GetIMSI(ctx context.Context) (string, error) {
-	return a.modem.QueryIMSI()
+	imsi, err := a.modem.QueryIMSI()
+	if err != nil {
+		return "", err
+	}
+	return NormalizeIMSI(imsi)
 }
 
 // GetIMSILive AT 模式下 IMSI 本身即实时读取。
 func (a *ATBackend) GetIMSILive(ctx context.Context) (string, error) {
-	return a.modem.QueryIMSI()
+	return a.GetIMSI(ctx)
 }
 
 func (a *ATBackend) GetICCID(ctx context.Context) (string, error) {

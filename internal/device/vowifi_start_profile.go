@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/iniwex5/vohive/internal/backend"
 	"github.com/iniwex5/vohive/internal/modem"
 	"github.com/iniwex5/vohive/pkg/logger"
 	"github.com/iniwex5/vowifi-go/runtimehost"
@@ -31,7 +32,10 @@ func (p *Pool) buildVoWiFiStartProfile(worker *Worker, traceID string) (identity
 	if err != nil {
 		return identity.Profile{}, fmt.Errorf("实时读取 IMSI 失败: %w", err)
 	}
-	imsi = strings.TrimSpace(imsi)
+	imsi, err = backend.NormalizeIMSI(imsi)
+	if err != nil {
+		return identity.Profile{}, fmt.Errorf("实时 IMSI 不可用: %w", err)
+	}
 	if imsi == "" {
 		return identity.Profile{}, fmt.Errorf("实时 IMSI 为空")
 	}

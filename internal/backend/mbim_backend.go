@@ -40,7 +40,7 @@ func (b *MBIMBackend) GetIMSI(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return sub.IMSI, nil
+	return NormalizeIMSI(sub.IMSI)
 }
 
 func (b *MBIMBackend) GetICCID(ctx context.Context) (string, error) {

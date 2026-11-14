@@ -194,10 +194,12 @@ func (q *QMIBackend) GetIMEI(ctx context.Context) (string, error) {
 func (q *QMIBackend) GetIMSI(ctx context.Context) (string, error) {
 	if snap := q.source.GetDeviceSnapshot(); snap != nil {
 		if ids, ready := snap.Identities(); ready && ids.IMSI != "" {
-			return ids.IMSI, nil
+			if imsi, err := NormalizeIMSI(ids.IMSI); err == nil {
+				return imsi, nil
+			}
 		}
 	}
-	return q.source.GetIMSI(ctx)
+	return q.GetIMSILive(ctx)
 }
 
 // GetIMSILive 强制实时读取 IMSI（绕过 snapshot 优先路径）。
@@ -206,9 +208,17 @@ func (q *QMIBackend) GetIMSILive(ctx context.Context) (string, error) {
 		GetIMSIStrictLive(context.Context) (string, error)
 	}
 	if src, ok := q.source.(strictLive); ok {
-		return src.GetIMSIStrictLive(ctx)
+		imsi, err := src.GetIMSIStrictLive(ctx)
+		if err != nil {
+			return "", err
+		}
+		return NormalizeIMSI(imsi)
 	}
-	return q.source.GetIMSI(ctx)
+	imsi, err := q.source.GetIMSI(ctx)
+	if err != nil {
+		return "", err
+	}
+	return NormalizeIMSI(imsi)
 }
 
 func (q *QMIBackend) GetICCID(ctx context.Context) (string, error) {
@@ -581,7 +591,7 @@ func (q *QMIBackend) WaitCoreReady(ctx context.Context) error {
 }
 
 func (q *QMIBackend) GetNativeMCCMNC(ctx context.Context) (mcc, mnc string, err error) {
-	imsi, err := q.source.GetIMSI(ctx)
+	imsi, err := q.GetIMSILive(ctx)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to get IMSI: %w", err)
 	}

@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -558,13 +559,20 @@ func (w *Worker) refreshIdentityLive(ctx context.Context, reason string) (liveSI
 	} else {
 		logger.Debug("读取 ICCID 失败", "device", w.ID, "reason", reason, "err", err)
 	}
-	if v, err := reader.GetIMSILive(ctx); err == nil {
-		imsi = strings.TrimSpace(v)
+	liveIMSI, imsiErr := reader.GetIMSILive(ctx)
+	if imsiErr == nil {
+		imsi, imsiErr = backend.NormalizeIMSI(liveIMSI)
+	}
+	invalidIMSI := errors.Is(imsiErr, backend.ErrPlaceholderIMSI)
+	if invalidIMSI {
+		logger.Warn("SIM IMSI 为全 9 占位值，保留卡片识别并清除无效订阅身份",
+			"device", w.ID, "reason", reason, "event", "SIM_IMSI_PLACEHOLDER")
+	} else if imsiErr == nil {
 		if imsi == "" {
 			logger.Debug("读取 IMSI 为空", "device", w.ID, "reason", reason)
 		}
 	} else {
-		logger.Debug("读取 IMSI 失败", "device", w.ID, "reason", reason, "err", err)
+		logger.Debug("读取 IMSI 失败", "device", w.ID, "reason", reason, "err", imsiErr)
 	}
 	spnReadOK := false
 	if spnReader, ok := w.Backend.(liveSIMSPNReader); ok {
@@ -602,7 +610,7 @@ func (w *Worker) refreshIdentityLive(ctx context.Context, reason string) (liveSI
 		}
 	}
 	result := liveSIMIdentityRefreshResult{ICCID: iccid, IMSI: imsi}
-	if iccid == "" && imsi == "" && nativeSPN == "" && !hasSIMMetadata(simMetadata) {
+	if iccid == "" && imsi == "" && nativeSPN == "" && !hasSIMMetadata(simMetadata) && !invalidIMSI {
 		return result, fmt.Errorf("live_identity_empty")
 	}
 
@@ -620,10 +628,14 @@ func (w *Worker) refreshIdentityLive(ctx context.Context, reason string) (liveSI
 		w.cacheMu.Unlock()
 		return result, err
 	}
-	identityChangedForSPN := (iccid != "" && iccid != strings.TrimSpace(w.state.Identity.ICCID)) ||
+	iccidChanged := iccid != "" && normalizeSIMIdentityForCompare(iccid) != normalizeSIMIdentityForCompare(w.state.Identity.ICCID)
+	identityChangedForSPN := iccidChanged ||
 		(imsi != "" && imsi != strings.TrimSpace(w.state.Identity.IMSI))
 	if iccid != "" {
 		w.state.Identity.ICCID = iccid
+	}
+	if iccidChanged || invalidIMSI {
+		w.state.Identity.IMSI = ""
 	}
 	if imsi != "" {
 		w.state.Identity.IMSI = imsi
@@ -640,11 +652,14 @@ func (w *Worker) refreshIdentityLive(ctx context.Context, reason string) (liveSI
 	} else if identityChangedForSPN {
 		w.clearSIMMetadataLocked()
 	}
-	w.state.Identity.Ready = true
+	w.state.Identity.Ready = w.state.Identity.ICCID != "" || w.state.Identity.IMSI != ""
 	w.state.Identity.Phase = simIdentityPhaseReady
 	w.state.Identity.TargetICCID = ""
 	w.state.Identity.LastReason = strings.TrimSpace(reason)
 	w.state.Identity.LastError = ""
+	if w.state.Identity.IMSI == "" && imsiErr != nil {
+		w.state.Identity.LastError = imsiErr.Error()
+	}
 	w.state.Meta.IdentityUpdatedAt = now
 	w.state.Meta.UpdatedAt = now
 	w.cacheMu.Unlock()
@@ -2369,7 +2384,7 @@ func (p *Pool) PersistIdentityState(worker *Worker) {
 
 	status := worker.ProjectDeviceStatus()
 	iccid := strings.TrimSpace(status.ICCID)
-	imsi := strings.TrimSpace(status.IMSI)
+	imsi, _ := backend.NormalizeIMSI(status.IMSI)
 	if iccid == "" {
 		return
 	}

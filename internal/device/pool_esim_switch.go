@@ -467,9 +467,12 @@ func (p *Pool) refreshPostSwitchIdentityWithPolling(deviceID string, worker *Wor
 		liveIMSI, liveIMSIErr := reader.GetIMSILive(liveCtx)
 		cancel()
 		newICCID = normalizeSIMIdentity(liveICCID)
-		newIMSI = normalizeSIMIdentity(liveIMSI)
 		iccidErr = liveICCIDErr
 		imsiErr = liveIMSIErr
+		newIMSI = ""
+		if imsiErr == nil {
+			newIMSI, imsiErr = backend.NormalizeIMSI(liveIMSI)
+		}
 
 		newICCIDKey := normalizeSIMIdentityForCompare(newICCID)
 		if targetICCIDKey != "" && newICCIDKey == targetICCIDKey {
@@ -527,12 +530,13 @@ func (p *Pool) refreshPostSwitchIdentityWithPolling(deviceID string, worker *Wor
 
 	now := time.Now()
 	worker.cacheMu.Lock()
+	iccidChangedInCache := iccidErr == nil && newICCIDKey != normalizeSIMIdentityForCompare(worker.state.Identity.ICCID)
 	if iccidErr == nil {
 		worker.state.Identity.ICCID = newICCID
 		worker.state.Meta.IdentityUpdatedAt = now
 		worker.state.Meta.UpdatedAt = now
 	}
-	if imsiErr == nil {
+	if imsiErr == nil || iccidChangedInCache || errors.Is(imsiErr, backend.ErrPlaceholderIMSI) {
 		worker.state.Identity.IMSI = newIMSI
 		worker.state.Meta.IdentityUpdatedAt = now
 		worker.state.Meta.UpdatedAt = now
@@ -551,6 +555,9 @@ func (p *Pool) refreshPostSwitchIdentityWithPolling(deviceID string, worker *Wor
 		worker.state.Identity.TargetICCID = ""
 		worker.state.Identity.LastReason = "post_switch_finalize"
 		worker.state.Identity.LastError = ""
+		if worker.state.Identity.IMSI == "" && imsiErr != nil {
+			worker.state.Identity.LastError = imsiErr.Error()
+		}
 	}
 	worker.cacheMu.Unlock()
 	p.PersistIdentityState(worker)

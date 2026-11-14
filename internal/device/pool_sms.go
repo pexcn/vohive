@@ -374,15 +374,22 @@ func (w *Worker) SendSMSWithOptions(phone, message string, opts smscodec.SubmitO
 
 func (w *Worker) GetIMSI() string {
 	if w.Backend != nil {
-		if v, err := w.Backend.GetIMSI(context.Background()); err == nil && v != "" {
-			return v
+		v, err := w.Backend.GetIMSI(context.Background())
+		if err == nil && v != "" {
+			imsi, _ := backend.NormalizeIMSI(v)
+			return imsi
 		}
-		if w.Backend.Mode() != "at" {
+		if errors.Is(err, backend.ErrPlaceholderIMSI) || w.Backend.Mode() != "at" {
 			return ""
 		}
+		// The worker cache is cleared when ICCID changes; the modem's startup
+		// cache can still belong to the previous profile.
+		imsi, _ := backend.NormalizeIMSI(w.GetCachedIMSI())
+		return imsi
 	}
 	if w.Modem != nil {
-		return w.Modem.GetIMSI()
+		imsi, _ := backend.NormalizeIMSI(w.Modem.GetIMSI())
+		return imsi
 	}
 	return ""
 }
@@ -428,15 +435,9 @@ func (w *Worker) processSMS(sender, content string, timestamp time.Time) {
 
 	imsi := w.GetCachedIMSI()
 	if imsi == "" {
-		if w.Backend != nil {
-			if v, err := w.Backend.GetIMSI(context.Background()); err == nil {
-				imsi = v
-			}
-		}
-		if imsi == "" && w.Modem != nil {
-			imsi = w.Modem.GetIMSI()
-		}
+		imsi = w.GetIMSI()
 	}
+	imsi, _ = backend.NormalizeIMSI(imsi)
 	if imsi != "" {
 		if err := db.SaveSMS(imsi, sender, "", content, 1, 0, timestamp); err != nil {
 			logger.Warn(fmt.Sprintf("[%s] 保存短信到数据库失败", w.ID), "err", err)
