@@ -68,7 +68,7 @@ watch(() => props.esimSwitching, (busy) => {
   if (!busy) switchSubmitted.value = false
 })
 const deleting = ref<string | null>(null)
-const renaming = ref<string | null>(null)
+const renaming = ref<{ iccid: string; aidHex: string } | null>(null)
 const showSensitive = useSensitiveVisibility()
 const renameValue = ref('')
 const selectedChip = ref<EsimEUICCInfo | null>(null)
@@ -109,7 +109,7 @@ function handleProfileMenuClosed() {
   profileMenu.value = null
   pendingProfileAction = null
   if (!target || target.deviceId !== props.deviceId || switchBusy.value || deleting.value !== null) return
-  if (action === 'rename') startRename(target.profile.iccid, target.profile.name)
+  if (action === 'rename') startRename(target.profile.iccid, target.profile.name, target.aidHex)
   if (action === 'delete' && !downloading.value) {
     void deleteProfile(target.profile.iccid, target.profile.name, target.aidHex)
   }
@@ -378,8 +378,8 @@ async function switchProfile(iccid: string, currentState: number, aidHex: string
 }
 
 // 开始编辑名称
-function startRename(iccid: string, currentName: string) {
-  renaming.value = iccid
+function startRename(iccid: string, currentName: string, aidHex: string) {
+  renaming.value = { iccid, aidHex: normalizeAidHex(aidHex) }
   renameValue.value = currentName
 }
 
@@ -418,6 +418,22 @@ async function saveRename(iccid: string, aidHex: string) {
 function cancelRename() {
   renaming.value = null
   renameValue.value = ''
+}
+
+function focusRenameInput(element: Element) {
+  if (props.isActive === false || !element.matches('.esim-rename-form')) return
+  element.querySelector<HTMLElement>('md-outlined-text-field')?.focus()
+}
+
+function onRenameKeydown(event: KeyboardEvent) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    if (!event.repeat) (event.currentTarget as HTMLElement).closest('form')?.requestSubmit()
+  } else if (event.key === 'Escape') {
+    event.stopPropagation()
+    cancelRename()
+  }
 }
 
 function beforeProfileLeave(element: Element) {
@@ -675,8 +691,8 @@ onBeforeUnmount(() => {
                 :data-active="profile.state === 1"
               >
                 <div class="esim-profile-content">
-                  <Transition name="esim-rename">
-                    <div v-if="renaming !== profile.iccid" class="esim-profile-row">
+                  <Transition name="esim-rename" @after-enter="focusRenameInput">
+                    <div v-if="renaming?.iccid !== profile.iccid || renaming?.aidHex !== normalizeAidHex(group.aid_hex)" class="esim-profile-row">
                       <span class="esim-avatar" aria-hidden="true"><SvgIcon :svg="simIcon" /></span>
                       <div class="esim-profile-identity">
                         <div class="esim-profile-heading">
@@ -724,10 +740,9 @@ onBeforeUnmount(() => {
                       <md-outlined-text-field
                         label="eSIM 配置名称"
                         name="esim-profile-name"
-                        autofocus
                         :value="renameValue"
                         @input="renameValue = fieldValue($event)"
-                        @keydown.escape.stop="cancelRename"
+                        @keydown="onRenameKeydown"
                       />
                       <div class="m3-actions">
                         <md-text-button type="button" @click="cancelRename">取消</md-text-button>
