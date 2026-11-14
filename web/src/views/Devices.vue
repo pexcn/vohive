@@ -13,17 +13,19 @@ import DeviceEsimTab from '../components/DeviceEsimTab.vue'
 import DeviceAtTab from '../components/DeviceAtTab.vue'
 import DeviceUssdTab from '../components/DeviceUssdTab.vue'
 import DeviceConfigTab from '../components/DeviceConfigTab.vue'
+import CardPolicyDialog from '../components/CardPolicyDialog.vue'
 import DeviceAddDialog from '../components/DeviceAddDialog.vue'
 import CarrierWebsheetDialog from '../components/CarrierWebsheetDialog.vue'
 import TrafficAnalysisPanel from '../components/TrafficAnalysisPanel.vue'
 import { usePollingScheduler } from '../composables/usePollingScheduler'
 import { useEventStream } from '../composables/useEventStream'
 import { useVoWiFiRuntime } from '../composables/useVoWiFiRuntime'
+import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
 import { useDevicesStore } from '../stores/devices'
 import { debugCollector } from '../debug/collector'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
 import { getMccMncIndex, type MccMncRow } from '../utils/mcc-mnc'
-import type { CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
+import type { CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, EsimProfileItem, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
 import type { AppError } from '../types/domain'
 import { toAppError } from '../services/http'
 import { devicesService } from '../services/devices'
@@ -85,6 +87,11 @@ const e911WebsheetOpen = ref(false)
 const e911Websheet = ref<CarrierWebsheetInfo | null>(null)
 const deleting = ref(false)
 const rescanning = ref(false)
+const cardSettings = ref<{ deviceId: string; iccid: string; name: string; activeWhenOpened: boolean } | null>(null)
+const cardPolicyRevision = ref(0)
+const cardPolicySaving = ref(false)
+const showSensitive = useSensitiveVisibility()
+watch([selectedId, activeTab], () => { cardSettings.value = null })
 
 const trafficSpeedRx = ref('')
 const trafficSpeedTx = ref('')
@@ -134,6 +141,38 @@ const selectedListItem = computed<DeviceMgmtListItem | null>(() => {
 const selectedDevice = computed<DeviceOverviewItem | null>(() => {
   return selectedDetail.value ? voWiFiRuntime.apply(selectedDetail.value) : null
 })
+
+const currentCardName = computed(() => {
+  const name = selectedDevice.value?.active_esim_profile_name || selectedSimOperatorDisplay.value
+  return name && name !== '--' ? name : 'SIM 卡'
+})
+
+const editingActiveCard = computed(() => {
+  const card = cardSettings.value
+  if (!card) return false
+  const current = selectedDevice.value?.modem?.iccid?.replace(/\s+/g, '').replace(/F+$/i, '')
+  return current ? current === card.iccid.replace(/\s+/g, '').replace(/F+$/i, '') : card.activeWhenOpened
+})
+
+function editCurrentCardSettings() {
+  const device = selectedDevice.value
+  const iccid = device?.modem?.iccid
+  if (!device || !iccid) return
+  cardSettings.value = {
+    deviceId: device.id, iccid,
+    name: currentCardName.value,
+    activeWhenOpened: true
+  }
+}
+
+function editProfileCardSettings(profile: EsimProfileItem) {
+  if (!selectedDevice.value) return
+  cardSettings.value = {
+    deviceId: selectedDevice.value.id, iccid: profile.iccid,
+    name: profile.name || profile.service_provider_name || 'SIM 卡',
+    activeWhenOpened: profile.state === 1
+  }
+}
 
 const RADIO_LIVE_GRACE_MS = 3000
 
@@ -559,6 +598,7 @@ watch(
 )
 
 async function onCardPolicyChanged() {
+  cardPolicyRevision.value++
   await refreshSelectedDetailOnly()
 }
 
@@ -1288,7 +1328,7 @@ usePollingScheduler(async () => {
               :device-imei="selectedDevice.modem?.imei || ''"
               :is-active="activeTab === 'esim'"
               :device-online="selectedDevice.running === true"
-              @policy-changed="onCardPolicyChanged"
+              @edit-card-settings="editProfileCardSettings"
             />
           </div>
           <div
@@ -1328,9 +1368,11 @@ usePollingScheduler(async () => {
             <DeviceConfigTab
               :edit-config="editConfig"
               :device-status="selectedDetail"
-              :card-name="selectedDevice.active_esim_profile_name || selectedSimOperatorDisplay"
+              :card-name="currentCardName"
               :is-active="activeTab === 'config'"
-              @policy-changed="onCardPolicyChanged"
+              :policy-revision="cardPolicyRevision"
+              :policy-saving="cardPolicySaving"
+              @edit-card-settings="editCurrentCardSettings"
               :saving="saving"
               :deleting="deleting"
               @save="saveConfig"
@@ -1347,6 +1389,16 @@ usePollingScheduler(async () => {
     </div>
   </div>
 
+  <CardPolicyDialog
+    :card="cardSettings"
+    :is-active-card="editingActiveCard"
+    :device-online="selectedDevice?.running === true"
+    :esim-switching="selectedDevice?.esim_switching === true"
+    :conceal-iccid="!showSensitive"
+    @close="cardSettings = null"
+    @saving-changed="cardPolicySaving = $event"
+    @policy-changed="onCardPolicyChanged"
+  />
   <DeviceAddDialog
     v-model="addDialogOpen"
     :discovering="discovering"

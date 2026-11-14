@@ -4,13 +4,13 @@ import type { CardPolicy } from '../types/api'
 import { cardsService } from '../services/cards'
 import { notify } from '../stores/feedback'
 import { fieldValue } from '../utils/material'
+import { cardConnectionMode, type ConnectionMode } from '../utils/cardPolicy'
 import SvgIcon from './SvgIcon.vue'
 import SensitiveText from './SensitiveText.vue'
 import simIcon from '@material-symbols/svg-400/outlined/sim_card.svg?raw'
 import settingsIcon from '@material-symbols/svg-400/outlined/tune.svg?raw'
 import expandIcon from '@material-symbols/svg-400/outlined/keyboard_arrow_down.svg?raw'
 
-type ConnectionMode = 'standby' | 'network' | 'vowifi' | 'airplane'
 type PolicyDraft = Pick<
   CardPolicy,
   'network_enabled' | 'vowifi_enabled' | 'airplane_enabled' | 'ip_version' | 'apn'
@@ -26,10 +26,11 @@ const props = withDefaults(
     esimSwitching?: boolean
     concealIccid?: boolean
     embedded?: boolean
+    actionsTarget?: string
   }>(),
   { isActiveCard: true, isVisible: true }
 )
-const emit = defineEmits<{ policyChanged: []; savingChanged: [saving: boolean] }>()
+const emit = defineEmits<{ policyChanged: [policy: CardPolicy, applyError: string]; savingChanged: [saving: boolean]; close: [] }>()
 const id = useId()
 const modes: { value: ConnectionMode; label: string; description: string }[] = [
   { value: 'standby', label: '仅驻网', description: '收短信，保持蜂窝注册' },
@@ -50,19 +51,13 @@ const loading = ref(false)
 const saving = ref(false)
 const loadError = ref('')
 const saveError = ref('')
-const dataExpanded = ref(true)
+const dataExpanded = ref(false)
 let generation = 0
 const dirty = computed(() => !!policy.value && JSON.stringify(draft.value) !== baseline.value)
 const locked = computed(() => !policy.value || loading.value || saving.value || props.esimSwitching)
-const mode = computed<ConnectionMode>(() =>
-  draft.value.vowifi_enabled
-    ? 'vowifi'
-    : draft.value.airplane_enabled
-      ? 'airplane'
-      : draft.value.network_enabled
-        ? 'network'
-        : 'standby'
-)
+const mode = computed(() => cardConnectionMode(draft.value))
+const applyNow = computed(() => props.isActiveCard && props.deviceOnline && !!props.deviceId)
+watch(mode, value => { dataExpanded.value = value === 'network' })
 const modeHelp = computed(
   () =>
     ({
@@ -130,7 +125,7 @@ async function save() {
   const result = await cardsService.putPolicy(iccid, {
     ...draft.value,
     apn: draft.value.apn.trim(),
-    ...(props.isActiveCard && props.deviceOnline && props.deviceId
+    ...(applyNow.value
       ? { apply_device_id: props.deviceId }
       : {})
   })
@@ -144,11 +139,11 @@ async function save() {
   policy.value = result.data
   resetDraft()
   saveError.value = result.data.apply_error || ''
-  emit('policyChanged')
+  emit('policyChanged', result.data, saveError.value)
   if (!saveError.value)
     notify({
       message:
-        props.isActiveCard && props.deviceOnline
+        applyNow.value
           ? 'SIM 卡设置已保存，正在应用'
           : 'SIM 卡设置已保存，将在激活或上线后应用',
       tone: 'success'
@@ -239,7 +234,7 @@ onBeforeUnmount(() => {
           @click="dataExpanded = !dataExpanded"
         >
           <SvgIcon :svg="settingsIcon" />
-          <span><strong>蜂窝数据设置</strong><small>下次开启蜂窝数据时生效</small></span>
+          <span><strong>蜂窝数据设置</strong><small>{{ mode === 'network' ? '用于此卡的蜂窝数据连接' : '下次开启蜂窝数据时生效' }}</small></span>
           <SvgIcon class="policy-chevron" :class="{ expanded: dataExpanded }" :svg="expandIcon" />
         </button>
         <Transition name="policy-reveal">
@@ -278,21 +273,24 @@ onBeforeUnmount(() => {
         </Transition>
       </div>
       <p v-if="saveError" class="m3-error policy-save-error" role="alert">{{ saveError }}</p>
-      <footer class="policy-footer">
+    </template>
+    <Teleport :to="actionsTarget || 'body'" :disabled="!actionsTarget" defer>
+      <footer v-if="iccid" class="policy-footer">
         <p class="m3-muted">修改仅应用于此 SIM 卡{{ dirty ? ' · 有未保存的更改' : '' }}</p>
         <div class="m3-actions">
-          <md-text-button v-if="dirty" :disabled="locked" @click="resetDraft">重置</md-text-button>
+          <md-text-button v-if="actionsTarget" :disabled="saving" @click="emit('close')">取消</md-text-button>
+          <md-text-button v-else-if="dirty" :disabled="locked" @click="resetDraft">重置</md-text-button>
           <md-filled-button
             class="policy-save"
             :disabled="locked || (!dirty && !saveError)"
             @click="save"
             >{{
-              saving ? '保存并应用中…' : saveError ? '重新保存并应用' : '保存 SIM 卡设置'
+              saving ? (applyNow ? '保存并应用中…' : '保存中…') : saveError ? (applyNow ? '重新保存并应用' : '重新保存') : applyNow ? '保存并应用' : '保存设置'
             }}</md-filled-button
           >
         </div>
       </footer>
-    </template>
+    </Teleport>
   </section>
 </template>
 
@@ -482,6 +480,7 @@ legend {
 }
 .policy-footer {
   display: flex;
+  width: 100%;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
@@ -489,6 +488,9 @@ legend {
 }
 .policy-footer > p {
   font-size: 13px;
+}
+.policy-footer > .m3-actions {
+  margin-left: auto;
 }
 .policy-loading {
   display: flex;

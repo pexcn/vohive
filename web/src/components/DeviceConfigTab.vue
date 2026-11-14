@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { fieldValue } from '../utils/material'
 import { computed, ref, useId, watch } from 'vue'
-import CardPolicyPanel from './CardPolicyPanel.vue'
+import CardPolicySummary from './CardPolicySummary.vue'
 import SvgIcon from './SvgIcon.vue'
 import deviceIcon from '@material-symbols/svg-400/outlined/memory.svg?raw'
 import expandIcon from '@material-symbols/svg-400/outlined/keyboard_arrow_down.svg?raw'
@@ -15,18 +15,19 @@ const props = defineProps<{
   deleting: boolean
   cardName?: string
   isActive?: boolean
+  policyRevision?: number
+  policySaving?: boolean
 }>()
 
 const emit = defineEmits<{
   save: []
   delete: []
-  policyChanged: []
+  editCardSettings: []
 }>()
 
 const id = useId()
 const deviceExpanded = ref(false)
-const policySaving = ref(false)
-const busy = computed(() => props.saving || props.deleting || policySaving.value)
+const busy = computed(() => props.saving || props.deleting || props.policySaving === true)
 watch(
   () => props.deviceStatus?.id,
   () => {
@@ -63,15 +64,13 @@ watch(
       <h2 class="m3-title">配置</h2>
       <p class="m3-muted">管理设备与当前 SIM 卡</p>
     </header>
-    <CardPolicyPanel
-      :device-id="deviceStatus?.id"
+    <CardPolicySummary
       :iccid="deviceStatus?.modem?.iccid"
       :card-name="cardName"
-      :device-online="deviceStatus?.running === true"
-      :esim-switching="deviceStatus?.esim_switching === true"
       :is-visible="isActive === true"
-      @policy-changed="emit('policyChanged')"
-      @saving-changed="policySaving = $event"
+      :revision="policyRevision"
+      :busy="busy || deviceStatus?.esim_switching === true"
+      @edit="emit('editCardSettings')"
     />
     <section class="device-settings" :aria-labelledby="`${id}-device-title`">
       <header class="device-settings-heading">

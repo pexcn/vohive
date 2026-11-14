@@ -6,7 +6,6 @@ import { devicesService } from '../services/devices'
 import { errorMessage } from '../services/http'
 import { api } from '../stores/auth'
 import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
-import CardPolicyPanel from './CardPolicyPanel.vue'
 import RefreshButton from './RefreshButton.vue'
 import LoadingScreen from './LoadingScreen.vue'
 import EmptyState from './EmptyState.vue'
@@ -92,7 +91,6 @@ function hasChipDetails(chip?: EsimEUICCInfo) {
 
 function openProfileMenu(event: Event, profile: EsimProfileItem, aidHex: string) {
   profileMenu.value = { anchor: (event.currentTarget as HTMLElement).id, profile, aidHex, deviceId: props.deviceId }
-  selectedPolicyIccid.value = null
   pendingProfileAction = null
   profileMenuOpen.value = true
 }
@@ -121,17 +119,7 @@ function closeTransientViews() {
   selectedChip.value = null
   downloadDialogOpen.value = false
 }
-const emit = defineEmits<{ policyChanged: [] }>()
-const selectedPolicyIccid = ref<string | null>(null)
-const policySaving = ref(false)
-const selectedPolicyProfile = computed(() => profileGroups.value.flatMap(group => group.profiles).find(profile => profile.iccid === selectedPolicyIccid.value))
-function openPolicyPanel(iccid: string) {
-  selectedPolicyIccid.value = iccid
-}
-function onProfilePolicyChanged() {
-  void fetchOverview(true)
-  emit('policyChanged')
-}
+const emit = defineEmits<{ editCardSettings: [profile: EsimProfileItem] }>()
 const notifications = ref<EsimNotificationItem[]>([])
 const notificationsLoading = ref(false)
 const notificationsDialogOpen = ref(false)
@@ -576,7 +564,6 @@ watch(
     if (fetchAbortController) {
       fetchAbortController.abort()
     }
-    selectedPolicyIccid.value = null
     if (!newId || !newActive) {
       closeTransientViews()
       return
@@ -721,10 +708,9 @@ onBeforeUnmount(() => {
                         <md-text-button
                           class="esim-policy"
                           aria-haspopup="dialog"
-                          :aria-expanded="selectedPolicyIccid === profile.iccid"
                           :disabled="switchBusy || deleting !== null"
-                          @click="openPolicyPanel(profile.iccid)"
-                        >卡策略</md-text-button>
+                          @click="emit('editCardSettings', profile)"
+                        >SIM 卡设置</md-text-button>
                         <md-icon-button
                           :id="`esim-profile-actions-${deviceId}-${index}-${profile.iccid}`"
                           class="esim-profile-more"
@@ -759,31 +745,6 @@ onBeforeUnmount(() => {
           </div>
         </Transition>
       </section>
-      <md-dialog
-        class="m3-dialog esim-policy-dialog"
-        :open="!!selectedPolicyProfile"
-        @cancel="policySaving && $event.preventDefault()"
-        @closed="selectedPolicyIccid = null"
-      >
-        <div slot="headline" class="esim-policy-title">SIM 卡设置 <span class="m3-badge">跟随 SIM 卡保存</span></div>
-        <div slot="content">
-          <CardPolicyPanel
-            v-if="selectedPolicyProfile"
-            :key="`${deviceId}:${selectedPolicyProfile.iccid}`"
-            :device-id="deviceId"
-            :iccid="selectedPolicyProfile.iccid"
-            :card-name="selectedPolicyProfile.name || selectedPolicyProfile.service_provider_name"
-            :conceal-iccid="!showSensitive"
-            embedded
-            :is-active-card="selectedPolicyProfile.state === 1"
-            :device-online="deviceOnline === true"
-            :esim-switching="switchBusy"
-            @saving-changed="policySaving = $event"
-            @policy-changed="onProfilePolicyChanged"
-          />
-        </div>
-        <div slot="actions"><md-text-button :disabled="policySaving" @click="selectedPolicyIccid = null">关闭</md-text-button></div>
-      </md-dialog>
       <md-menu
         class="esim-profile-menu"
         :anchor="profileMenu?.anchor || ''"
@@ -1691,22 +1652,5 @@ h4 {
     grid-column: 2;
     justify-self: start;
   }
-}
-.esim-policy-dialog {
-  width: min(960px, calc(100vw - 48px));
-  max-width: calc(100vw - 48px);
-  max-height: calc(100dvh - 48px);
-}
-.esim-policy-title {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.esim-policy-dialog [slot='content'] {
-  padding-top: 8px;
-}
-@media (max-width: 640px) {
-  .esim-policy-dialog { width: calc(100vw - 32px); max-width: calc(100vw - 32px); }
 }
 </style>
