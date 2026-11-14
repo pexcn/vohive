@@ -4,7 +4,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useSettingsStore } from '../stores/settings'
 import FieldRow from '../components/FieldRow.vue'
-import AppearanceSettings from '../components/AppearanceSettings.vue'
 import { fieldValue, fieldSelected } from '../utils/material'
 import { syncMaterialSwitch as vSyncSwitch } from '../directives/materialSwitch'
 import SvgIcon from '../components/SvgIcon.vue'
@@ -419,7 +418,6 @@ watch(activeNotifyTab, () => revealed.clear())
 
 <template>
   <div class="m3-page settings-page">
-    <AppearanceSettings />
     <div class="settings-top">
       <section class="m3-card m3-stack">
         <h2 class="m3-title">账号安全</h2>
