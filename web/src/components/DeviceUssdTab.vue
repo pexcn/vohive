@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { fieldValue } from '../utils/material'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { MdMenu } from '@material/web/menu/menu.js'
 import type { CloseMenuEvent } from '@material/web/menu/internal/controllers/shared.js'
 import type { MdOutlinedTextField } from '@material/web/textfield/outlined-text-field.js'
@@ -102,9 +102,36 @@ watch([() => history.value.length, busy], () => {
   if (ussdLog.value) ussdLog.value.scrollTop = ussdLog.value.scrollHeight
 }, { flush: 'post' })
 
+function trackCommandFocus() {
+  const field = commandField.value
+  const deviceId = props.deviceId
+  const owner = document.activeElement
+  let restore = owner === field || (owner instanceof Element && owner.matches('.ussd-send, .ussd-cancel'))
+  const supersede = (event: Event) => {
+    if (!field || !event.composedPath().includes(field)) restore = false
+  }
+  document.addEventListener('pointerdown', supersede, true)
+  document.addEventListener('focusin', supersede, true)
+  return async () => {
+    try {
+      await nextTick()
+      await field?.updateComplete
+      if (restore && field === commandField.value && field?.isConnected &&
+          props.deviceId === deviceId && props.isActive !== false &&
+          field.checkVisibility() && document.hasFocus()) {
+        field.focus()
+      }
+    } finally {
+      document.removeEventListener('pointerdown', supersede, true)
+      document.removeEventListener('focusin', supersede, true)
+    }
+  }
+}
+
 async function sendUSSD() {
   const cmd = ussdCmd.value.trim()
   if (!cmd || busy.value) return
+  const restoreFocus = trackCommandFocus()
   const timeoutMs = timeoutSeconds.value * 1000
 
   history.value.push({ ts: Date.now(), type: 'req', content: cmd })
@@ -161,11 +188,13 @@ async function sendUSSD() {
     endSession()
   } finally {
     sending.value = false
+    await restoreFocus()
   }
 }
 
 async function cancelSession() {
   if (!sessionId.value || busy.value) return
+  const restoreFocus = trackCommandFocus()
   cancelling.value = true
   try {
     const result = await devicesService.cancelUSSD(props.deviceId, sessionId.value)
@@ -177,6 +206,7 @@ async function cancelSession() {
     history.value.push({ ts: Date.now(), type: 'err', content: errorMessage(e, '取消会话失败') })
   } finally {
     cancelling.value = false
+    await restoreFocus()
   }
 }
 
@@ -262,7 +292,7 @@ function onCommandKeydown(event: KeyboardEvent) {
             :label="isMultiRound ? '菜单回复' : 'USSD 代码'"
             :placeholder="inputPlaceholder"
             :value="ussdCmd"
-            :disabled="busy"
+            :readOnly="busy"
             @input="ussdCmd = fieldValue($event)"
             @keydown="onCommandKeydown"
           >
