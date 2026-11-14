@@ -198,8 +198,14 @@ async function cancelSession() {
   cancelling.value = true
   try {
     const result = await devicesService.cancelUSSD(props.deviceId, sessionId.value)
-    if (!result.ok) throw new Error(result.error.message || '取消会话失败')
-    history.value.push({ ts: Date.now(), type: 'sys', content: '会话已手动取消' })
+    if (!result.ok) {
+      if (result.error.code === 'USSD_SESSION_ENDED') {
+        ussdCmd.value = ''
+        endSession()
+      }
+      throw result.error
+    }
+    history.value.push({ ts: Date.now(), type: 'sys', content: '会话已结束' })
     ussdCmd.value = ''
     endSession()
   } catch (e: unknown) {

@@ -22,6 +22,7 @@ import (
 	proxytraffic "github.com/iniwex5/vohive/internal/proxy/traffic"
 	"github.com/iniwex5/vohive/pkg/logger"
 	"github.com/iniwex5/vowifi-go/runtimehost"
+	"github.com/iniwex5/vowifi-go/runtimehost/messaging"
 
 	"github.com/gin-gonic/gin"
 )
@@ -2300,7 +2301,7 @@ func (s *Server) handleDeviceMgmtContinueUSSD(c *gin.Context) {
 	defer cancel()
 	resp, err := s.pool.ContinueVoWiFiUSSD(ctx, id, req.SessionID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error()})
+		writeVoWiFiUSSDError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "result": resp, "channel": "vowifi"})
@@ -2339,10 +2340,18 @@ func (s *Server) handleDeviceMgmtCancelUSSD(c *gin.Context) {
 	}
 
 	if err := s.pool.CancelVoWiFiUSSD(c.Request.Context(), id, req.SessionID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": err.Error()})
+		writeVoWiFiUSSDError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "USSD 会话已取消"})
+}
+
+func writeVoWiFiUSSDError(c *gin.Context, err error) {
+	body := gin.H{"status": "error", "message": err.Error()}
+	if errors.Is(err, messaging.ErrUSSDSessionEnded) {
+		body["code"] = "USSD_SESSION_ENDED"
+	}
+	c.JSON(http.StatusInternalServerError, body)
 }
 
 func markCSUSSDSession(resp *backend.USSDResult) {
