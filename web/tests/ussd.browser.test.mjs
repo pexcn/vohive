@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 const chromium = process.env.CHROMIUM_BIN || 'chromium'
 const available = typeof WebSocket === 'function' && spawnSync(chromium, ['--version']).status === 0
 
-test('USSD replies retain keyboard focus without stealing later user focus', {
+test('USSD preserves composer focus and recovers from ended sessions', {
   skip: available ? false : 'Requires Chromium and Node.js with WebSocket support',
   timeout: 60000
 }, async () => {
@@ -20,6 +20,7 @@ test('USSD replies retain keyboard focus without stealing later user focus', {
   const fixture = path.join(root, '__ussd_fixture.vue')
   const calls = []
   let holdNext = false, release
+  let nextCancelError, nextContinueError
   const server = await createServer({
     root, configFile: path.join(root, 'vite.config.ts'),
     server: { host: '127.0.0.1', port: 0, strictPort: false },
@@ -48,6 +49,11 @@ window.unmountUssd=()=>mounted.value=false
             calls.push({path:req.url,body})
             if(holdNext) {holdNext=false;await new Promise(resolve=>{release=resolve})}
             res.setHeader('Content-Type','application/json')
+            const failure=req.url.endsWith('/ussd/cancel')?nextCancelError:req.url.endsWith('/ussd/continue')?nextContinueError:undefined
+            if(failure) {
+              nextCancelError=nextContinueError=undefined
+              res.statusCode=500;res.end(JSON.stringify({status:'error',...failure}));return
+            }
             if(req.url.endsWith('/ussd/cancel')) res.end(JSON.stringify({status:'ok'}))
             else res.end(JSON.stringify({status:'ok',channel:'vowifi',result:{status:1,text:'1. Balance\\n2. Usage',session_id:'fixture-session'}}))
             return
@@ -151,9 +157,39 @@ window.unmountUssd=()=>mounted.value=false
     await wait(ready)
     assert.equal(await evaluate('document.activeElement.id'),'other')
     await evaluate('window.setUssdActive(true)')
-    // Error responses and session cancellation leave the composer usable.
+    // Success also represents a peer's 481 or an already removed dialog.
     await focusField(); await click('.ussd-cancel')
     await wait(`!document.querySelector('.ussd-session-strip') && ${ready} && ${focused}`)
+    const startSession = async () => {
+      await focusField(); await type('*100#'); await enter()
+      await wait(`!!document.querySelector('.ussd-session-strip') && ${ready} && ${focused}`)
+    }
+    // A failed BYE can still terminate the local dialog: retain the error,
+    // clear the stale session and allow another initial request immediately.
+    await startSession(); await type('draft')
+    nextCancelError={code:'USSD_SESSION_ENDED',message:'USSD BYE rejected: SIP/2.0 500 Server Error'}
+    await click('.ussd-cancel')
+    await wait(`!document.querySelector('.ussd-session-strip') && ${ready} && ${focused}`)
+    assert.match(await evaluate('document.body.innerText'),/500 Server Error/)
+    assert.equal(await evaluate(`document.querySelector('${field}').value`),'')
+    // Failure before touching the dialog must stay visible and permit retry.
+    await startSession()
+    nextCancelError={message:'VoWiFi service unavailable'}
+    await click('.ussd-cancel'); await wait(`${ready} && ${focused}`)
+    assert.ok(await evaluate(`!!document.querySelector('.ussd-session-strip')`))
+    assert.match(await evaluate('document.body.innerText'),/VoWiFi service unavailable/)
+    await click('.ussd-cancel')
+    await wait(`!document.querySelector('.ussd-session-strip') && ${ready} && ${focused}`)
+    // An expired continuation also leaves the next input as a fresh code.
+    await startSession()
+    nextContinueError={code:'USSD_SESSION_ENDED',message:'USSD INFO rejected: SIP/2.0 481 Call/Transaction Does Not Exist'}
+    await type('1'); await enter()
+    await wait(`!document.querySelector('.ussd-session-strip') && ${ready} && ${focused}`)
+    assert.match(await evaluate('document.body.innerText'),/481 Call\/Transaction Does Not Exist/)
+    await startSession()
+    assert.ok(calls.at(-1).path.endsWith('/actions/ussd'),'new code starts a new dialog after expiry')
+    await click('.ussd-cancel')
+    await wait(`!document.querySelector('.ussd-session-strip') && ${ready}`)
     assert.equal(errors.length,0,JSON.stringify(errors))
   } catch (error) {
     if(inspect) console.error(await inspect())

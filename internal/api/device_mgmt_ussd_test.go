@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,39 @@ import (
 	"github.com/iniwex5/vohive/internal/backend"
 	"github.com/iniwex5/vohive/internal/config"
 	"github.com/iniwex5/vohive/internal/device"
+	"github.com/iniwex5/vowifi-go/runtimehost/messaging"
 )
+
+func TestWriteVoWiFiUSSDErrorPreservesCauseAndSessionState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name string
+		err  error
+		code string
+	}{
+		{"ended", messaging.ErrUSSDSessionEnded, "USSD_SESSION_ENDED"},
+		{"wrapped", fmt.Errorf("BYE failed: %w: timeout", messaging.ErrUSSDSessionEnded), "USSD_SESSION_ENDED"},
+		{"transport", errors.New("connection unavailable"), ""},
+		{"same text without marker", errors.New(messaging.ErrUSSDSessionEnded.Error()), ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(rec)
+			writeVoWiFiUSSDError(ctx, tc.err)
+			var body struct {
+				Status  string `json:"status"`
+				Message string `json:"message"`
+				Code    string `json:"code"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != http.StatusInternalServerError || body.Status != "error" || body.Message != tc.err.Error() || body.Code != tc.code {
+				t.Fatalf("status=%d body=%+v, want original error and code %q", rec.Code, body, tc.code)
+			}
+		})
+	}
+}
 
 type ussdDeviceBackendStub struct {
 	mode      string
