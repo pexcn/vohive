@@ -320,17 +320,15 @@ async function fetchOverview(refresh = false) {
   }
 }
 
-async function fetchProfiles(refresh = false) {
+async function fetchProfiles() {
+  const deviceId = props.deviceId
   profilesRefreshing.value = true
-  const result = await devicesService.getEsimProfiles(props.deviceId, { refresh })
   try {
+    // GetProfiles shares the invalidated overview's background load.
+    const result = await devicesService.getEsimProfiles(deviceId)
+    if (deviceId !== props.deviceId) return
     if (!result.ok) throw result.error
     profiles.value = result.data
-  } catch (e: unknown) {
-    notify({
-      tone: 'error',
-      message: errorMessage(e, '获取 eSIM 配置失败')
-    })
   } finally {
     profilesRefreshing.value = false
   }
@@ -387,19 +385,32 @@ function startRename(iccid: string, currentName: string) {
 
 // 保存名称
 async function saveRename(iccid: string, aidHex: string) {
+  const deviceId = props.deviceId
   const name = renameValue.value.trim()
   if (!name) {
     notify({ tone: 'warning', message: '名称不能为空' })
     return
   }
   try {
-    const result = await devicesService.renameEsimProfile(props.deviceId, iccid, { name, aid_hex: aidHex })
-    if (!result.ok) throw new Error(result.error.message || '修改名称失败')
+    const result = await devicesService.renameEsimProfile(deviceId, iccid, { name, aid_hex: aidHex })
+    if (deviceId !== props.deviceId) return
+    if (!result.ok) throw result.error
+    const group = profiles.value.find(group => normalizeAidHex(group.aid_hex) === normalizeAidHex(aidHex))
+    const profile = group?.profiles.find(profile => profile.iccid === iccid)
+    if (profile) profile.name = name
     notify({ tone: 'success', message: '名称修改成功' })
     renaming.value = null
-    await fetchProfiles(true)
+    try {
+      await fetchProfiles()
+    } catch (e: unknown) {
+      if (deviceId === props.deviceId) {
+        notify({ tone: 'warning', message: `名称已保存，但列表刷新失败：${errorMessage(e, '请稍后重试')}` })
+      }
+    }
   } catch (e: unknown) {
-    notify({ tone: 'error', message: errorMessage(e, '修改名称失败') })
+    if (deviceId === props.deviceId) {
+      notify({ tone: 'error', message: errorMessage(e, '修改名称失败') })
+    }
   }
 }
 
