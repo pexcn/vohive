@@ -526,6 +526,7 @@ async function downloadProfile() {
               notify({ tone: 'success', message: notice.message })
             }
             downloadForm.value = { smdp: '', matchingId: '', confirmationCode: '', aidHex: targetAidHex, imei }
+            downloadDialogOpen.value = false
             await fetchOverview(true)
             break outer
           }
