@@ -4,14 +4,17 @@ import (
 	"context"
 	"time"
 
-	"github.com/iniwex5/qmi-go/pkg/qmi"
 	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
-	qmipkg "github.com/iniwex5/vohive/internal/qmi"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/internal/backend"
+	qmipkg "github.com/iniwex5/vohive/internal/qmi"
 	"github.com/iniwex5/vohive/pkg/logger"
 )
 
 var startupSIMAuthLogicalChannelsToClose = []int{1, 2, 3, 4}
+
+// Experiment only: isolate startup UIM reset from provisioning and readiness.
+const skipStartupQMIUIMReset = true
 
 type startupUIMResetter interface {
 	UIMReset(ctx context.Context) error
@@ -73,17 +76,20 @@ func performStartupQMIUIMReset(deviceID string, resetter startupUIMResetter, ens
 	if resetter == nil {
 		return false
 	}
-	resetCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	err := resetter.UIMReset(resetCtx)
-	cancel()
-	if err != nil {
-		logger.Debug("启动期 QMI UIM reset 失败",
-			"device", deviceID,
-			"err", err)
-		return false
+	if skipStartupQMIUIMReset {
+		logger.Info("启动期 QMI UIM reset 已跳过（实验分支）", "device", deviceID)
+	} else {
+		resetCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		err := resetter.UIMReset(resetCtx)
+		cancel()
+		if err != nil {
+			logger.Debug("启动期 QMI UIM reset 失败",
+				"device", deviceID,
+				"err", err)
+			return false
+		}
+		logger.Debug("启动期 QMI UIM reset 已完成", "device", deviceID)
 	}
-	logger.Debug("启动期 QMI UIM reset 已完成",
-		"device", deviceID)
 	if ensurer != nil {
 		ensureCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if _, err := ensurer.EnsureSIMProvisioned(ensureCtx, qmimanager.EnsureSIMProvisionedOptions{}); err != nil {
@@ -106,12 +112,12 @@ func performStartupQMIUIMReset(deviceID string, resetter startupUIMResetter, ens
 		ready, err := readyCheck(checkCtx)
 		cancel()
 		if err == nil && ready {
-			logger.Debug("启动期 QMI UIM reset 后 SIM ready",
+			logger.Debug("启动期 QMI SIM ready",
 				"device", deviceID)
 			return true
 		}
 		if time.Now().After(deadline) {
-			logger.Warn("启动期 QMI UIM reset 后等待 SIM ready 超时",
+			logger.Warn("启动期 QMI 等待 SIM ready 超时",
 				"device", deviceID,
 				"timeout", waitTimeout.String(),
 				"last_err", err)
