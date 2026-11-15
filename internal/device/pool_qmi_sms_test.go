@@ -169,6 +169,38 @@ func TestHandleNewSMSQMIFallsBackToAlternateStorageWhenIndexExistsThere(t *testi
 	}
 }
 
+func TestHandleNewSMSQMIDecodeFailureDoesNotReadOrDeleteAnotherStorage(t *testing.T) {
+	for _, indicated := range []uint8{0, 1, qmiSMSStorageUnknown} {
+		t.Run(fmt.Sprintf("storage_%d", indicated), func(t *testing.T) {
+			primary := indicated
+			if primary == qmiSMSStorageUnknown {
+				primary = 1
+			}
+			alternate := uint8(1 - primary)
+			_, decodeErr := qmicore.DecodeIncomingSMSPDU([]byte{0x08, 0x91, 0x34}, primary, 7)
+			stub := &qmiSMSCoreStub{
+				readErrors: map[string]error{fmt.Sprintf("%d:7", primary): fmt.Errorf("decode record: %w", decodeErr)},
+				listByStorage: map[uint8][]struct {
+					Index uint32
+					Tag   qmi.MessageTagType
+				}{alternate: {{Index: 7, Tag: qmi.TagTypeMTNotRead}}},
+				readResults: map[string]*qmimanager.DecodedSMS{
+					fmt.Sprintf("%d:7", alternate): {Sender: "10086", Message: "unrelated SMS", Timestamp: time.Now()},
+				},
+			}
+			notifier := &mbimInboxNotifierStub{}
+			worker := &Worker{ID: "test", Pool: &Pool{notifier: notifier}, qmiSMS: stub}
+			worker.handleNewSMSQMI(indicated, 7)
+			if len(stub.readCalls) != 1 || stub.readCalls[0] != fmt.Sprintf("%d:7", primary) || len(stub.listCalls) != 0 {
+				t.Fatalf("decode failure caused a storage fallback: reads=%v lists=%v", stub.readCalls, stub.listCalls)
+			}
+			if len(stub.deleteCalls) != 0 || len(notifier.sms) != 0 {
+				t.Fatalf("decode failure deleted or notified a message: deletes=%v notifications=%v", stub.deleteCalls, notifier.sms)
+			}
+		})
+	}
+}
+
 func TestCheckAllSMSQMIReadsUnreadFromBothStorages(t *testing.T) {
 	stub := &qmiSMSCoreStub{
 		listByStorage: map[uint8][]struct {

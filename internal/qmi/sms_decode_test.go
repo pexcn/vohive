@@ -3,6 +3,8 @@ package qmicore
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +81,26 @@ func TestDecodeIncomingSMSPDURejectsInvalidFields(t *testing.T) {
 				t.Fatalf("accepted malformed PDU: %+v", got)
 			}
 		})
+	}
+}
+
+func TestIncomingSMSDecodeErrorPreservesRawDataWithoutExposingItInMessage(t *testing.T) {
+	raw, _ := hex.DecodeString("0891346990041610100000000000000000000000000000000000")
+	original := append([]byte(nil), raw...)
+	_, err := DecodeIncomingSMSPDU(raw, 1, 0)
+	var decodeErr *IncomingSMSDecodeError
+	if !errors.As(fmt.Errorf("stored SMS read: %w", err), &decodeErr) {
+		t.Fatalf("decode error is not distinguishable: %v", err)
+	}
+	clear(raw)
+	if !bytes.Equal(decodeErr.PDU, original) {
+		t.Fatal("raw diagnostic data aliases the caller's read buffer")
+	}
+	if strings.Contains(decodeErr.Error(), hex.EncodeToString(original)) {
+		t.Fatal("ordinary error messages must not include the raw PDU")
+	}
+	if decodeErr.Unwrap() == nil {
+		t.Fatal("individual candidate failures must remain available")
 	}
 }
 
