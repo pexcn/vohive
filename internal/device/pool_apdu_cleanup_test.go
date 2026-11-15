@@ -28,7 +28,7 @@ func (m *mockStartupProvisioningEnsurer) EnsureSIMProvisioned(ctx context.Contex
 	return qmimanager.UIMReadiness{}, m.err
 }
 
-func TestPerformStartupQMIUIMReset(t *testing.T) {
+func TestStartupQMISkipsResetAndKeepsProvisioningAndReadyCheck(t *testing.T) {
 	resetter := &mockStartupUIMResetter{}
 	ensurer := &mockStartupProvisioningEnsurer{}
 	readyCheckCalled := 0
@@ -42,8 +42,8 @@ func TestPerformStartupQMIUIMReset(t *testing.T) {
 		t.Fatalf("expected true, got false")
 	}
 
-	if resetter.called != 1 {
-		t.Errorf("expected resetter called 1 time, got %d", resetter.called)
+	if resetter.called != 0 {
+		t.Errorf("expected no UIM reset in experiment, got %d", resetter.called)
 	}
 
 	if ensurer.called != 1 {
