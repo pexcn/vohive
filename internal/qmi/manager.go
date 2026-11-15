@@ -2177,16 +2177,24 @@ func (m *Manager) ListSMS(storageType uint8, tag qmi.MessageTagType) ([]struct {
 // ReadSMS reads and decodes an SMS message
 func (m *Manager) ReadSMS(preferredStorage uint8, index uint32) (*qmimanager.DecodedSMS, error) {
 	if preferredStorage == 0 || preferredStorage == 1 {
-		return m.qmiMgr.ReadSMS(preferredStorage, index)
+		return m.readStoredSMS(preferredStorage, index)
 	}
 
-	sms, err := m.qmiMgr.ReadSMS(1, index)
+	sms, err := m.readStoredSMS(1, index)
 	if err == nil {
 		return sms, nil
 	}
 
 	logger.Warn(fmt.Sprintf("[%s] Storage 1 读取失败，尝试 Storage 0", m.cfg.ID), "err", err)
-	return m.qmiMgr.ReadSMS(0, index)
+	return m.readStoredSMS(0, index)
+}
+
+func (m *Manager) readStoredSMS(storage uint8, index uint32) (*qmimanager.DecodedSMS, error) {
+	raw, err := m.qmiMgr.ReadRawSMS(storage, index)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeIncomingSMSPDU(raw, storage, index)
 }
 
 // SendSMS sends a text message

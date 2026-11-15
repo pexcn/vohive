@@ -200,7 +200,7 @@ func (w *Worker) handleNewSMSRawQMI(info qmicore.RawSMSIndication) {
 		"format", info.Format,
 	)
 
-	sms, err := qmimanager.DecodeIncomingSMSPDU(info.PDU, qmiSMSStorageUnknown, ^uint32(0))
+	sms, err := qmicore.DecodeIncomingSMSPDU(info.PDU, qmiSMSStorageUnknown, ^uint32(0))
 	if err != nil {
 		logger.Error(fmt.Sprintf("[%s] 解析原始短信失败 (QMI)", w.ID),
 			"pdu_len", len(info.PDU),
