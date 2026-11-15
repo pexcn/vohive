@@ -223,31 +223,31 @@ func TestPerformStartupQMIUIMResetWaitsUntilSIMReady(t *testing.T) {
 	if !ok {
 		t.Fatal("performStartupQMIUIMReset() = false, want true")
 	}
-	if resetter.calls != 1 {
-		t.Fatalf("UIMReset calls = %d, want 1", resetter.calls)
+	if resetter.calls != 0 {
+		t.Fatalf("UIMReset calls = %d, want 0 in experiment", resetter.calls)
 	}
 	if readyCalls != 3 {
 		t.Fatalf("ready calls = %d, want 3", readyCalls)
 	}
 }
 
-func TestPerformStartupQMIUIMResetSkipsReadyWaitWhenResetFails(t *testing.T) {
+func TestPerformStartupQMIUIMResetStillTimesOutWhenSIMNotReady(t *testing.T) {
 	resetter := &startupUIMResetterStub{err: fmt.Errorf("reset failed")}
 	readyCalls := 0
 
 	ok := performStartupQMIUIMReset("dev-qmi", resetter, nil, func(ctx context.Context) (bool, error) {
 		readyCalls++
-		return true, nil
-	}, 100*time.Millisecond, time.Millisecond)
+		return false, nil
+	}, 10*time.Millisecond, time.Millisecond)
 
 	if ok {
 		t.Fatal("performStartupQMIUIMReset() = true, want false")
 	}
-	if resetter.calls != 1 {
-		t.Fatalf("UIMReset calls = %d, want 1", resetter.calls)
+	if resetter.calls != 0 {
+		t.Fatalf("UIMReset calls = %d, want 0 in experiment", resetter.calls)
 	}
-	if readyCalls != 0 {
-		t.Fatalf("ready calls = %d, want 0", readyCalls)
+	if readyCalls == 0 {
+		t.Fatal("SIM readiness must still be checked when UIM reset is skipped")
 	}
 }
 
