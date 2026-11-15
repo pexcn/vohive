@@ -60,6 +60,10 @@ func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32) (*qmimanager.De
 		if err == nil {
 			return sms, storage, nil
 		}
+		var decodeErr *qmicore.IncomingSMSDecodeError
+		if errors.As(err, &decodeErr) {
+			return nil, storage, err
+		}
 
 		alternate := uint8(1)
 		if storage == 1 {
@@ -85,6 +89,10 @@ func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32) (*qmimanager.De
 		sms, err := smsCore.ReadSMS(candidate, index)
 		if err == nil {
 			return sms, candidate, nil
+		}
+		var decodeErr *qmicore.IncomingSMSDecodeError
+		if errors.As(err, &decodeErr) {
+			return nil, candidate, err
 		}
 	}
 
@@ -169,6 +177,16 @@ func (w *Worker) handleNewSMSQMI(storage uint8, index uint32) {
 
 	sms, actualStorage, err := w.readIncomingSMSQMI(storage, index)
 	if err != nil {
+		var decodeErr *qmicore.IncomingSMSDecodeError
+		if errors.As(err, &decodeErr) {
+			logger.Warn(fmt.Sprintf("[%s] 短信数据解码失败，保留原记录 (QMI)", w.ID),
+				"event", "SMS_PDU_DECODE_REJECTED", "index", index, "storage", actualStorage,
+				"pdu_len", len(decodeErr.PDU), "err", err)
+			logger.Debug(fmt.Sprintf("[%s] 无法解码的存储短信原始数据 (QMI)", w.ID),
+				"event", "SMS_PDU_DECODE_DIAGNOSTIC", "index", index, "storage", actualStorage,
+				"pdu_len", len(decodeErr.PDU), "pdu_hex", rawSMSPDUHexForLog(decodeErr.PDU))
+			return
+		}
 		logger.Error(fmt.Sprintf("[%s] 读取短信失败 (QMI)", w.ID), "index", index, "storage", storage, "err", err)
 		return
 	}

@@ -9,6 +9,19 @@ import (
 	"github.com/warthog618/sms/encoding/tpdu"
 )
 
+// IncomingSMSDecodeError distinguishes invalid payloads from transport failures.
+// Keep raw data out of Error(): callers may log it separately at debug level.
+type IncomingSMSDecodeError struct {
+	PDU   []byte
+	Cause error
+}
+
+func (e *IncomingSMSDecodeError) Error() string {
+	return fmt.Sprintf("invalid incoming SMS PDU: %v", e.Cause)
+}
+
+func (e *IncomingSMSDecodeError) Unwrap() error { return e.Cause }
+
 // DecodeIncomingSMSPDU accepts a full PDU, a direct TPDU or incoming RP-DATA.
 // Validate each candidate before decoding: SMSC length/TOA bytes can otherwise
 // be mistaken for a DELIVER header and a huge address in a padded storage slot.
@@ -52,7 +65,7 @@ func DecodeIncomingSMSPDU(raw []byte, storage uint8, index uint32) (*qmimanager.
 			ConcatTotal: concat.Total, ConcatSeq: concat.Seq,
 		}, nil
 	}
-	return nil, fmt.Errorf("invalid incoming SMS PDU: %w", errors.Join(errs...))
+	return nil, &IncomingSMSDecodeError{PDU: append([]byte(nil), raw...), Cause: errors.Join(errs...)}
 }
 
 func validateIncomingDeliver(raw []byte) error {

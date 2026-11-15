@@ -2170,6 +2170,10 @@ func (m *Manager) ReadSMS(preferredStorage uint8, index uint32) (*qmimanager.Dec
 	if err == nil {
 		return sms, nil
 	}
+	var decodeErr *IncomingSMSDecodeError
+	if errors.As(err, &decodeErr) {
+		return nil, err
+	}
 
 	logger.Warn(fmt.Sprintf("[%s] Storage 1 读取失败，尝试 Storage 0", m.cfg.ID), "err", err)
 	return m.readStoredSMS(0, index)
