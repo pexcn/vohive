@@ -3,14 +3,18 @@ package device
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/iniwex5/qmi-go/pkg/qmi"
 	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/internal/backend"
 	"github.com/iniwex5/vohive/internal/config"
+	"github.com/iniwex5/vohive/pkg/logger"
 )
 
 type qmiRegistrationTestController struct {
@@ -396,11 +400,14 @@ func TestEnsureQMIRegistrationDoesNotRadioCycleEarlyAfterAcceptedForceSearch(t *
 	}
 }
 
-func TestEnsureQMIRegistrationRadioCyclesAfterDelayedSearchWindow(t *testing.T) {
+func TestEnsureQMIRegistrationSkipsRadioCycleAfterDelayedSearchWindow(t *testing.T) {
+	logger.Setup(logger.LogConfig{Debug: true, Filename: filepath.Join(t.TempDir(), "app.log")})
+	ch := logger.GlobalBroadcaster.Subscribe()
+	defer logger.GlobalBroadcaster.Unsubscribe(ch)
 	ctrl := &qmiRegistrationTestController{
 		simStatuses: []qmi.SIMStatus{qmi.SIMReady},
-		servingSeq: qmiSearchingServingSeq(qmiRegistrationRadioCycleAfterTries, &backend.ServingSystem{
-			RegStatus: 5, RegStatusText: "已注册(漫游)", PSAttached: true,
+		servingSeq: qmiSearchingServingSeq(qmiRegistrationRadioCycleAfterTries+1, &backend.ServingSystem{
+			RegStatus: 5, RegStatusText: "已注册(漫游)", PSAttached: false,
 		}),
 		registerErr: &qmi.QMIError{
 			Service:   0x03,
@@ -409,10 +416,11 @@ func TestEnsureQMIRegistrationRadioCyclesAfterDelayedSearchWindow(t *testing.T) 
 			ErrorCode: qmi.QMIErrInvalidRegisterAction,
 		},
 	}
+	ctrl.servingSeq = append(ctrl.servingSeq, &backend.ServingSystem{RegStatus: 5, PSAttached: true})
 
 	err := ensureQMIRegistration(context.Background(), "dev-qmi", config.DeviceConfig{}, ctrl, ctrl, qmiRegistrationOptions{
 		PollInterval: time.Nanosecond,
-		MaxAttempts:  qmiRegistrationRadioCycleAfterTries + 2,
+		MaxAttempts:  qmiRegistrationRadioCycleAfterTries + 3,
 	})
 	if err != nil {
 		t.Fatalf("ensureQMIRegistration() error = %v", err)
@@ -420,12 +428,32 @@ func TestEnsureQMIRegistrationRadioCyclesAfterDelayedSearchWindow(t *testing.T) 
 	if ctrl.forceNetworkSearchCalls != 1 {
 		t.Fatalf("forceNetworkSearchCalls=%d want 1", ctrl.forceNetworkSearchCalls)
 	}
-	if got, want := ctrl.setModeCalls, []backend.OperatingMode{backend.ModeRFOff, backend.ModeOnline}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("setModeCalls=%v want %v", got, want)
+	if len(ctrl.setModeCalls) != 0 {
+		t.Fatalf("setModeCalls=%v want no recovery radio cycle", ctrl.setModeCalls)
+	}
+	if ctrl.registerCalls != 1 || ctrl.systemSelectionAutomaticCalls != 1 {
+		t.Fatalf("register=%d automatic selection=%d want one of each", ctrl.registerCalls, ctrl.systemSelectionAutomaticCalls)
+	}
+	if len(ctrl.attachCalls) != 1 || !ctrl.attachCalls[0] {
+		t.Fatalf("attachCalls=%v want [true] after skipped radio cycle", ctrl.attachCalls)
+	}
+	completed := 0
+	for _, entry := range drainLoggerEntries(ch) {
+		if !strings.HasSuffix(entry.Message, "QMI 驻网协调完成") {
+			continue
+		}
+		completed++
+		fields := readLogFields(t, entry)
+		if fields["radio_cycle_used"] != false || fields["radio_cycle_skipped"] != true {
+			t.Fatalf("completion fields=%v want skipped, unused radio cycle", fields)
+		}
+	}
+	if completed != 1 {
+		t.Fatalf("completion logs=%d want 1", completed)
 	}
 }
 
-func TestEnsureQMIRegistrationRadioCyclesSoonerWhenForceNetworkSearchUnsupported(t *testing.T) {
+func TestEnsureQMIRegistrationSkipsRadioCycleWhenForceNetworkSearchUnsupported(t *testing.T) {
 	ctrl := &qmiRegistrationTestController{
 		simStatuses: []qmi.SIMStatus{qmi.SIMReady},
 		servingSeq: []*backend.ServingSystem{
@@ -433,6 +461,7 @@ func TestEnsureQMIRegistrationRadioCyclesSoonerWhenForceNetworkSearchUnsupported
 			{RegStatus: 2, RegStatusText: "搜索中"},
 			{RegStatus: 2, RegStatusText: "搜索中"},
 			{RegStatus: 2, RegStatusText: "搜索中"},
+			{RegStatus: 5, RegStatusText: "已注册(漫游)", PSAttached: false},
 			{RegStatus: 5, RegStatusText: "已注册(漫游)", PSAttached: true},
 		},
 		forceNetworkSearchErr: &qmi.QMIError{
@@ -453,8 +482,81 @@ func TestEnsureQMIRegistrationRadioCyclesSoonerWhenForceNetworkSearchUnsupported
 	if ctrl.forceNetworkSearchCalls != 1 {
 		t.Fatalf("forceNetworkSearchCalls=%d want 1", ctrl.forceNetworkSearchCalls)
 	}
-	if got, want := ctrl.setModeCalls, []backend.OperatingMode{backend.ModeRFOff, backend.ModeOnline}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("setModeCalls=%v want %v", got, want)
+	if len(ctrl.setModeCalls) != 0 {
+		t.Fatalf("setModeCalls=%v want no recovery radio cycle", ctrl.setModeCalls)
+	}
+	if ctrl.registerCalls != 1 || ctrl.systemSelectionAutomaticCalls != 1 {
+		t.Fatalf("register=%d automatic selection=%d want one of each", ctrl.registerCalls, ctrl.systemSelectionAutomaticCalls)
+	}
+	if len(ctrl.attachCalls) != 1 || !ctrl.attachCalls[0] {
+		t.Fatalf("attachCalls=%v want [true] after skipped radio cycle", ctrl.attachCalls)
+	}
+}
+
+func TestEnsureQMIRegistrationSkippedRadioCycleStillWaitsAndTimesOut(t *testing.T) {
+	logger.Setup(logger.LogConfig{Debug: true, Filename: filepath.Join(t.TempDir(), "app.log")})
+	unsupported := &qmi.QMIError{
+		Service: 0x03, MessageID: qmi.NASForceNetworkSearch,
+		Result: 0x0001, ErrorCode: qmi.QMIErrOpDeviceUnsupported,
+	}
+	for _, tt := range []struct {
+		name        string
+		mode        backend.OperatingMode
+		forceErr    error
+		skipAttempt int
+	}{
+		{name: "normal search window", mode: backend.ModeOnline, skipAttempt: qmiRegistrationRadioCycleAfterTries},
+		{name: "unsupported force search", mode: backend.ModeOnline, forceErr: unsupported, skipAttempt: qmiRegistrationUnsupportedForceRadioCycleAfterTries},
+		{name: "startup radio restore", mode: backend.ModeRFOff, forceErr: unsupported, skipAttempt: qmiRegistrationRadioCycleAfterTries},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			maxAttempts := tt.skipAttempt + 3
+			ctrl := &qmiRegistrationTestController{
+				opMode: tt.mode, servingSeq: qmiSearchingServingSeq(maxAttempts, nil),
+				forceNetworkSearchErr: tt.forceErr,
+			}
+			ch := logger.GlobalBroadcaster.Subscribe()
+			defer logger.GlobalBroadcaster.Unsubscribe(ch)
+			pollInterval := time.Millisecond
+			err := ensureQMIRegistration(context.Background(), t.Name(), config.DeviceConfig{}, ctrl, ctrl, qmiRegistrationOptions{
+				PollInterval: pollInterval, MaxAttempts: maxAttempts,
+			})
+			if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("驻网/PS attach 超时: attempts=%d", maxAttempts)) {
+				t.Fatalf("error=%v want registration timeout at %d attempts", err, maxAttempts)
+			}
+			if ctrl.registerCalls != 1 || ctrl.systemSelectionAutomaticCalls != 1 || ctrl.forceNetworkSearchCalls != 1 {
+				t.Fatalf("register=%d automatic selection=%d force search=%d want one of each", ctrl.registerCalls, ctrl.systemSelectionAutomaticCalls, ctrl.forceNetworkSearchCalls)
+			}
+			if tt.mode == backend.ModeRFOff {
+				if len(ctrl.setModeCalls) != 1 || ctrl.setModeCalls[0] != backend.ModeOnline {
+					t.Fatalf("setModeCalls=%v want initial Online restore only", ctrl.setModeCalls)
+				}
+			} else if len(ctrl.setModeCalls) != 0 {
+				t.Fatalf("setModeCalls=%v want no recovery radio cycle", ctrl.setModeCalls)
+			}
+			if len(ctrl.servingCallTimes) != maxAttempts {
+				t.Fatalf("serving queries=%d want %d", len(ctrl.servingCallTimes), maxAttempts)
+			}
+			for i := 1; i < len(ctrl.servingCallTimes); i++ {
+				if elapsed := ctrl.servingCallTimes[i].Sub(ctrl.servingCallTimes[i-1]); elapsed < pollInterval {
+					t.Fatalf("attempt %d polled after %s, want at least %s", i+1, elapsed, pollInterval)
+				}
+			}
+			skipped := 0
+			for _, entry := range drainLoggerEntries(ch) {
+				fields := readLogFields(t, entry)
+				if fields["event"] != "QMI_REGISTRATION_RF_CYCLE_SKIPPED" {
+					continue
+				}
+				skipped++
+				if entry.Level != "info" || fields["attempt"] != float64(tt.skipAttempt) || !strings.Contains(entry.Message, "实验分支") {
+					t.Fatalf("unexpected skip log: %+v", entry)
+				}
+			}
+			if skipped != 1 {
+				t.Fatalf("experiment skip logs=%d want exactly one per registration run", skipped)
+			}
+		})
 	}
 }
 
