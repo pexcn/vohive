@@ -21,6 +21,9 @@ var (
 )
 
 const (
+	// Experiment only: skip the recovery RFOff/Online cycle, not NAS recovery.
+	skipQMIRegistrationRadioCycle = true
+
 	qmiRegistrationForceSearchAfterTries                = 2
 	qmiRegistrationRadioCycleAfterTries                 = 30
 	qmiRegistrationUnsupportedForceRadioCycleAfterTries = 3
@@ -163,6 +166,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 	forceNetworkSearchIssued := false
 	forceNetworkSearchUnsupported := false
 	radioCycleIssued := false
+	radioCycleSkipped := false
 	for attempt := 1; attempt <= opts.MaxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -202,7 +206,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 		switch ss.RegStatus {
 		case 1, 5:
 			if ss.PSAttached {
-				logger.Debug("QMI 驻网协调完成", "device", deviceID, "attempt", attempt, "elapsed_ms", time.Since(startedAt).Milliseconds(), "reg_status", ss.RegStatus, "radio_cycle_used", radioCycleIssued, "force_network_search_unsupported", forceNetworkSearchUnsupported)
+				logger.Debug("QMI 驻网协调完成", "device", deviceID, "attempt", attempt, "elapsed_ms", time.Since(startedAt).Milliseconds(), "reg_status", ss.RegStatus, "radio_cycle_used", radioCycleIssued, "radio_cycle_skipped", radioCycleSkipped, "force_network_search_unsupported", forceNetworkSearchUnsupported)
 				return nil
 			}
 			if !attachIssued {
@@ -230,15 +234,19 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 				if err := ctrl.NASForceNetworkSearch(ctx); err != nil {
 					if isUnsupportedQMIForceNetworkSearchError(err) {
 						forceNetworkSearchUnsupported = true
-						logger.Info("QMI NAS force network search 不受设备支持，后续跳过并提前执行 radio cycle", "device", deviceID, "err", err)
+						logger.Info("QMI NAS force network search 不受设备支持，后续跳过该命令", "device", deviceID, "err", err)
 					} else {
 						logger.Warn("QMI NAS force network search 失败，继续等待模组自主驻网", "device", deviceID, "err", err)
 					}
 				}
 			}
-			if shouldRadioCycleForQMIRegistration(attempt, registerIssued, radioCycleIssued, forceNetworkSearchUnsupported, radioRestoredOnline) {
+			if !radioCycleSkipped && shouldRadioCycleForQMIRegistration(attempt, registerIssued, radioCycleIssued, forceNetworkSearchUnsupported, radioRestoredOnline) {
 				if opts.SuppressRadioCycle != nil && opts.SuppressRadioCycle() {
 					logger.Info("QMI 驻网恢复暂缓 radio cycle：运营商扫描进行中", "device", deviceID, "attempt", attempt)
+				} else if skipQMIRegistrationRadioCycle {
+					radioCycleSkipped = true
+					logger.Info("QMI 驻网恢复自动 RF Cycle 已跳过（实验分支）",
+						"event", "QMI_REGISTRATION_RF_CYCLE_SKIPPED", "device", deviceID, "attempt", attempt)
 				} else {
 					radioCycleIssued = true
 					markStage("radio_cycle")
