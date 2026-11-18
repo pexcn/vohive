@@ -49,19 +49,30 @@ func (w *Worker) qmiSMSStorageHasIndex(storage uint8, index uint32) bool {
 	return false
 }
 
-func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32) (*qmimanager.DecodedSMS, uint8, error) {
+func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32, force bool) (*qmimanager.DecodedSMS, uint8, error) {
 	smsCore := w.smsQMICore()
 	if smsCore == nil {
 		return nil, storage, fmt.Errorf("qmi sms core not available")
 	}
 
+	read := func(candidate uint8) (*qmimanager.DecodedSMS, error) {
+		if !w.qmiSMSPollCurrent() || (!force && w.qmiSMSPoll.blocked(qmiSMSSlot{candidate, index})) {
+			return nil, errQMISMSPollSkipped
+		}
+		sms, err := smsCore.ReadSMS(candidate, index)
+		var decodeErr *qmicore.IncomingSMSDecodeError
+		if err != nil && !errors.As(err, &decodeErr) && !w.qmiSMSPoll.blocked(qmiSMSSlot{candidate, index}) {
+			delete(w.qmiSMSPoll.bad, qmiSMSSlot{candidate, index})
+		}
+		return sms, err
+	}
 	if storage == 0 || storage == 1 {
-		sms, err := smsCore.ReadSMS(storage, index)
+		sms, err := read(storage)
 		if err == nil {
 			return sms, storage, nil
 		}
 		var decodeErr *qmicore.IncomingSMSDecodeError
-		if errors.As(err, &decodeErr) {
+		if errors.As(err, &decodeErr) || errors.Is(err, errQMISMSPollSkipped) {
 			return nil, storage, err
 		}
 
@@ -76,7 +87,7 @@ func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32) (*qmimanager.De
 				"fallback_storage", alternate,
 				"err", err,
 			)
-			sms, fallbackErr := smsCore.ReadSMS(alternate, index)
+			sms, fallbackErr := read(alternate)
 			if fallbackErr == nil {
 				return sms, alternate, nil
 			}
@@ -86,12 +97,12 @@ func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32) (*qmimanager.De
 	}
 
 	for _, candidate := range []uint8{1, 0} {
-		sms, err := smsCore.ReadSMS(candidate, index)
+		sms, err := read(candidate)
 		if err == nil {
 			return sms, candidate, nil
 		}
 		var decodeErr *qmicore.IncomingSMSDecodeError
-		if errors.As(err, &decodeErr) {
+		if errors.As(err, &decodeErr) || errors.Is(err, errQMISMSPollSkipped) {
 			return nil, candidate, err
 		}
 	}
@@ -100,19 +111,18 @@ func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32) (*qmimanager.De
 }
 
 func (w *Worker) CheckAllSMSQMI() error {
+	w.qmiSMSPoll.mu.Lock()
+	defer w.qmiSMSPoll.mu.Unlock()
+	w.prepareQMISMSPoll()
 	smsCore := w.smsQMICore()
 	if smsCore == nil {
 		return fmt.Errorf("qmi sms core not available")
 	}
 
-	type qmiStoredSMS struct {
-		storage uint8
-		index   uint32
-	}
-
-	seen := make(map[string]struct{})
-	discovered := make([]qmiStoredSMS, 0)
-	readResiduals := make([]qmiStoredSMS, 0)
+	seen := make(map[qmiSMSSlot]struct{})
+	complete := make(map[uint8]bool)
+	discovered := make([]qmiSMSSlot, 0)
+	readResiduals := make([]qmiSMSSlot, 0)
 	var errs []error
 	successes := 0
 
@@ -124,12 +134,12 @@ func (w *Worker) CheckAllSMSQMI() error {
 		}
 		successes++
 		for _, msg := range messages {
-			key := fmt.Sprintf("%d:%d", storage, msg.Index)
+			key := qmiSMSSlot{storage, msg.Index}
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
-			discovered = append(discovered, qmiStoredSMS{storage: storage, index: msg.Index})
+			discovered = append(discovered, key)
 		}
 
 		messages, err = smsCore.ListSMS(storage, qmi.TagTypeMTRead)
@@ -138,15 +148,43 @@ func (w *Worker) CheckAllSMSQMI() error {
 			continue
 		}
 		successes++
+		complete[storage] = true
 		for _, msg := range messages {
-			key := fmt.Sprintf("%d:%d", storage, msg.Index)
+			key := qmiSMSSlot{storage, msg.Index}
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
-			readResiduals = append(readResiduals, qmiStoredSMS{storage: storage, index: msg.Index})
+			readResiduals = append(readResiduals, key)
 		}
 	}
+
+	if !w.qmiSMSPollCurrent() {
+		return nil
+	}
+	for slot := range w.qmiSMSPoll.bad {
+		if _, present := seen[slot]; complete[slot.storage] && !present {
+			delete(w.qmiSMSPoll.bad, slot)
+		}
+	}
+	pending := discovered[:0]
+	for _, slot := range discovered {
+		if !w.qmiSMSPoll.blocked(slot) {
+			pending = append(pending, slot)
+		}
+	}
+	cleanup := readResiduals[:0]
+	for _, slot := range readResiduals {
+		if _, knownBad := w.qmiSMSPoll.bad[slot]; knownBad {
+			// A tag change is no reason to delete a known invalid record.
+			if !w.qmiSMSPoll.blocked(slot) {
+				pending = append(pending, slot)
+			}
+		} else {
+			cleanup = append(cleanup, slot)
+		}
+	}
+	discovered, readResiduals = pending, cleanup
 
 	if successes == 0 && len(errs) > 0 {
 		return errors.Join(errs...)
@@ -159,12 +197,15 @@ func (w *Worker) CheckAllSMSQMI() error {
 		logger.Info(fmt.Sprintf("[%s] QMI 轮询发现 %d 条未读短信", w.ID, len(discovered)))
 	}
 	for _, msg := range discovered {
-		w.handleNewSMSQMI(msg.storage, msg.index)
+		w.handleStoredSMSQMI(msg.storage, msg.index, false)
 	}
 	if len(readResiduals) > 0 {
 		logger.Info(fmt.Sprintf("[%s] QMI 轮询清理 %d 条已读残留短信", w.ID, len(readResiduals)))
 	}
 	for _, msg := range readResiduals {
+		if !w.qmiSMSPollCurrent() {
+			return nil
+		}
 		if err := smsCore.WMSDeleteMessage(context.Background(), msg.storage, msg.index); err != nil {
 			logger.Warn(fmt.Sprintf("[%s] 清理已读残留短信失败 (QMI)", w.ID), "index", msg.index, "storage", msg.storage, "err", err)
 		}
@@ -172,13 +213,48 @@ func (w *Worker) CheckAllSMSQMI() error {
 	return nil
 }
 
+// A new stored-SMS URC always permits a fresh read, including a blocked slot.
 func (w *Worker) handleNewSMSQMI(storage uint8, index uint32) {
+	w.qmiSMSPoll.mu.Lock()
+	defer w.qmiSMSPoll.mu.Unlock()
+	w.prepareQMISMSPoll()
+	w.handleStoredSMSQMI(storage, index, true)
+}
+
+// Caller holds qmiSMSPoll.mu. Polls and URCs cannot update a slot concurrently.
+func (w *Worker) handleStoredSMSQMI(storage uint8, index uint32, force bool) {
+	if !w.qmiSMSPollCurrent() || (!force && w.qmiSMSPoll.blocked(qmiSMSSlot{storage, index})) {
+		return
+	}
 	logger.Info(fmt.Sprintf("[%s] 收到新短信通知 (QMI)", w.ID), "index", index, "storage", storage)
 
-	sms, actualStorage, err := w.readIncomingSMSQMI(storage, index)
+	sms, actualStorage, err := w.readIncomingSMSQMI(storage, index, force)
+	if !w.qmiSMSPollCurrent() || errors.Is(err, errQMISMSPollSkipped) {
+		return
+	}
+	slot := qmiSMSSlot{actualStorage, index}
 	if err != nil {
 		var decodeErr *qmicore.IncomingSMSDecodeError
 		if errors.As(err, &decodeErr) {
+			if isCorruptedZeroTPDU(decodeErr.PDU) {
+				wasBlocked := w.qmiSMSPoll.blocked(slot)
+				count := w.qmiSMSPoll.confirmZeroTPDU(slot, decodeErr.PDU)
+				if count == 1 {
+					logger.Warn(fmt.Sprintf("[%s] 发现零填充异常短信，保留记录并等待后续轮询确认 (QMI)", w.ID),
+						"event", "SMS_ZERO_TPDU_DETECTED", "index", index, "storage", actualStorage,
+						"pdu_len", len(decodeErr.PDU), "confirmation_limit", qmiSMSZeroTPDUConfirmations)
+				}
+				if count == qmiSMSZeroTPDUConfirmations && !wasBlocked {
+					logger.Warn(fmt.Sprintf("[%s] 连续确认相同零填充异常短信，停止本次会话的槽位轮询读取 (QMI)", w.ID),
+						"event", "SMS_ZERO_TPDU_POLL_SKIPPED", "index", index, "storage", actualStorage,
+						"confirmations", count)
+				}
+				logger.Debug(fmt.Sprintf("[%s] 零填充异常短信原始数据 (QMI)", w.ID),
+					"event", "SMS_PDU_DECODE_DIAGNOSTIC", "index", index, "storage", actualStorage,
+					"pdu_len", len(decodeErr.PDU), "pdu_hex", rawSMSPDUHexForLog(decodeErr.PDU))
+				return
+			}
+			delete(w.qmiSMSPoll.bad, slot)
 			logger.Warn(fmt.Sprintf("[%s] 短信数据解码失败，保留原记录 (QMI)", w.ID),
 				"event", "SMS_PDU_DECODE_REJECTED", "index", index, "storage", actualStorage,
 				"pdu_len", len(decodeErr.PDU), "err", err)
@@ -191,6 +267,7 @@ func (w *Worker) handleNewSMSQMI(storage uint8, index uint32) {
 		return
 	}
 
+	delete(w.qmiSMSPoll.bad, slot)
 	w.processDecodedSMSQMI(sms)
 
 	if smsCore := w.smsQMICore(); smsCore != nil {

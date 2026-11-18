@@ -103,6 +103,7 @@ type Worker struct {
 	netOverride NetworkController
 	APDUArbiter *apduarbiter.Arbiter
 	qmiSMS      qmiSMSCore
+	qmiSMSPoll  qmiSMSPollState
 	// ESIMQMITransport 仅在未创建共享 QMI Core、但 eSIM 仍需走 QMI transport 时使用。
 	// 复用 QMICore/QMI Core 场景下为 nil。
 	ESIMQMITransport esim.QMIAPDUTransportLifecycle
