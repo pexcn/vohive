@@ -541,6 +541,7 @@ func (p *Pool) addWorkerFromConfig(devCfg config.DeviceConfig, identityCache *qm
 	if qmiCore != nil {
 		var resetRecoveryRunning atomic.Bool
 		qmiCore.OnModemReset(func() {
+			w.qmiSMSPoll.reset.Add(1)
 			if p.lifecycle != nil {
 				p.lifecycle.BeginRecovery(w.ID, LifecyclePhaseRecovering, "qmi_modem_reset", qmiLifecycleRecoveryTTL)
 			}
