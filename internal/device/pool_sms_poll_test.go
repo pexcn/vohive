@@ -115,7 +115,7 @@ func TestQMISMSPollStopsIdenticalZeroTPDUWithoutDeleting(t *testing.T) {
 	}{0, qmi.TagTypeMTNotRead})
 	stub.readResults["0:0"] = &qmimanager.DecodedSMS{Sender: "Apple", Message: "verification", Timestamp: time.Now()}
 	pollStoredSMS(t, w, 1)
-	if len(stub.readCalls) != 4 || stub.readCalls[3] != "0:0" || fmt.Sprint(stub.deleteCalls) != "[0:0]" || len(notifier.sms) != 1 {
+	if len(stub.readCalls) != 4 || stub.readCalls[3] != "0:0" || len(stub.deleteCalls) != 0 || len(notifier.sms) != 1 {
 		t.Fatalf("other storage not handled normally: reads=%v deletes=%v notifications=%v", stub.readCalls, stub.deleteCalls, notifier.sms)
 	}
 }
@@ -138,7 +138,7 @@ func TestQMISMSPollURCRechecksBlockedSlotAndAllowsReuse(t *testing.T) {
 	// An empty but valid decoded SMS must also clear the blocked slot.
 	stub.readResults["1:0"] = &qmimanager.DecodedSMS{Sender: "Apple", Timestamp: time.Now()}
 	w.handleNewSMSQMI(qmiSMSStorageUnknown, 0)
-	if len(stub.readCalls) != 6 || fmt.Sprint(stub.deleteCalls) != "[1:0]" || len(notifier.sms) != 1 {
+	if len(stub.readCalls) != 6 || len(stub.deleteCalls) != 0 || len(notifier.sms) != 1 {
 		t.Fatalf("reused slot not processed: reads=%v deletes=%v notifications=%v", stub.readCalls, stub.deleteCalls, notifier.sms)
 	}
 	// A later invalid message in this slot needs three fresh confirmations.
@@ -209,7 +209,7 @@ func TestQMISMSPollTransportFailureResetsStreakBeforeFallback(t *testing.T) {
 	stub.listByStorage[0] = nil
 	stub.readErrors["1:0"] = original
 	pollStoredSMS(t, w, 6)
-	if len(stub.readCalls) != 7 || fmt.Sprint(stub.deleteCalls) != "[0:0]" {
+	if len(stub.readCalls) != 7 || len(stub.deleteCalls) != 0 {
 		t.Fatalf("fallback kept the primary slot's old streak: reads=%v deletes=%v", stub.readCalls, stub.deleteCalls)
 	}
 }

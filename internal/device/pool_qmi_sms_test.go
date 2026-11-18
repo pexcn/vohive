@@ -99,7 +99,7 @@ func qmiRawSMSFixtureDirectTPDU(t *testing.T) []byte {
 	return append([]byte(nil), raw[1+smscLen:]...)
 }
 
-func TestHandleNewSMSQMIUsesIndicatedStorageAndDeletesSameStorage(t *testing.T) {
+func TestHandleNewSMSQMIUsesIndicatedStorageAndRetainsRecord(t *testing.T) {
 	stub := &qmiSMSCoreStub{
 		readResults: map[string]*qmimanager.DecodedSMS{
 			"0:7": {
@@ -123,7 +123,7 @@ func TestHandleNewSMSQMIUsesIndicatedStorageAndDeletesSameStorage(t *testing.T) 
 	if len(stub.readCalls) != 1 || stub.readCalls[0] != "0:7" {
 		t.Fatalf("unexpected read calls: %v", stub.readCalls)
 	}
-	if len(stub.deleteCalls) != 1 || stub.deleteCalls[0] != "0:7" {
+	if len(stub.deleteCalls) != 0 {
 		t.Fatalf("unexpected delete calls: %v", stub.deleteCalls)
 	}
 }
@@ -164,7 +164,7 @@ func TestHandleNewSMSQMIFallsBackToAlternateStorageWhenIndexExistsThere(t *testi
 	if stub.readCalls[0] != "0:9" || stub.readCalls[1] != "1:9" {
 		t.Fatalf("unexpected read order: %v", stub.readCalls)
 	}
-	if len(stub.deleteCalls) != 1 || stub.deleteCalls[0] != "1:9" {
+	if len(stub.deleteCalls) != 0 {
 		t.Fatalf("unexpected delete calls: %v", stub.deleteCalls)
 	}
 }
@@ -237,12 +237,12 @@ func TestCheckAllSMSQMIReadsUnreadFromBothStorages(t *testing.T) {
 	if err := worker.CheckAllSMSQMI(); err != nil {
 		t.Fatalf("CheckAllSMSQMI() error=%v", err)
 	}
-	if len(stub.deleteCalls) != 2 {
-		t.Fatalf("unexpected delete calls: %v", stub.deleteCalls)
+	if fmt.Sprint(stub.readCalls) != "[0:3 1:5]" || len(stub.deleteCalls) != 0 {
+		t.Fatalf("unexpected stored SMS operations: reads=%v deletes=%v", stub.readCalls, stub.deleteCalls)
 	}
 }
 
-func TestCheckAllSMSQMICleansReadResidualsFromBothStorages(t *testing.T) {
+func TestCheckAllSMSQMIKeepsReadResidualsFromBothStorages(t *testing.T) {
 	stub := &qmiSMSCoreStub{
 		listByStorage: map[uint8][]struct {
 			Index uint32
@@ -279,9 +279,8 @@ func TestCheckAllSMSQMICleansReadResidualsFromBothStorages(t *testing.T) {
 	if len(stub.readCalls) != 0 {
 		t.Fatalf("readCalls=%v, want no reprocessing for read residuals", stub.readCalls)
 	}
-	wantDeleteCalls := []string{"0:11", "1:13"}
-	if fmt.Sprint(stub.deleteCalls) != fmt.Sprint(wantDeleteCalls) {
-		t.Fatalf("deleteCalls=%v want %v", stub.deleteCalls, wantDeleteCalls)
+	if len(stub.deleteCalls) != 0 {
+		t.Fatalf("read residuals were deleted during the experiment: %v", stub.deleteCalls)
 	}
 }
 
@@ -330,5 +329,43 @@ func TestHandleRawSMSQMIAcksDecodeFailure(t *testing.T) {
 	}
 	if stub.ackCalls[0].TransactionID != 0x55667788 {
 		t.Fatalf("ack transaction=0x%x, want 0x55667788", stub.ackCalls[0].TransactionID)
+	}
+}
+
+func TestQMIStoredSMSDeleteExperimentKeepsMultipartReception(t *testing.T) {
+	for _, source := range []string{"poll", "urc"} {
+		t.Run(source, func(t *testing.T) {
+			stub := &qmiSMSCoreStub{
+				listByStorage: map[uint8][]struct {
+					Index uint32
+					Tag   qmi.MessageTagType
+				}{1: {{Index: 1, Tag: qmi.TagTypeMTNotRead}, {Index: 2, Tag: qmi.TagTypeMTNotRead}}},
+				readResults: map[string]*qmimanager.DecodedSMS{
+					"1:1": {Storage: 1, Index: 1, Sender: "10086", Message: "hello ", Timestamp: time.Now(),
+						IsConcat: true, ConcatRef: 7, ConcatTotal: 2, ConcatSeq: 1},
+					"1:2": {Storage: 1, Index: 2, Sender: "10086", Message: "world", Timestamp: time.Now(),
+						IsConcat: true, ConcatRef: 7, ConcatTotal: 2, ConcatSeq: 2},
+				},
+			}
+			notifier := &mbimInboxNotifierStub{}
+			worker := &Worker{ID: "test", qmiSMS: stub, Pool: &Pool{notifier: notifier}, reassembler: smscodec.NewReassembler()}
+			if source == "poll" {
+				if err := worker.CheckAllSMSQMI(); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				worker.handleNewSMSQMI(1, 1)
+				if len(notifier.sms) != 0 {
+					t.Fatal("incomplete multipart SMS was notified")
+				}
+				worker.handleNewSMSQMI(1, 2)
+			}
+			if fmt.Sprint(stub.readCalls) != "[1:1 1:2]" || len(stub.deleteCalls) != 0 {
+				t.Fatalf("experiment must retain both fragments: reads=%v deletes=%v", stub.readCalls, stub.deleteCalls)
+			}
+			if len(notifier.sms) != 1 || notifier.sms[0].Content != "hello world" {
+				t.Fatalf("expected one complete SMS notification: %+v", notifier.sms)
+			}
+		})
 	}
 }
