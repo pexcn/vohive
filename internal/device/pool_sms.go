@@ -20,6 +20,18 @@ import (
 	"github.com/iniwex5/qmi-go/pkg/qmi"
 )
 
+// Experiment only: isolate stored SMS deletion from reception and decoding.
+const skipQMIStoredSMSAutoDelete = true
+
+func (w *Worker) skipQMISMSAutoDelete(storage uint8, index uint32, stage string) bool {
+	if !skipQMIStoredSMSAutoDelete {
+		return false
+	}
+	logger.Info(fmt.Sprintf("[%s] 自动删除 QMI 短信已跳过，保留模组记录（实验分支）", w.ID),
+		"event", "SMS_AUTO_DELETE_SKIPPED", "index", index, "storage", storage, "stage", stage)
+	return true
+}
+
 func (w *Worker) smsQMICore() qmiSMSCore {
 	if w == nil {
 		return nil
@@ -200,11 +212,14 @@ func (w *Worker) CheckAllSMSQMI() error {
 		w.handleStoredSMSQMI(msg.storage, msg.index, false)
 	}
 	if len(readResiduals) > 0 {
-		logger.Info(fmt.Sprintf("[%s] QMI 轮询清理 %d 条已读残留短信", w.ID, len(readResiduals)))
+		logger.Info(fmt.Sprintf("[%s] QMI 轮询发现 %d 条已读残留短信", w.ID, len(readResiduals)))
 	}
 	for _, msg := range readResiduals {
 		if !w.qmiSMSPollCurrent() {
 			return nil
+		}
+		if w.skipQMISMSAutoDelete(msg.storage, msg.index, "read_residual") {
+			continue
 		}
 		if err := smsCore.WMSDeleteMessage(context.Background(), msg.storage, msg.index); err != nil {
 			logger.Warn(fmt.Sprintf("[%s] 清理已读残留短信失败 (QMI)", w.ID), "index", msg.index, "storage", msg.storage, "err", err)
@@ -270,6 +285,9 @@ func (w *Worker) handleStoredSMSQMI(storage uint8, index uint32, force bool) {
 	delete(w.qmiSMSPoll.bad, slot)
 	w.processDecodedSMSQMI(sms)
 
+	if w.skipQMISMSAutoDelete(actualStorage, index, "received") {
+		return
+	}
 	if smsCore := w.smsQMICore(); smsCore != nil {
 		if err := smsCore.WMSDeleteMessage(context.Background(), actualStorage, index); err != nil {
 			logger.Warn(fmt.Sprintf("[%s] 删除短信失败 (QMI)", w.ID), "index", index, "storage", actualStorage, "err", err)
