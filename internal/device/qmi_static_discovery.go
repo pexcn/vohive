@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
 )
 
 // QMIDevice 表示通过 sysfs 静态枚举到的 QMI 设备拓扑信息。
@@ -33,7 +33,7 @@ type QMIDevice struct {
 	AudioCardNum int
 }
 
-// ToQMIManagerDevice 将静态发现结果转换为 quectel-qmi-go 的注入式设备描述。
+// ToQMIManagerDevice 将静态发现结果转换为 qmi-go 的注入式设备描述。
 func (m QMIDevice) ToQMIManagerDevice() qmimanager.ModemDevice {
 	return qmimanager.ModemDevice{
 		ControlPath:  m.ControlPath,

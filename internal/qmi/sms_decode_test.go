@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
 	"github.com/warthog618/sms"
 	"github.com/warthog618/sms/encoding/tpdu"
 )

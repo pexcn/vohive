@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 )
 
 func summaryFieldsMap(fields []any) map[string]any {
@@ -197,27 +197,6 @@ func TestSummarizeQMIEventIMSRegistrationDoesNotLeakErrorMessage(t *testing.T) {
 	}
 }
 
-func TestSummarizeQMIEventWMSSMSCAddressDoesNotLeakDigits(t *testing.T) {
-	summary := summarizeQMIEvent(qmimanager.Event{
-		Type: qmimanager.EventWMSSMSCAddress,
-		WMSSMSCAddress: &qmi.WMSSMSCAddress{
-			Type:   "IPV",
-			Digits: "8613800100500",
-		},
-	})
-
-	fields := summaryFieldsMap(summary.Fields)
-	if got := fields["type"]; got != "IPV" {
-		t.Fatalf("type=%v want=IPV", got)
-	}
-	if got := fields["digits_len"]; got != len("8613800100500") {
-		t.Fatalf("digits_len=%v want=%d", got, len("8613800100500"))
-	}
-	if summaryContains(summary, "8613800100500") {
-		t.Fatal("summary leaked SMSC digits")
-	}
-}
-
 func TestSummarizeQMIEventWMSTransportNetworkRegistrationStatus(t *testing.T) {
 	summary := summarizeQMIEvent(qmimanager.Event{
 		Type:                     qmimanager.EventWMSTransportNetworkRegistrationStatus,
@@ -247,7 +226,7 @@ func TestSummarizeQMIEventServingSystemChangedUsesStructuredFields(t *testing.T)
 			MNC:               1,
 		},
 		RawQMIType: qmi.EventServingSystemChanged,
-		ServiceID:  qmi.ServiceNAS,
+		ServiceID:  uint8(qmi.ServiceNAS),
 		MessageID:  qmi.NASServingSystemInd,
 	})
 
@@ -285,7 +264,7 @@ func TestSummarizeQMIEventUIMSessionClosedIsSuppressed(t *testing.T) {
 	summary := summarizeQMIEvent(qmimanager.Event{
 		Type:       qmimanager.EventUIMSessionClosed,
 		RawQMIType: qmi.EventUIMSessionClosed,
-		ServiceID:  qmi.ServiceUIM,
+		ServiceID:  uint8(qmi.ServiceUIM),
 		MessageID:  qmi.UIMSessionClosedInd,
 		TLVMeta: []qmi.TLVMeta{
 			{Type: 0x13, Length: 4},
@@ -303,7 +282,7 @@ func TestSummarizeQMIEventEmptyNASEventReportIsSuppressed(t *testing.T) {
 	summary := summarizeQMIEvent(qmimanager.Event{
 		Type:       qmimanager.EventNASEventReport,
 		RawQMIType: qmi.EventNASEventReport,
-		ServiceID:  qmi.ServiceNAS,
+		ServiceID:  uint8(qmi.ServiceNAS),
 		MessageID:  qmi.NASEventReportInd,
 		TLVMeta:    nil,
 	})
@@ -317,7 +296,7 @@ func TestSummarizeQMIEventUnknownIncludesRawMetadata(t *testing.T) {
 	summary := summarizeQMIEvent(qmimanager.Event{
 		Type:       qmimanager.EventUnknownIndication,
 		RawQMIType: qmi.EventUnknown,
-		ServiceID:  qmi.ServiceWMS,
+		ServiceID:  uint8(qmi.ServiceWMS),
 		MessageID:  0x0044,
 		TLVMeta: []qmi.TLVMeta{
 			{Type: 0x01, Length: 16},
@@ -460,7 +439,7 @@ func TestSummarizeQMIEventUIMRefreshUsesStructuredFields(t *testing.T) {
 			},
 		},
 		RawQMIType: qmi.EventUIMRefresh,
-		ServiceID:  qmi.ServiceUIM,
+		ServiceID:  uint8(qmi.ServiceUIM),
 		MessageID:  qmi.UIMRefreshInd,
 	})
 
@@ -489,7 +468,7 @@ func TestSummarizeQMIEventUIMSlotStatusUsesStructuredFields(t *testing.T) {
 			},
 		},
 		RawQMIType: qmi.EventUIMSlotStatus,
-		ServiceID:  qmi.ServiceUIM,
+		ServiceID:  uint8(qmi.ServiceUIM),
 		MessageID:  qmi.UIMSlotStatusInd,
 	})
 

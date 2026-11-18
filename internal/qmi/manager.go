@@ -16,9 +16,9 @@ import (
 	"github.com/iniwex5/vohive/internal/netprobe"
 	"github.com/iniwex5/vohive/pkg/logger"
 
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
-	"github.com/iniwex5/quectel-qmi-go/pkg/netcfg"
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/netcfg"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 	"github.com/miekg/dns"
 )
 
@@ -518,20 +518,6 @@ func summarizeQMIEvent(event qmimanager.Event) qmiEventSummary {
 			Message: "QMI NAS 事件报告",
 			Fields:  fields,
 		}
-	case qmimanager.EventWMSSMSCAddress:
-		fields := make([]any, 0, 8)
-		if info := event.WMSSMSCAddress; info != nil {
-			fields = append(fields,
-				"type", info.Type,
-				"digits_len", utf8.RuneCountInString(info.Digits),
-			)
-		}
-		fields = append(fields, qmiRawEventFields(event)...)
-		return qmiEventSummary{
-			Level:   qmiEventLogDebug,
-			Message: "QMI WMS SMSC 地址指示",
-			Fields:  fields,
-		}
 	case qmimanager.EventWMSTransportNetworkRegistrationStatus:
 		fields := []any{
 			"registration_status", event.WMSTransportRegistration.String(),
@@ -642,7 +628,7 @@ func qmiUSSDPayloadLen(payload *qmi.VoiceUSSDPayload) int {
 }
 
 func qmiServiceName(serviceID uint8) string {
-	switch serviceID {
+	switch uint16(serviceID) {
 	case qmi.ServiceControl:
 		return "CTL"
 	case qmi.ServiceWDS:
@@ -810,7 +796,7 @@ func New(cfg config.DeviceConfig, modemDev *qmimanager.ModemDevice) *Manager {
 		}
 	}
 
-	// 构建 quectel-qmi-go 配置
+	// 构建 qmi-go 配置
 	qmiCfg := buildQMIManagerConfig(cfg, device)
 
 	// 创建 QMI 管理器
@@ -1707,7 +1693,7 @@ func (m *Manager) RotateIP() error {
 	oldIP := m.GetPrivateIP()
 	logger.Info(fmt.Sprintf("[%s] 开始 IP 切换", m.cfg.ID), "old_ip", oldIP)
 
-	// 调用 quectel-qmi-go 的 RotateIP 方法
+	// 调用 qmi-go 的 RotateIP 方法
 	err := m.qmiMgr.RotateIP()
 	if err != nil {
 		logger.Error(fmt.Sprintf("[%s] IP 切换失败", m.cfg.ID), "err", err)

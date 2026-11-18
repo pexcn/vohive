@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 	qmicore "github.com/iniwex5/vohive/internal/qmi"
 	"github.com/iniwex5/vohive/pkg/logger"
 )

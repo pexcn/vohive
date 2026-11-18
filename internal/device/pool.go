@@ -27,8 +27,8 @@ import (
 	"github.com/iniwex5/vowifi-go/runtimehost"
 	"github.com/iniwex5/vowifi-go/runtimehost/voicehost"
 
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 )
 
 // smsMode 短信工作模式枚举

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
 	"github.com/iniwex5/vohive/internal/backend"
 	"github.com/iniwex5/vohive/internal/config"
 )

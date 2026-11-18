@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/internal/modem"
 	"github.com/iniwex5/vohive/pkg/smscodec"
 	"github.com/warthog618/sms/encoding/tpdu"
@@ -1143,7 +1143,7 @@ func TestQMIBackendGetServingSystemAddsLTEDuplexWithoutChangingMode(t *testing.T
 				MNC:               1,
 			},
 		},
-		rfBandInfo: &qmi.RFBandInfo{Bands: []qmi.RFBandInfoEntry{{RadioInterface: 0x08, ActiveBandClass: 8}}},
+		rfBandInfo: &qmi.RFBandInfo{Bands: []qmi.RFBandInfoEntry{{RadioInterface: 0x08, ActiveBandClass: 127}}},
 	}
 	backend, err := NewQMIBackend("/dev/null", src)
 	if err != nil {

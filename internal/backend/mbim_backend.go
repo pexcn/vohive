@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/iniwex5/quectel-qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/manager"
 	"github.com/iniwex5/vohive/internal/modem"
 	"github.com/iniwex5/vohive/pkg/mbim"
 )

@@ -8,8 +8,8 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/iniwex5/netlink v1.3.3
+	github.com/iniwex5/qmi-go v0.6.6-0.20261111151034-c1714381696b
 	github.com/iniwex5/qqbot v1.0.1
-	github.com/iniwex5/quectel-qmi-go v0.6.0
 	github.com/iniwex5/vowifi-go v1.1.2
 	github.com/larksuite/oapi-sdk-go/v3 v3.5.3
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
@@ -32,6 +32,7 @@ require golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
 
 require (
 	github.com/google/btree v1.1.2 // indirect
+	github.com/vishvananda/netlink v1.3.1 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	gvisor.dev/gvisor v0.0.0-20260527191743-a81fd9dd382e // indirect
 )

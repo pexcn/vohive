@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/iniwex5/quectel-qmi-go/pkg/manager"
-	"github.com/iniwex5/quectel-qmi-go/pkg/qmi"
+	"github.com/iniwex5/qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/internal/modem"
 	"github.com/iniwex5/vohive/pkg/logger"
 	"github.com/iniwex5/vohive/pkg/smscodec"
@@ -285,30 +285,38 @@ func qmiSNRToDB(raw int16) int {
 	return int((raw - 5) / 10)
 }
 
+func applyQMISignalInfo(info *SignalInfo, signal *qmi.SignalInfo) {
+	if lte := signal.LTE; lte != nil {
+		if lte.RSRP != nil {
+			info.RSRP = int(*lte.RSRP)
+		}
+		if lte.RSRQ != nil {
+			info.RSRQ = int(*lte.RSRQ)
+		}
+		if lte.SNR != nil {
+			info.SINR = qmiSNRToDB(*lte.SNR)
+		}
+	}
+	if nr := signal.NR5G; nr != nil {
+		if nr.RSRP != nil {
+			info.NR5GRSRP = int(*nr.RSRP)
+		}
+		if nr.RSRQ != nil {
+			info.NR5GRSRQ = int(*nr.RSRQ)
+		}
+		if nr.SNR != nil {
+			info.NR5GSINR = qmiSNRToDB(*nr.SNR)
+		}
+	}
+}
+
 func (q *QMIBackend) GetSignalInfo(ctx context.Context) (*SignalInfo, error) {
 	info := &SignalInfo{}
 	hasSnapshotData := false
 
 	if snap := q.source.GetDeviceSnapshot(); snap != nil {
 		if sigInfo, _, valid := snap.NASSignalInfo(); valid && sigInfo != nil {
-			if sigInfo.LTERSRP != 0 {
-				info.RSRP = int(sigInfo.LTERSRP)
-			}
-			if sigInfo.LTERSRQ != 0 {
-				info.RSRQ = int(sigInfo.LTERSRQ)
-			}
-			if sigInfo.LTERSSNR != 0 {
-				info.SINR = qmiSNRToDB(sigInfo.LTERSSNR)
-			}
-			if sigInfo.NR5GRSRP != 0 {
-				info.NR5GRSRP = int(sigInfo.NR5GRSRP)
-			}
-			if sigInfo.NR5GRSRQ != 0 {
-				info.NR5GRSRQ = int(sigInfo.NR5GRSRQ)
-			}
-			if sigInfo.NR5GSINR != 0 {
-				info.NR5GSINR = qmiSNRToDB(sigInfo.NR5GSINR)
-			}
+			applyQMISignalInfo(info, sigInfo)
 			hasSnapshotData = true
 		}
 		if sig, _ := snap.Signal(); sig != nil {
@@ -329,25 +337,7 @@ func (q *QMIBackend) GetSignalInfo(ctx context.Context) (*SignalInfo, error) {
 
 	// 首先使用 NAS GetSignalInfo（字段最全，1 次 IPC）
 	if sigInfo, err := q.source.GetSignalInfo(ctx); err == nil && sigInfo != nil {
-		if sigInfo.LTERSRP != 0 {
-			info.RSRP = int(sigInfo.LTERSRP)
-		}
-		if sigInfo.LTERSRQ != 0 {
-			info.RSRQ = int(sigInfo.LTERSRQ)
-		}
-		if sigInfo.LTERSSNR != 0 {
-			info.SINR = qmiSNRToDB(sigInfo.LTERSSNR)
-		}
-		// 5G
-		if sigInfo.NR5GRSRP != 0 {
-			info.NR5GRSRP = int(sigInfo.NR5GRSRP)
-		}
-		if sigInfo.NR5GRSRQ != 0 {
-			info.NR5GRSRQ = int(sigInfo.NR5GRSRQ)
-		}
-		if sigInfo.NR5GSINR != 0 {
-			info.NR5GSINR = qmiSNRToDB(sigInfo.NR5GSINR)
-		}
+		applyQMISignalInfo(info, sigInfo)
 	}
 
 	// 层 3：仅当 RSSI 仍为空时才补发 GetSignalStrength（从 2 次 IPC 降为条件性 1 次）
@@ -804,7 +794,7 @@ func (q *QMIBackend) NASRegisterIndications(ctx context.Context) error {
 }
 
 // GetSMSC 读取短信中心号码（SMSC）。
-// 具体解析逻辑在 quectel-qmi-go 库内实现。
+// 具体解析逻辑在 qmi-go 库内实现。
 func (q *QMIBackend) GetSMSC(ctx context.Context) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()

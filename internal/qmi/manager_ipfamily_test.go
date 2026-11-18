@@ -3,7 +3,7 @@ package qmicore
 import (
 	"testing"
 
-	qmimanager "github.com/iniwex5/quectel-qmi-go/pkg/manager"
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
 	"github.com/iniwex5/vohive/internal/config"
 )
 
