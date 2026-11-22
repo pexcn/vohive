@@ -24,7 +24,8 @@ const base = {running:true, healthy:true, lifecycle_phase:'online', backend_mode
 const fixtures = [
   {...base,id:'tw',name:'Taiwan fixture',modem:{native_mcc:'466',native_mnc:'92',native_spn:'Chunghwa'}},
   {...base,id:'gb',name:'Britain fixture',modem:{native_mcc:'234',native_mnc:'33',native_spn:'Orange'}},
-  {...base,id:'unknown',name:'Unknown fixture',modem:{native_mcc:'999',native_mnc:'99',native_spn:'Unknown'}}
+  {...base,id:'unknown',name:'Unknown fixture',modem:{native_mcc:'999',native_mnc:'99',native_spn:'Unknown'}},
+  {...base,id:'hk',name:'Club Sim IMSI-only fixture',modem:{imsi:'454003063191853',operator:'China Unicom'}}
 ]
 async function mockApi(req,res) {
   const url = new URL(req.url,'http://localhost')
@@ -33,6 +34,7 @@ async function mockApi(req,res) {
   if(req.method!=='GET'){json({error:'Unexpected mutation'});return}
   if(url.pathname.endsWith('/stream')){
     res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache'})
+    res.fixtureDeviceID=url.pathname.split('/')[3]
     res.write(': connected\n\n');streams.add(res);res.on('close',()=>streams.delete(res));return
   }
   if(url.pathname==='/api/devices'){json({devices:fixtures,device_limit:5});return}
@@ -85,7 +87,7 @@ try {
   await send('Network.setBlockedURLs',{urls:['https://*']});
   await send('Page.addScriptToEvaluateOnNewDocument',{source:`
     localStorage.setItem('token','fixture-token');localStorage.setItem('theme','dark');
-    localStorage.setItem('go-4gproxy:mcc-mnc-table:v1',JSON.stringify({fetched_at:Date.now(),rows:[{mcc:'466',mnc:'92',iso:'tw',network:'Chunghwa',country:'Taiwan',country_code:'886'},{mcc:'234',mnc:'33',iso:'gb',network:'Orange',country:'United Kingdom',country_code:'44'},{mcc:'999',mnc:'99',iso:'zz',network:'Unknown',country:'Unknown',country_code:''}]}));
+    localStorage.setItem('go-4gproxy:mcc-mnc-table:v1',JSON.stringify({fetched_at:Date.now(),rows:[{mcc:'466',mnc:'92',iso:'tw',network:'Chunghwa',country:'Taiwan',country_code:'886'},{mcc:'234',mnc:'33',iso:'gb',network:'Orange',country:'United Kingdom',country_code:'44'},{mcc:'999',mnc:'99',iso:'zz',network:'Unknown',country:'Unknown',country_code:''},{mcc:'454',mnc:'00',iso:'hk',network:'CSL',country:'Hong Kong',country_code:'852'}]}));
   `});
   await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   const address=server.httpServer.address();const url=`http://127.0.0.1:${address.port}/`;
@@ -95,7 +97,7 @@ try {
   const operator = `Array.from(document.querySelectorAll('.field-label')).find(el=>el.textContent==='原运营商')?.parentElement`
   const flag = `(${operator})?.querySelector('img.country-flag')`
   await send('Page.navigate',{url:url+'#/devices'})
-  await wait('document.querySelectorAll(".device-option").length === 3')
+  await wait('document.querySelectorAll(".device-option").length === 4')
   await wait(`${flag}?.complete && ${flag}?.naturalWidth > 0`)
   await evaluate(`Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>window.copiedOperator=text}})`)
   for(const theme of ['dark','light']) {
@@ -131,6 +133,21 @@ try {
       assert.equal(await evaluate(`!!${flag}`),false,'Unknown countries show only the operator text')
     }
   }
+  await click('.device-option:nth-child(4)')
+  await wait(`${flag}?.alt === 'HK 国旗' && ${flag}?.complete && ${flag}?.naturalWidth > 0`)
+  await snapshot('operator-flag-hk-imsi-only')
+  await until(()=>Array.from(streams).some(res=>res.fixtureDeviceID==='hk'),'Hong Kong overview stream')
+  const publishIdentity=async imsi=>{
+    fixtures[3].modem={imsi,operator:'China Unicom'}
+    for(const res of streams) {
+      if(res.fixtureDeviceID==='hk')res.write('event: overview\ndata: '+JSON.stringify({devices:[fixtures[3]]})+'\n\n')
+    }
+  }
+  await publishIdentity('')
+  await wait(`!${flag}`)
+  await publishIdentity('234336575868434')
+  await wait(`${flag}?.alt === 'GB 国旗' && ${flag}?.complete && ${flag}?.naturalWidth > 0`)
+
   await click('.device-option:nth-child(1)')
   await wait(`${flag}?.complete && ${flag}?.naturalWidth > 0`)
   await evaluate(`${flag}.dispatchEvent(new Event('error'))`)
