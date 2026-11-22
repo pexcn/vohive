@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+
+	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
 )
 
 const qmiSMSZeroTPDUConfirmations = 3
@@ -34,6 +36,9 @@ type qmiSMSPollState struct {
 	reset atomic.Uint64 // Modem reset can invalidate an in-flight read without waiting.
 	scope qmiSMSPollScope
 	bad   map[qmiSMSSlot]qmiSMSZeroTPDURecord
+	// A nil entry records an already-announced read residual, not a decoded
+	// SMS. Only non-nil entries can suppress unread polling.
+	retained map[qmiSMSSlot]*qmimanager.DecodedSMS
 }
 
 func (w *Worker) currentQMISMSPollScope() qmiSMSPollScope {
@@ -52,6 +57,7 @@ func (w *Worker) prepareQMISMSPoll() {
 	scope := w.currentQMISMSPollScope()
 	if scope != w.qmiSMSPoll.scope {
 		w.qmiSMSPoll.bad = nil
+		w.qmiSMSPoll.retained = nil
 		w.qmiSMSPoll.scope = scope
 	}
 }
@@ -62,6 +68,10 @@ func (w *Worker) qmiSMSPollCurrent() bool {
 
 func (s *qmiSMSPollState) blocked(slot qmiSMSSlot) bool {
 	return s.bad[slot].count >= qmiSMSZeroTPDUConfirmations
+}
+
+func (s *qmiSMSPollState) skipPoll(slot qmiSMSSlot) bool {
+	return s.blocked(slot) || s.retained[slot] != nil
 }
 
 func (s *qmiSMSPollState) confirmZeroTPDU(slot qmiSMSSlot, pdu []byte) int {

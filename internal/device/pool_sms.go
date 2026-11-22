@@ -20,6 +20,26 @@ import (
 	"github.com/iniwex5/qmi-go/pkg/qmi"
 )
 
+// Experiment only: isolate stored SMS deletion from reception and decoding.
+const skipQMIStoredSMSAutoDelete = true
+
+func (w *Worker) skipQMISMSAutoDelete(storage uint8, index uint32, stage string) bool {
+	if !skipQMIStoredSMSAutoDelete {
+		return false
+	}
+	slot := qmiSMSSlot{storage, index}
+	if _, seen := w.qmiSMSPoll.retained[slot]; seen {
+		return true
+	}
+	logger.Info(fmt.Sprintf("[%s] 自动删除 QMI 短信已跳过，保留模组记录（实验分支）", w.ID),
+		"event", "SMS_AUTO_DELETE_SKIPPED", "index", index, "storage", storage, "stage", stage)
+	if w.qmiSMSPoll.retained == nil {
+		w.qmiSMSPoll.retained = make(map[qmiSMSSlot]*qmimanager.DecodedSMS)
+	}
+	w.qmiSMSPoll.retained[slot] = nil
+	return true
+}
+
 func (w *Worker) smsQMICore() qmiSMSCore {
 	if w == nil {
 		return nil
@@ -56,10 +76,13 @@ func (w *Worker) readIncomingSMSQMI(storage uint8, index uint32, force bool) (*q
 	}
 
 	read := func(candidate uint8) (*qmimanager.DecodedSMS, error) {
-		if !w.qmiSMSPollCurrent() || (!force && w.qmiSMSPoll.blocked(qmiSMSSlot{candidate, index})) {
+		if !w.qmiSMSPollCurrent() || (!force && w.qmiSMSPoll.skipPoll(qmiSMSSlot{candidate, index})) {
 			return nil, errQMISMSPollSkipped
 		}
 		sms, err := smsCore.ReadSMS(candidate, index)
+		if err != nil {
+			delete(w.qmiSMSPoll.retained, qmiSMSSlot{candidate, index})
+		}
 		var decodeErr *qmicore.IncomingSMSDecodeError
 		if err != nil && !errors.As(err, &decodeErr) && !w.qmiSMSPoll.blocked(qmiSMSSlot{candidate, index}) {
 			delete(w.qmiSMSPoll.bad, qmiSMSSlot{candidate, index})
@@ -167,14 +190,22 @@ func (w *Worker) CheckAllSMSQMI() error {
 			delete(w.qmiSMSPoll.bad, slot)
 		}
 	}
+	for slot := range w.qmiSMSPoll.retained {
+		if _, present := seen[slot]; complete[slot.storage] && !present {
+			delete(w.qmiSMSPoll.retained, slot)
+		}
+	}
 	pending := discovered[:0]
 	for _, slot := range discovered {
-		if !w.qmiSMSPoll.blocked(slot) {
+		if !w.qmiSMSPoll.skipPoll(slot) {
 			pending = append(pending, slot)
 		}
 	}
 	cleanup := readResiduals[:0]
 	for _, slot := range readResiduals {
+		if _, retained := w.qmiSMSPoll.retained[slot]; retained {
+			continue
+		}
 		if _, knownBad := w.qmiSMSPoll.bad[slot]; knownBad {
 			// A tag change is no reason to delete a known invalid record.
 			if !w.qmiSMSPoll.blocked(slot) {
@@ -200,11 +231,14 @@ func (w *Worker) CheckAllSMSQMI() error {
 		w.handleStoredSMSQMI(msg.storage, msg.index, false)
 	}
 	if len(readResiduals) > 0 {
-		logger.Info(fmt.Sprintf("[%s] QMI 轮询清理 %d 条已读残留短信", w.ID, len(readResiduals)))
+		logger.Info(fmt.Sprintf("[%s] QMI 轮询发现 %d 条已读残留短信", w.ID, len(readResiduals)))
 	}
 	for _, msg := range readResiduals {
 		if !w.qmiSMSPollCurrent() {
 			return nil
+		}
+		if w.skipQMISMSAutoDelete(msg.storage, msg.index, "read_residual") {
+			continue
 		}
 		if err := smsCore.WMSDeleteMessage(context.Background(), msg.storage, msg.index); err != nil {
 			logger.Warn(fmt.Sprintf("[%s] 清理已读残留短信失败 (QMI)", w.ID), "index", msg.index, "storage", msg.storage, "err", err)
@@ -223,10 +257,9 @@ func (w *Worker) handleNewSMSQMI(storage uint8, index uint32) {
 
 // Caller holds qmiSMSPoll.mu. Polls and URCs cannot update a slot concurrently.
 func (w *Worker) handleStoredSMSQMI(storage uint8, index uint32, force bool) {
-	if !w.qmiSMSPollCurrent() || (!force && w.qmiSMSPoll.blocked(qmiSMSSlot{storage, index})) {
+	if !w.qmiSMSPollCurrent() || (!force && w.qmiSMSPoll.skipPoll(qmiSMSSlot{storage, index})) {
 		return
 	}
-	logger.Info(fmt.Sprintf("[%s] 收到新短信通知 (QMI)", w.ID), "index", index, "storage", storage)
 
 	sms, actualStorage, err := w.readIncomingSMSQMI(storage, index, force)
 	if !w.qmiSMSPollCurrent() || errors.Is(err, errQMISMSPollSkipped) {
@@ -267,9 +300,27 @@ func (w *Worker) handleStoredSMSQMI(storage uint8, index uint32, force bool) {
 		return
 	}
 
+	var retained *qmimanager.DecodedSMS
+	if skipQMIStoredSMSAutoDelete && sms != nil {
+		// Snapshot the decoded fragment before multipart assembly mutates it.
+		// Canonicalize the timestamp so equivalent time zones compare equally.
+		record := *sms
+		record.Storage, record.Index = actualStorage, index
+		record.Timestamp = record.Timestamp.UTC()
+		if previous := w.qmiSMSPoll.retained[slot]; previous != nil && *previous == record {
+			return
+		}
+		retained = &record
+	}
 	delete(w.qmiSMSPoll.bad, slot)
+	delete(w.qmiSMSPoll.retained, slot)
+	logger.Info(fmt.Sprintf("[%s] 处理存储短信 (QMI)", w.ID), "index", index, "storage", actualStorage)
 	w.processDecodedSMSQMI(sms)
 
+	if w.skipQMISMSAutoDelete(actualStorage, index, "received") {
+		w.qmiSMSPoll.retained[slot] = retained
+		return
+	}
 	if smsCore := w.smsQMICore(); smsCore != nil {
 		if err := smsCore.WMSDeleteMessage(context.Background(), actualStorage, index); err != nil {
 			logger.Warn(fmt.Sprintf("[%s] 删除短信失败 (QMI)", w.ID), "index", index, "storage", actualStorage, "err", err)
