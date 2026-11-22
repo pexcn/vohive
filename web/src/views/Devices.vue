@@ -24,7 +24,7 @@ import { useSensitiveVisibility } from '../composables/useSensitiveVisibility'
 import { useDevicesStore } from '../stores/devices'
 import { debugCollector } from '../debug/collector'
 import { isWwanQmiControlPath } from '../utils/deviceBackend'
-import { getMccMncIndex, type MccMncRow } from '../utils/mcc-mnc'
+import { getMccMncIndex, lookupHomeCountryISO, type MccMncRow } from '../utils/mcc-mnc'
 import type { CarrierWebsheetInfo, DeviceConfigDTO, DeviceMgmtListItem, DeviceOverviewItem, DiscoveredDevice, EsimProfileItem, ModemStatus, PNNRecord, RealtimeTrafficSnapshot } from '../types/api'
 import type { AppError } from '../types/domain'
 import { toAppError } from '../services/http'
@@ -376,10 +376,7 @@ const selectedSimOperatorDisplay = computed(() => {
   return mccmnc ? formatMccMncOperator(mccmnc) : '--'
 })
 
-const selectedSimOperatorCountry = computed(() => {
-  const code = nativeMccMnc(selectedDevice.value?.modem)
-  return mccMncIndex.value?.get(code)?.iso || ''
-})
+const selectedSimOperatorCountry = computed(() => lookupHomeCountryISO(mccMncIndex.value, selectedDevice.value?.modem))
 
 function formatBytesPerSecond(bps: unknown) {
   const v = Number(bps) || 0

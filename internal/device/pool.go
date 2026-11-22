@@ -584,11 +584,9 @@ func (w *Worker) refreshIdentityLive(ctx context.Context, reason string) (liveSI
 		}
 	}
 	var simMetadata *backend.SIMMetadata
-	metadataReadOK := false
 	if metadataReader, ok := w.Backend.(liveSIMMetadataReader); ok {
 		if meta, err := metadataReader.GetSIMMetadataLive(ctx); err == nil {
 			simMetadata = meta
-			metadataReadOK = true
 		}
 	}
 	if simMetadata == nil ||
@@ -603,7 +601,6 @@ func (w *Worker) refreshIdentityLive(ctx context.Context, reason string) (liveSI
 				}
 				simMetadata.NativeMCC = mcc
 				simMetadata.NativeMNC = mnc
-				metadataReadOK = true
 			}
 		} else {
 			logger.Debug("读取 SIM 归属 MCC/MNC 失败", "device", w.ID, "reason", reason, "err", err)
@@ -645,12 +642,18 @@ func (w *Worker) refreshIdentityLive(ctx context.Context, reason string) (liveSI
 	} else if identityChangedForSPN && spnReadOK {
 		w.state.Identity.NativeSPN = ""
 	}
-	if w.mergeSIMMetadataLocked(simMetadata) || metadataReadOK {
-		if identityChangedForSPN && !hasSIMMetadata(simMetadata) {
-			w.clearSIMMetadataLocked()
-		}
-	} else if identityChangedForSPN {
+	if identityChangedForSPN {
 		w.clearSIMMetadataLocked()
+	}
+	w.mergeSIMMetadataLocked(simMetadata)
+	if imsi != "" && len(imsi) <= 15 && strings.Trim(imsi, "0123456789") == "" &&
+		(w.state.Identity.NativeMCC == "" || w.state.Identity.NativeMNC == "") {
+		// Reuse this refresh's IMSI if optional SIM reads failed. Preserve an
+		// existing same-identity PLMN, which may have an EF-AD MNC length.
+		if mcc, mnc, _, _, err := modem.HomeMCCMNCFromIMSIAndEFAD(imsi, nil); err == nil {
+			w.state.Identity.NativeMCC = mcc
+			w.state.Identity.NativeMNC = mnc
+		}
 	}
 	w.state.Identity.Ready = w.state.Identity.ICCID != "" || w.state.Identity.IMSI != ""
 	w.state.Identity.Phase = simIdentityPhaseReady

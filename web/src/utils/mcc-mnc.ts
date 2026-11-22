@@ -13,6 +13,12 @@ export type ServingOperatorLike = {
   mnc?: string
 }
 
+export type HomeOperatorLike = {
+  native_mcc?: string
+  native_mnc?: string
+  imsi?: string
+}
+
 const TABLE_URL = 'https://raw.githubusercontent.com/musalbas/mcc-mnc-table/refs/heads/master/mcc-mnc-table.json'
 const STORAGE_KEY = 'go-4gproxy:mcc-mnc-table:v1'
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -136,6 +142,28 @@ export function isoToFlagEmoji(iso: string): string {
   const b = s.charCodeAt(1)
   if (a < 65 || a > 90 || b < 65 || b > 90) return ''
   return String.fromCodePoint(0x1f1e6 + (a - 65)) + String.fromCodePoint(0x1f1e6 + (b - 65))
+}
+
+export function lookupHomeCountryISO(index: Map<string, MccMncRow> | null, modem: HomeOperatorLike | undefined): string {
+  if (!index || !modem) return ''
+  const nativeMCC = normalizeCode(modem.native_mcc || '')
+  const nativeMNC = normalizeCode(modem.native_mnc || '')
+  if (nativeMCC && nativeMNC) {
+    const iso = index.get(`${nativeMCC}${nativeMNC}`)?.iso
+    if (iso) return iso
+  }
+
+  // Country needs only MCC; do not guess MNC length or use the roaming network.
+  const imsi = normalizeCode(modem.imsi || '')
+  const imsiMCC = /^\d{5,15}$/.test(imsi) && imsi !== '999999999999999' ? imsi.slice(0, 3) : ''
+  const mcc = /^\d{3}$/.test(nativeMCC) ? nativeMCC : imsiMCC
+  if (!mcc) return ''
+  const countries = new Set<string>()
+  for (const row of index.values()) {
+    if (row.mcc === mcc && /^[a-z]{2}$/.test(row.iso)) countries.add(row.iso)
+  }
+  // Shared/international MCCs may not identify one country.
+  return countries.size === 1 ? countries.values().next().value || '' : ''
 }
 
 export function getMncCandidateLengths(mcc: string): number[] {

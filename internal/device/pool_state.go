@@ -323,8 +323,12 @@ func (w *Worker) mergeSIMMetadataLocked(meta *backend.SIMMetadata) bool {
 	if !hasSIMMetadata(meta) {
 		return false
 	}
-	w.state.Identity.NativeMCC = strings.TrimSpace(meta.NativeMCC)
-	w.state.Identity.NativeMNC = strings.TrimSpace(meta.NativeMNC)
+	// A partial read must not erase the same SIM's home PLMN or combine a
+	// new MCC with a cached MNC. Identity changes clear the cache first.
+	if mcc, mnc := strings.TrimSpace(meta.NativeMCC), strings.TrimSpace(meta.NativeMNC); mcc != "" && mnc != "" {
+		w.state.Identity.NativeMCC = mcc
+		w.state.Identity.NativeMNC = mnc
+	}
 	w.state.Identity.GID1 = strings.TrimSpace(meta.GID1)
 	w.state.Identity.GID2 = strings.TrimSpace(meta.GID2)
 	w.state.Identity.PNN = append([]backend.PNNRecord(nil), meta.PNN...)
