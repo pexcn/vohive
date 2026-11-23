@@ -93,7 +93,7 @@ const setModeAuto = async () => {
   try {
     const res = await devicesService.setOperatorSelection(props.deviceId, { mode: 'automatic' })
     if (!res.ok) throw new Error(res.error.message)
-    notify({ tone: 'success', message: '已恢复自动选网' })
+    notify({ tone: 'success', message: '自动选网请求已提交，等待驻网' })
     emit('updated')
     await loadCurrent()
   } catch (e: any) {
@@ -114,7 +114,7 @@ const setModeManual = async (candidate: OperatorCandidate) => {
       rat
     })
     if (!res.ok) throw new Error(res.error.message)
-    notify({ tone: 'success', message: `已锁定网络 ${candidate.plmn}` })
+    notify({ tone: 'success', message: `选网请求已提交：${candidate.plmn}，等待驻网` })
     emit('updated')
     await loadCurrent()
   } catch (e: any) {

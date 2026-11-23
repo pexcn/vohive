@@ -255,7 +255,7 @@ func ensureQMIRegistration(ctx context.Context, deviceID string, cfg config.Devi
 			return err
 		}
 	}
-	return fmt.Errorf("QMI 驻网/PS attach 超时: attempts=%d", opts.MaxAttempts)
+	return fmt.Errorf("QMI 驻网/PS attach 超时: attempts=%d: %w", opts.MaxAttempts, context.DeadlineExceeded)
 }
 
 func initiateQMIRegistration(ctx context.Context, deviceID string, cfg config.DeviceConfig, ctrl qmiRegistrationController) error {
@@ -461,10 +461,7 @@ func (w *Worker) StartQMIRegistrationReconcile(ctx context.Context, reason strin
 		return false
 	}
 	return w.startQMIRegistrationReconcile(ctx, reason, func(runCtx context.Context) error {
-		if err := w.ensureQMIRegistration(runCtx, false); err != nil && !errors.Is(err, errQMIRegistrationSkipped) {
-			return err
-		}
-		return nil
+		return w.ensureQMIRegistration(runCtx, false)
 	})
 }
 
@@ -496,38 +493,71 @@ func (w *Worker) startQMIRegistrationReconcile(ctx context.Context, reason strin
 	w.qmiRegistrationMu.Unlock()
 
 	go func() {
-		start := time.Now()
-		runCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
-		if w.stop != nil {
-			done := make(chan struct{})
-			go func() {
-				select {
-				case <-w.stop:
-					cancel()
-				case <-done:
-				}
-			}()
-			defer close(done)
-		}
 		defer func() {
 			w.qmiRegistrationMu.Lock()
 			w.qmiRegistrationInFlight = false
+			w.qmiRegistrationWaiting = false
 			w.qmiRegistrationMu.Unlock()
 		}()
 
+		// Keep the backoff wait under the existing radio-policy cancellation
+		// owner too, so a takeover cannot leave a dormant retry behind.
+		runCtx, _, finish, err := w.beginCellularRegistration(ctx)
+		if err != nil {
+			return
+		}
+		defer finish()
+		w.reconcileQMIRegistration(runCtx, reason, run, sleepQMIRegistrationPoll)
+	}()
+	return true
+}
+
+func qmiRegistrationRetryDelay(attempt int) time.Duration {
+	delay := 30 * time.Second
+	for i := 1; i < attempt && delay < 5*time.Minute; i++ {
+		delay *= 2
+	}
+	return min(delay, 5*time.Minute)
+}
+
+func (w *Worker) reconcileQMIRegistration(ctx context.Context, reason string, run func(context.Context) error, wait func(context.Context, time.Duration) error) {
+	for attempt := 1; ; attempt++ {
+		if ctx.Err() != nil || w.cellularRegistrationBlocked() {
+			return
+		}
+		start := time.Now()
 		logger.Debug("QMI 后台驻网协调开始", "device", w.ID, "reason", reason)
-		if err := run(runCtx); err != nil {
+		if err := run(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			if errors.Is(err, context.Canceled) || errors.Is(err, errQMIRegistrationSkipped) {
 				logger.Debug("后台驻网协调已取消或由射频策略跳过", "device", w.ID, "reason", reason)
 				return
 			}
-			logger.Warn("QMI 后台驻网协调失败", "device", w.ID, "reason", reason, "elapsed_ms", time.Since(start).Milliseconds(), "err", err)
-			return
+			if !errors.Is(err, context.DeadlineExceeded) {
+				logger.Warn("QMI 后台驻网协调失败", "device", w.ID, "reason", reason, "elapsed_ms", time.Since(start).Milliseconds(), "err", err)
+				return
+			}
+			delay := qmiRegistrationRetryDelay(attempt)
+			logger.Warn("QMI 后台驻网超时，等待退避重试", "device", w.ID,
+				"event", "QMI_REGISTRATION_RETRY_DELAY", "reason", reason,
+				"attempt", attempt, "delay", delay.String(), "err", err)
+			w.qmiRegistrationMu.Lock()
+			w.qmiRegistrationWaiting = true
+			w.qmiRegistrationMu.Unlock()
+			waitErr := wait(ctx, delay)
+			w.qmiRegistrationMu.Lock()
+			w.qmiRegistrationWaiting = false
+			w.qmiRegistrationMu.Unlock()
+			if waitErr != nil {
+				return
+			}
+			continue
 		}
 		logger.Debug("QMI 后台驻网协调完成", "device", w.ID, "reason", reason, "elapsed_ms", time.Since(start).Milliseconds())
-	}()
-	return true
+		return
+	}
 }
 
 func qmiRegistrationPreferenceError(err error, requiredForData bool) error {

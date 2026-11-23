@@ -133,6 +133,7 @@ type Worker struct {
 
 	qmiRegistrationMu       sync.Mutex
 	qmiRegistrationInFlight bool
+	qmiRegistrationWaiting  bool
 	registrationMu          sync.Mutex
 	radioMu                 sync.Mutex // serializes RF commands, never policy updates/cancellation
 	registrationNextID      uint64

@@ -25,7 +25,7 @@ func (p *Pool) suppressQMIUnhealthyEviction(worker *Worker) (bool, string) {
 		return true, fmt.Sprintf("recovery_window(%s)", remain.Round(time.Second))
 	}
 	worker.qmiRegistrationMu.Lock()
-	registrationInFlight := worker.qmiRegistrationInFlight
+	registrationInFlight := worker.qmiRegistrationInFlight && !worker.qmiRegistrationWaiting
 	worker.qmiRegistrationMu.Unlock()
 	if registrationInFlight {
 		return true, "registration_reconcile_in_flight"
