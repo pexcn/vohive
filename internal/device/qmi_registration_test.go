@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/iniwex5/qmi-go/pkg/qmi"
 	qmimanager "github.com/iniwex5/qmi-go/pkg/manager"
+	"github.com/iniwex5/qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/internal/backend"
 	"github.com/iniwex5/vohive/internal/config"
 )
@@ -254,8 +254,9 @@ func TestEnsureQMIRegistrationUsesManualOperatorSelectionRAT(t *testing.T) {
 		allowManualRegister: true,
 		simStatuses:         []qmi.SIMStatus{qmi.SIMReady},
 		servingSeq: []*backend.ServingSystem{
+			{RegStatus: 5, PSAttached: true, MCC: 310, MNC: 410},
 			{RegStatus: 2, RegStatusText: "搜索中"},
-			{RegStatus: 5, RegStatusText: "已注册(漫游)", PSAttached: true},
+			{RegStatus: 5, RegStatusText: "已注册(漫游)", PSAttached: true, MCC: 310, MNC: 260},
 		},
 	}
 	cfg := config.DeviceConfig{
@@ -273,6 +274,9 @@ func TestEnsureQMIRegistrationUsesManualOperatorSelectionRAT(t *testing.T) {
 	}
 	if len(ctrl.registerReqs) != 1 {
 		t.Fatalf("register requests=%d want 1", len(ctrl.registerReqs))
+	}
+	if len(ctrl.servingCallTimes) != 3 {
+		t.Fatalf("read %d serving states, want to wait for the selected PLMN", len(ctrl.servingCallTimes))
 	}
 	req := ctrl.registerReqs[0]
 	if req.Mode != "manual" || req.MCC != 310 || req.MNC != 260 || !req.IncludesPCSDigit || req.RadioAccessTech != 0x08 {

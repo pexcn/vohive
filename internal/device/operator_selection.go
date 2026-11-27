@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/iniwex5/qmi-go/pkg/qmi"
 	"github.com/iniwex5/vohive/internal/backend"
+	"github.com/iniwex5/vohive/internal/config"
 )
 
 var (
@@ -292,4 +294,19 @@ func (w *Worker) SetOperatorSelection(ctx context.Context, req backend.SetOperat
 	}
 
 	return res, nil
+}
+
+// registeredOnRequestedPLMN distinguishes an old attachment from acceptance
+// of a newly selected manual network. QMI and MBIM report numeric MCC/MNC.
+func registeredOnRequestedPLMN(cfg config.DeviceConfig, ss *backend.ServingSystem) bool {
+	if cfg.OperatorSelectionMode != string(backend.OperatorSelectionManual) {
+		return true
+	}
+	sel, err := backend.NormalizePLMNSelection(cfg.OperatorSelectionPLMN)
+	if err != nil {
+		return true // Invalid preferences still follow the existing controller fallback.
+	}
+	mcc, _ := strconv.Atoi(sel.MCC)
+	mnc, _ := strconv.Atoi(sel.MNC)
+	return int(ss.MCC) == mcc && int(ss.MNC) == mnc
 }

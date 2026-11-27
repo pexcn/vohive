@@ -90,7 +90,8 @@ func TestEnsureMBIMRegistrationSubmitsManualSelectionWhenSearching(t *testing.T)
 	ctrl := &mbimRegistrationTestController{
 		servingSeq: []*backend.ServingSystem{
 			{RegStatus: 2, RegStatusText: "searching"},
-			{RegStatus: 5, RegStatusText: "registered-roaming", PSAttached: true},
+			{RegStatus: 5, PSAttached: true, MCC: 310, MNC: 410},
+			{RegStatus: 5, RegStatusText: "registered-roaming", PSAttached: true, MCC: 310, MNC: 260},
 		},
 	}
 	cfg := config.DeviceConfig{

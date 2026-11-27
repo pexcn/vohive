@@ -103,6 +103,19 @@ func ensureMBIMRegistration(ctx context.Context, deviceID string, cfg config.Dev
 			return err
 		}
 
+		if (ss.RegStatus == 1 || ss.RegStatus == 5) && !registeredOnRequestedPLMN(cfg, ss) {
+			if !registerIssued {
+				if err := initiateMBIMRegistration(ctx, deviceID, cfg, ctrl); err != nil {
+					return err
+				}
+				registerIssued = true
+			}
+			if err := sleepQMIRegistrationPoll(ctx, opts.PollInterval); err != nil {
+				return err
+			}
+			continue
+		}
+
 		switch ss.RegStatus {
 		case 1, 5:
 			if ss.PSAttached {
