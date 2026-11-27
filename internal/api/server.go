@@ -299,6 +299,7 @@ func (s *Server) newRouter() *gin.Engine {
 		api.POST("/devices/:device_id/actions/reboot", s.handleDeviceMgmtReboot)               // 重启设备模组
 		api.POST("/devices/:device_id/actions/at", s.handleDeviceMgmtExecuteAT)                // 执行 AT 命令
 		api.POST("/devices/:device_id/actions/ussd", s.handleDeviceMgmtExecuteUSSD)            // 执行 USSD 指令
+		api.GET("/devices/:device_id/actions/ussd/session", s.handleDeviceMgmtUSSDSessionStatus)
 		api.POST("/devices/:device_id/actions/ussd/continue", s.handleDeviceMgmtContinueUSSD)  // USSD 续轮输入（多轮交互）
 		api.POST("/devices/:device_id/actions/ussd/cancel", s.handleDeviceMgmtCancelUSSD)      // 取消 USSD 会话
 		api.PATCH("/devices/:device_id/usbnet-mode", s.handleDeviceMgmtSetUSBNetMode)          // 设置 USBNET 模式
@@ -1352,20 +1353,22 @@ func (s *Server) handleGetSMSContacts(c *gin.Context) {
 		}{id: w.ID, name: name}
 	}
 
-	// 手机号仍通过 IMSI 从 sim_subscriptions 查询（sim_subscriptions 主键尚为 IMSI）。
-	imsiPhone := make(map[string]string)
-	if phones, err := db.GetSIMPhoneNumbersByIMSI(); err == nil {
-		imsiPhone = phones
-	}
+	phones := make(map[[2]string]string)
 
 	enriched := make([]SMSContactWithDevice, 0, len(contacts))
 	for _, ct := range contacts {
 		info := iccidDevice[ct.ICCID]
+		key := [2]string{ct.IMSI, ct.ICCID}
+		phone, found := phones[key]
+		if !found {
+			phone, _ = db.GetPhoneNumberByIMSIOrICCID(ct.IMSI, ct.ICCID)
+			phones[key] = phone
+		}
 		enriched = append(enriched, SMSContactWithDevice{
 			SMSContact: ct,
 			DeviceID:   info.id,
 			DeviceName: info.name,
-			LocalPhone: imsiPhone[ct.IMSI],
+			LocalPhone: phone,
 		})
 	}
 

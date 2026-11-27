@@ -679,18 +679,6 @@ func effectiveOverviewIMSI(w *device.Worker, status modem.DeviceStatus) string {
 	return strings.TrimSpace(w.GetCachedIMSI())
 }
 
-func overviewLocalPhoneByIMSI(imsi string) string {
-	imsi = strings.TrimSpace(imsi)
-	if imsi == "" {
-		return ""
-	}
-	phone, err := db.GetSIMCardPhoneNumberByIMSI(imsi)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(phone)
-}
-
 func overviewLocalPhone(imsi, iccid string) string {
 	imsi = strings.TrimSpace(imsi)
 	iccid = strings.TrimSpace(iccid)
@@ -2247,6 +2235,32 @@ func (s *Server) handleDeviceMgmtExecuteUSSD(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "result": resp, "channel": "cs"})
 }
 
+func (s *Server) handleDeviceMgmtUSSDSessionStatus(c *gin.Context) {
+	id, sessionID := deviceIDParam(c), strings.TrimSpace(c.Query("session_id"))
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "session_id 不能为空"})
+		return
+	}
+	if s.pool.GetWorker(id) == nil {
+		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "设备未找到"})
+		return
+	}
+	if sessionID == "cs" {
+		c.JSON(http.StatusOK, gin.H{"status": "unknown", "session_id": sessionID, "channel": "cs"})
+		return
+	}
+	result, err := s.pool.VoWiFiUSSDSessionStatus(id, sessionID)
+	if errors.Is(err, messaging.ErrUSSDSessionEnded) {
+		c.JSON(http.StatusOK, gin.H{"status": "ended", "session_id": sessionID, "channel": "vowifi"})
+		return
+	}
+	if err != nil {
+		writeVoWiFiUSSDError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "active", "session_id": sessionID, "channel": "vowifi", "result": result})
+}
+
 type continueUSSDRequest struct {
 	SessionID string `json:"session_id" binding:"required"`
 	Input     string `json:"input" binding:"required"`
@@ -2262,7 +2276,11 @@ func (s *Server) handleDeviceMgmtContinueUSSD(c *gin.Context) {
 		return
 	}
 
-	input := strings.TrimSpace(req.Input)
+	sessionID, input := strings.TrimSpace(req.SessionID), strings.TrimSpace(req.Input)
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "session_id 不能为空"})
+		return
+	}
 	if input == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "input 不能为空"})
 		return
@@ -2276,12 +2294,12 @@ func (s *Server) handleDeviceMgmtContinueUSSD(c *gin.Context) {
 		timeout = 120 * time.Second
 	}
 
-	if !s.pool.IsVoWiFiActive(id) {
-		worker := s.pool.GetWorker(id)
-		if worker == nil {
-			c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "设备未找到"})
-			return
-		}
+	worker := s.pool.GetWorker(id)
+	if worker == nil {
+		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "设备未找到"})
+		return
+	}
+	if sessionID == "cs" {
 		provider, ok := worker.Backend.(backend.USSDContinueProvider)
 		if !ok || provider == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "当前设备后端不支持多轮 USSD"})
@@ -2299,7 +2317,7 @@ func (s *Server) handleDeviceMgmtContinueUSSD(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 	defer cancel()
-	resp, err := s.pool.ContinueVoWiFiUSSD(ctx, id, req.SessionID, input)
+	resp, err := s.pool.ContinueVoWiFiUSSD(ctx, id, sessionID, input)
 	if err != nil {
 		writeVoWiFiUSSDError(c, err)
 		return
@@ -2320,7 +2338,8 @@ func (s *Server) handleDeviceMgmtCancelUSSD(c *gin.Context) {
 		req.SessionID = ""
 	}
 
-	if !s.pool.IsVoWiFiActive(id) {
+	sessionID := strings.TrimSpace(req.SessionID)
+	if sessionID == "cs" || (sessionID == "" && !s.pool.IsVoWiFiActive(id)) {
 		worker := s.pool.GetWorker(id)
 		if worker == nil {
 			c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "设备未找到"})
@@ -2339,7 +2358,7 @@ func (s *Server) handleDeviceMgmtCancelUSSD(c *gin.Context) {
 		return
 	}
 
-	if err := s.pool.CancelVoWiFiUSSD(c.Request.Context(), id, req.SessionID); err != nil {
+	if err := s.pool.CancelVoWiFiUSSD(c.Request.Context(), id, sessionID); err != nil {
 		writeVoWiFiUSSDError(c, err)
 		return
 	}

@@ -117,3 +117,42 @@ func TestGetPhoneNumberPrefersIMSISubscription(t *testing.T) {
 		t.Fatalf("phone=%q, want +447700900127 from IMSI subscription", got)
 	}
 }
+
+func TestPhoneNumbersFollowICCIDAcrossIMSIChange(t *testing.T) {
+	initPhoneNumberTestDB(t)
+	const (
+		first       = "8944000000000000011"
+		second      = "8944000000000000012"
+		imsi        = "234150000000011"
+		roaming     = "310260000000011"
+		imsPhone    = "+447700900131"
+		modemPhone  = "+447700900132"
+		secondPhone = "+447700900133"
+	)
+	check := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := func(imsi, iccid, expected string) {
+		t.Helper()
+		got, err := GetPhoneNumberByIMSIOrICCID(imsi, iccid)
+		if err != nil || got != expected {
+			t.Fatalf("number for %q / %q = %q, %v; want %q", imsi, iccid, got, err, expected)
+		}
+	}
+	check(UpsertSIMCardIdentity(first+"FF", imsi, "", nil))
+	check(RecordVoWiFiPhoneNumber(imsi, first, imsPhone))
+	check(RecordModemPhoneNumber(imsi, first, modemPhone))
+	want("", first, imsPhone)
+	check(UpsertSIMCardIdentity(first, roaming, "", nil))
+	want(roaming, first, imsPhone)
+	check(UpsertSIMCardIdentity(second, imsi, "", nil))
+	want(imsi, second, "")
+	check(RecordVoWiFiPhoneNumber(imsi, first, "+447700900199"))
+	want(imsi, second, "")
+	check(RecordModemPhoneNumber(imsi, second, secondPhone))
+	want(imsi, first, imsPhone)
+	want(imsi, second, secondPhone)
+}

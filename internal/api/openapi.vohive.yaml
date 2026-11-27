@@ -829,6 +829,48 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorMessage'
 
+  /devices/{device_id}/actions/ussd/session:
+    get:
+      tags: [devices]
+      summary: 查询 USSD 会话状态
+      parameters:
+        - $ref: '#/components/parameters/DeviceIDPath'
+        - name: session_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: VoWiFi 会话活跃或已结束，CS 后端返回未知
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, session_id, channel]
+                properties:
+                  status:
+                    type: string
+                    enum: [active, ended, unknown]
+                  session_id:
+                    type: string
+                  channel:
+                    type: string
+                    enum: [vowifi, cs]
+                  result:
+                    type: object
+                    properties:
+                      text:
+                        type: string
+                      status:
+                        type: integer
+                      session_id:
+                        type: string
+        '400':
+          $ref: '#/components/responses/ErrorMessage'
+        '404':
+          $ref: '#/components/responses/ErrorMessage'
+
   /devices/{device_id}/usbnet-mode:
     patch:
       tags: [devices]

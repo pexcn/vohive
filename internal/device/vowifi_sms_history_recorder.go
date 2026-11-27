@@ -43,7 +43,7 @@ func (r vowifiSMSHistoryRecorder) resolveIMSI(devID, fallbackIMSI string) string
 	return strings.TrimSpace(w.GetIMSI())
 }
 
-func (r vowifiSMSHistoryRecorder) resolveICCID(devID string) string {
+func (r vowifiSMSHistoryRecorder) resolveICCID(devID, imsi string) string {
 	if r.pool == nil {
 		return ""
 	}
@@ -51,11 +51,15 @@ func (r vowifiSMSHistoryRecorder) resolveICCID(devID string) string {
 	if w == nil {
 		return ""
 	}
-	return strings.TrimSpace(w.GetCachedDeviceStatus().ICCID)
+	status := w.GetCachedDeviceStatus()
+	if imsi == "" || imsi == strings.TrimSpace(status.IMSI) || imsi == strings.TrimSpace(w.GetCachedIMSI()) {
+		return strings.TrimSpace(status.ICCID)
+	}
+	return db.GetICCIDForIMSI(imsi)
 }
 
-func (r vowifiSMSHistoryRecorder) localPhone(imsi string) string {
-	phone, _ := db.GetSIMCardPhoneNumberByIMSI(strings.TrimSpace(imsi))
+func (r vowifiSMSHistoryRecorder) localPhone(devID, imsi string) string {
+	phone, _ := db.GetPhoneNumberByIMSIOrICCID(imsi, r.resolveICCID(devID, imsi))
 	return strings.TrimSpace(phone)
 }
 
@@ -77,7 +81,7 @@ func (r vowifiSMSHistoryRecorder) RecordReceived(e eventhost.SMSReceived) (vowif
 	if imsi == "" {
 		return vowifiSMSRecordResult{}, nil
 	}
-	localPhone := r.localPhone(imsi)
+	localPhone := r.localPhone(e.DevID, imsi)
 	ts := r.eventTime(e.Time)
 
 	dup, err := db.HasDuplicateReceivedSMS(imsi, localPhone, e.Sender, localPhone, e.Content, ts, vowifiReceivedSMSDuplicateWindow)
@@ -100,7 +104,7 @@ func (r vowifiSMSHistoryRecorder) RecordSent(e eventhost.SMSSent) error {
 	if imsi == "" {
 		return nil
 	}
-	localPhone := r.localPhone(imsi)
+	localPhone := r.localPhone(e.DevID, imsi)
 	return db.SaveSMSWithLocalPhone(imsi, localPhone, localPhone, strings.TrimSpace(e.TargetURI), e.Content, 2, 2, r.eventTime(e.Time))
 }
 
@@ -113,7 +117,7 @@ func (r vowifiSMSHistoryRecorder) RecordSendFailure(devID, target, content strin
 	if imsi == "" {
 		return nil
 	}
-	localPhone := r.localPhone(imsi)
+	localPhone := r.localPhone(devID, imsi)
 	return db.SaveSMSWithLocalPhone(imsi, localPhone, localPhone, strings.TrimSpace(target), content, 2, 3, r.eventTime(at))
 }
 
@@ -123,7 +127,7 @@ func (r vowifiSMSHistoryRecorder) RecordLocalNumberLearned(e eventhost.LocalNumb
 	if number == "" {
 		return nil
 	}
-	iccid := r.resolveICCID(e.DevID)
+	iccid := r.resolveICCID(e.DevID, imsi)
 	if imsi == "" && iccid == "" {
 		return nil
 	}

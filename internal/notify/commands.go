@@ -164,7 +164,7 @@ func (m *Manager) handleCmdStatus(cmdCtx CommandContext, args []string) string {
 		}
 	}
 	localPhone := "--"
-	if phone, err := db.GetSIMCardPhoneNumberByIMSI(status.IMSI); err == nil && strings.TrimSpace(phone) != "" {
+	if phone, err := db.GetPhoneNumberByIMSIOrICCID(status.IMSI, status.ICCID); err == nil && strings.TrimSpace(phone) != "" {
 		localPhone = strings.TrimSpace(phone)
 	}
 
@@ -322,7 +322,7 @@ func (m *Manager) handleCmdList(cmdCtx CommandContext, args []string) string {
 
 		phone := "N/A"
 		opName := status.Operator
-		if phoneByIMSI, err := db.GetSIMCardPhoneNumberByIMSI(status.IMSI); err == nil && strings.TrimSpace(phoneByIMSI) != "" {
+		if phoneByIMSI, err := db.GetPhoneNumberByIMSIOrICCID(status.IMSI, status.ICCID); err == nil && strings.TrimSpace(phoneByIMSI) != "" {
 			phone = strings.TrimSpace(phoneByIMSI)
 		}
 		if status.ICCID != "" {
@@ -651,12 +651,9 @@ func (m *Manager) handleCmdCall(cmdCtx CommandContext, args []string) string {
 		displayName = fmt.Sprintf("%s (%s)", worker.Config.Name, worker.ID)
 	}
 	caller := "未知"
-	if worker.Modem != nil {
-		if imsi := strings.TrimSpace(worker.GetIMSI()); imsi != "" {
-			if phone, err := db.GetSIMCardPhoneNumberByIMSI(imsi); err == nil && strings.TrimSpace(phone) != "" {
-				caller = strings.TrimSpace(phone)
-			}
-		}
+	status := worker.ProjectDeviceStatus()
+	if phone, err := db.GetPhoneNumberByIMSIOrICCID(status.IMSI, status.ICCID); err == nil && phone != "" {
+		caller = phone
 	}
 
 	go func() {

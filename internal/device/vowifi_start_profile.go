@@ -7,9 +7,11 @@ import (
 	"time"
 
 	"github.com/iniwex5/vohive/internal/backend"
+	"github.com/iniwex5/vohive/internal/db"
 	"github.com/iniwex5/vohive/internal/modem"
 	"github.com/iniwex5/vohive/pkg/logger"
 	"github.com/iniwex5/vowifi-go/runtimehost"
+	"github.com/iniwex5/vowifi-go/runtimehost/carrier"
 	"github.com/iniwex5/vowifi-go/runtimehost/identity"
 )
 
@@ -28,6 +30,10 @@ func (p *Pool) buildVoWiFiStartProfile(worker *Worker, traceID string) (identity
 
 	liveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	cardCtx, cancelCard := context.WithTimeout(liveCtx, time.Second)
+	firstICCID, firstCardErr := reader.GetICCIDLive(cardCtx)
+	cancelCard()
+	firstICCID = db.CanonicalICCID(firstICCID)
 	imsi, err := reader.GetIMSILive(liveCtx)
 	if err != nil {
 		return identity.Profile{}, fmt.Errorf("实时读取 IMSI 失败: %w", err)
@@ -41,13 +47,32 @@ func (p *Pool) buildVoWiFiStartProfile(worker *Worker, traceID string) (identity
 	}
 
 	status := worker.ProjectDeviceStatus()
-	mcc, mnc, plmnSource := resolveVoWiFiProfileMCCMNC(liveCtx, worker, status, imsi, traceID)
+	iccid, cardErr := reader.GetICCIDLive(liveCtx)
+	iccid = db.CanonicalICCID(iccid)
+	if cardErr == nil && firstCardErr == nil && iccid != "" && firstICCID != "" && firstICCID != iccid {
+		return identity.Profile{}, fmt.Errorf("VoWiFi 启动期间 SIM 身份发生变化")
+	}
+	if cardErr != nil || iccid == "" {
+		iccid = ""
+		if cached := db.CanonicalICCID(status.ICCID); strings.TrimSpace(status.IMSI) == imsi && (firstICCID == "" || firstICCID == cached) {
+			iccid = cached
+		}
+	}
+	status.ICCID = iccid
+	mcc, mnc, plmnSource, homeIMSI := resolveVoWiFiProfileMCCMNC(liveCtx, worker, status, imsi, traceID)
+	cardVerified := cardErr == nil && firstCardErr == nil && iccid != "" && firstICCID == iccid
+	if plmnSource == "sim_home" && cardVerified {
+		if err := db.RecordSIMHomeIdentity(iccid, imsi, mcc, mnc); err != nil {
+			logger.Debug("保存 SIM 归属身份失败", "trace_id", traceID, "err", err)
+		} else if home, err := db.GetSIMHomeIdentity(iccid); err == nil {
+			homeIMSI = home.IMSI
+		}
+	}
 	if mcc == "" || mnc == "" {
 		return identity.Profile{}, fmt.Errorf("缺少 SIM 归属 MCC/MNC，无法构建 VoWiFi 启动画像: %s", imsi)
 	}
 
 	imei := strings.TrimSpace(status.IMEI)
-	iccid := strings.TrimSpace(status.ICCID)
 
 	smscCtx, smscCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	smsc, smscErr := worker.getSMSCWithContext(smscCtx)
@@ -75,7 +100,59 @@ func (p *Pool) buildVoWiFiStartProfile(worker *Worker, traceID string) (identity
 		"mnc", mnc,
 		"imei", imei)
 
-	return buildVoWiFiRawProfile(imsi, mcc, mnc, imei, smsc), nil
+	profile := buildVoWiFiRawProfile(imsi, mcc, mnc, imei, smsc)
+	profile.ICCID = iccid
+	profile.HomeIMSI = homeIMSI
+	withSPN, withGID := carrier.SIMOverrideInputs(mcc, mnc)
+	if withSPN || withGID {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if withSPN {
+			profile.SPN, _ = worker.Backend.GetNativeSPN(ctx)
+		}
+		if withGID {
+			if metadata, _ := worker.Backend.GetSIMMetadata(ctx); metadata != nil {
+				profile.GID1, profile.GID2 = metadata.GID1, metadata.GID2
+			}
+		}
+		current, err := reader.GetICCIDLive(ctx)
+		if iccid != "" && err == nil && db.CanonicalICCID(current) != iccid {
+			return identity.Profile{}, fmt.Errorf("读取 VoWiFi 运营商配置期间 SIM 身份发生变化")
+		}
+		if iccid == "" || err != nil {
+			profile.SPN, profile.GID1, profile.GID2 = "", "", ""
+		}
+	}
+	if cardVerified {
+		refreshPreferredVoWiFiHomeIdentity(liveCtx, worker, reader, &profile)
+	}
+	return profile, nil
+}
+
+func refreshPreferredVoWiFiHomeIdentity(ctx context.Context, worker *Worker, reader liveSIMIdentityReader, profile *identity.Profile) {
+	cfg, err := carrier.ResolveCarrierConfigForSIM(carrier.EffectiveCarrierConfigInput{
+		MCC: profile.MCC, MNC: profile.MNC, IMSI: profile.IMSI, ICCID: profile.ICCID,
+		SPN: profile.SPN, GID1: profile.GID1, GID2: profile.GID2,
+	})
+	plmn := cfg.VoWiFiHomePLMN
+	if err != nil || !strings.EqualFold(strings.TrimSpace(cfg.VoWiFiIMSI), "capture") || plmn == "" ||
+		strings.HasPrefix(profile.HomeIMSI, plmn) || !strings.HasPrefix(profile.IMSI, plmn) {
+		return
+	}
+	mcc, mnc, err := worker.Backend.GetNativeMCCMNC(ctx)
+	if err != nil || strings.TrimSpace(mcc)+strings.TrimSpace(mnc) != plmn {
+		return
+	}
+	if iccid, err := reader.GetICCIDLive(ctx); err != nil || db.CanonicalICCID(iccid) != profile.ICCID {
+		return
+	}
+	if err := db.RecordPreferredSIMHomeIdentity(profile.ICCID, profile.IMSI, mcc, mnc); err != nil {
+		logger.Debug("保存运营商所需的 SIM 归属身份失败", "err", err)
+		return
+	}
+	if home, err := db.GetSIMHomeIdentity(profile.ICCID); err == nil {
+		profile.HomeIMSI = home.IMSI
+	}
 }
 
 func buildVoWiFiRawProfile(imsi, mcc, mnc, imei, smsc string) identity.Profile {
@@ -88,15 +165,22 @@ func buildVoWiFiRawProfile(imsi, mcc, mnc, imei, smsc string) identity.Profile {
 	}
 }
 
-func resolveVoWiFiProfileMCCMNC(ctx context.Context, worker *Worker, status modem.DeviceStatus, imsi, traceID string) (mcc, mnc, source string) {
+func resolveVoWiFiProfileMCCMNC(ctx context.Context, worker *Worker, status modem.DeviceStatus, imsi, traceID string) (mcc, mnc, source, homeIMSI string) {
 	imsi = strings.TrimSpace(imsi)
+	home, err := db.GetSIMHomeIdentity(status.ICCID)
+	if err != nil {
+		logger.Debug("读取 SIM 归属身份缓存失败", "trace_id", traceID, "err", err)
+	}
+	if home.MCC != "" && home.MNC != "" {
+		return home.MCC, home.MNC, "sim_home_iccid", home.IMSI
+	}
 	if worker != nil && worker.Backend != nil {
 		if liveMCC, liveMNC, err := worker.Backend.GetNativeMCCMNC(ctx); err == nil {
 			liveMCC = strings.TrimSpace(liveMCC)
 			liveMNC = strings.TrimSpace(liveMNC)
 			if liveMCC != "" && liveMNC != "" {
 				cacheVoWiFiProfileMCCMNC(worker, liveMCC, liveMNC)
-				return liveMCC, liveMNC, "sim_home"
+				return liveMCC, liveMNC, "sim_home", ""
 			}
 		} else {
 			logger.Debug("VoWiFi 启动前读取 SIM 归属 MCC/MNC 失败，将回退已缓存 SIM 归属信息",
@@ -106,10 +190,14 @@ func resolveVoWiFiProfileMCCMNC(ctx context.Context, worker *Worker, status mode
 
 	statusIMSI := strings.TrimSpace(status.IMSI)
 	if statusIMSI == imsi && strings.TrimSpace(status.NativeMCC) != "" && strings.TrimSpace(status.NativeMNC) != "" {
-		return strings.TrimSpace(status.NativeMCC), strings.TrimSpace(status.NativeMNC), "sim_home_cache"
+		return strings.TrimSpace(status.NativeMCC), strings.TrimSpace(status.NativeMNC), "sim_home_cache", ""
 	}
 
-	return vowifiProfileMCCMNC(status)
+	if statusIMSI != "" && statusIMSI != imsi {
+		return "", "", "", ""
+	}
+	mcc, mnc, source = vowifiProfileMCCMNC(status)
+	return mcc, mnc, source, ""
 }
 
 func cacheVoWiFiProfileMCCMNC(worker *Worker, mcc, mnc string) {

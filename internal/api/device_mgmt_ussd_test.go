@@ -457,3 +457,32 @@ devices:
 		t.Fatalf("body=%s want reconnect failure", rec.Body.String())
 	}
 }
+
+func TestVoWiFiUSSDSessionDoesNotFallBackToCS(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	p := device.NewPool(&config.Config{})
+	be := &ussdProviderBackendStub{}
+	setNestedPrivateField(t, p, []string{"workers"}, map[string]*device.Worker{
+		"dev": {ID: "dev", Backend: be},
+	})
+	server := &Server{pool: p}
+	for _, tc := range []struct{ session, status string }{{"old-ims-session", "ended"}, {"cs", "unknown"}} {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Params = gin.Params{{Key: "device_id", Value: "dev"}}
+		c.Request = httptest.NewRequest(http.MethodGet, "/devices/dev/actions/ussd/session?session_id="+tc.session, nil)
+		server.handleDeviceMgmtUSSDSessionStatus(c)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"status":"`+tc.status+`"`) {
+			t.Fatalf("session %s: %d %s", tc.session, rec.Code, rec.Body.String())
+		}
+	}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Params = gin.Params{{Key: "device_id", Value: "dev"}}
+	c.Request = httptest.NewRequest(http.MethodPost, "/devices/dev/actions/ussd/continue", strings.NewReader(`{"session_id":"old-ims-session","input":"1"}`))
+	c.Request.Header.Set("Content-Type", "application/json")
+	server.handleDeviceMgmtContinueUSSD(c)
+	if !strings.Contains(rec.Body.String(), "USSD_SESSION_ENDED") || be.continueInput != "" {
+		t.Fatalf("old IMS session reached CS, input %q, response %s", be.continueInput, rec.Body.String())
+	}
+}

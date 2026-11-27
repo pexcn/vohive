@@ -65,16 +65,27 @@ func (p *Pool) SendVoWiFiUSSD(ctx context.Context, deviceID, command string) (*m
 	return nil, fmt.Errorf("设备 %s 的 VoWiFi 未启动", deviceID)
 }
 
+func (p *Pool) VoWiFiUSSDSessionStatus(deviceID, sessionID string) (*messaging.USSDResult, error) {
+	if inst := p.voWiFiHost().Instance(deviceID); inst != nil {
+		if reader, ok := inst.Service().(interface {
+			USSDSessionStatus(string) (*messaging.USSDResult, error)
+		}); ok {
+			return reader.USSDSessionStatus(sessionID)
+		}
+	}
+	return nil, messaging.ErrUSSDSessionEnded
+}
+
 // ContinueVoWiFiUSSD 在已有 VoWiFi USSD 会话中发送后续输入。
 func (p *Pool) ContinueVoWiFiUSSD(ctx context.Context, deviceID, sessionID, input string) (*messaging.USSDResult, error) {
 	if inst := p.voWiFiHost().Instance(deviceID); inst != nil {
 		svc := inst.Service()
 		if svc == nil {
-			return nil, fmt.Errorf("设备 %s 的 VoWiFi IMS 服务未就绪", deviceID)
+			return nil, messaging.ErrUSSDSessionEnded
 		}
 		return svc.ContinueUSSD(ctx, sessionID, input)
 	}
-	return nil, fmt.Errorf("设备 %s 的 VoWiFi 未启动", deviceID)
+	return nil, messaging.ErrUSSDSessionEnded
 }
 
 // CancelVoWiFiUSSD 取消 VoWiFi USSD 会话。
@@ -82,11 +93,11 @@ func (p *Pool) CancelVoWiFiUSSD(ctx context.Context, deviceID, sessionID string)
 	if inst := p.voWiFiHost().Instance(deviceID); inst != nil {
 		svc := inst.Service()
 		if svc == nil {
-			return fmt.Errorf("设备 %s 的 VoWiFi IMS 服务未就绪", deviceID)
+			return nil
 		}
 		return svc.CancelUSSD(ctx, sessionID)
 	}
-	return fmt.Errorf("设备 %s 的 VoWiFi 未启动", deviceID)
+	return nil
 }
 
 func (p *Pool) GetVoWiFiStatus() (enabled bool, deviceID string, status string) {
