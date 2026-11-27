@@ -886,17 +886,19 @@ func GetPhoneNumberByIMSIOrICCID(imsi, iccid string) (string, error) {
 	if DB == nil || iccid == "" {
 		return GetSIMCardPhoneNumberByIMSI(imsi)
 	}
-	var sub SIMSubscription
+	var subscriptions []SIMSubscription
 	err := DB.Where("COALESCE(phone_number, '') <> ''").
 		Where("("+subscriptionICCID+" = ? OR ("+subscriptionICCID+" = '' AND imsi = ?))", iccid, imsi).
 		Order(clause.OrderBy{Expression: clause.Expr{SQL: "CASE WHEN imsi = ? THEN 0 ELSE 1 END, updated_at DESC, imsi", Vars: []any{imsi}, WithoutParentheses: true}}).
-		Take(&sub).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		Find(&subscriptions).Error
+	if err != nil {
 		return "", err
 	}
-	if phone := normalizeSIMPhoneNumber(sub.PhoneNumber); phone != "" &&
-		!phoneDigitsEqualIMSI(phone, imsi) && !phoneDigitsEqualIMSI(phone, sub.IMSI) {
-		return phone, nil
+	for _, sub := range subscriptions {
+		if phone := normalizeSIMPhoneNumber(sub.PhoneNumber); phone != "" &&
+			!phoneDigitsEqualIMSI(phone, imsi) && !phoneDigitsEqualIMSI(phone, sub.IMSI) {
+			return phone, nil
+		}
 	}
 	var pending PendingPhoneNumber
 	err = DB.Where(pendingICCID+" = ? AND COALESCE(phone_number, '') <> ''", iccid).

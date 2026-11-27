@@ -156,3 +156,21 @@ func TestPhoneNumbersFollowICCIDAcrossIMSIChange(t *testing.T) {
 	want(imsi, first, imsPhone)
 	want(imsi, second, secondPhone)
 }
+
+func TestSameICCIDLookupSkipsLegacyIMSISubstitutedForNumber(t *testing.T) {
+	initPhoneNumberTestDB(t)
+	const iccid, live, prior = "8944000000000000021", "310260000000021", "234150000000021"
+	if err := RecordVoWiFiPhoneNumber(prior, iccid, "+447700900141"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertSIMCardIdentity(iccid, live, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := DB.Model(&SIMSubscription{}).Where("imsi = ?", live).UpdateColumn("phone_number", "+"+live).Error; err != nil {
+		t.Fatal(err)
+	}
+	phone, err := GetPhoneNumberByIMSIOrICCID(live, iccid)
+	if err != nil || phone != "+447700900141" {
+		t.Fatalf("phone = %q, %v", phone, err)
+	}
+}
