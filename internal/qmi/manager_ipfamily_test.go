@@ -37,3 +37,11 @@ func TestBuildQMIManagerConfigLeavesDataActivationToHost(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildQMIManagerConfigUsesNativeDataPlane(t *testing.T) {
+	out := buildQMIManagerConfig(config.DeviceConfig{}, qmimanager.ModemDevice{})
+	want := qmimanager.DataPlaneSpec{Mode: qmimanager.DataPlaneModeNative}
+	if out.DataPlane != want {
+		t.Fatalf("DataPlane = %+v, want %+v", out.DataPlane, want)
+	}
+}
