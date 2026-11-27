@@ -1,11 +1,13 @@
 package sim
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/iniwex5/vohive/internal/backend"
 	swusim "github.com/iniwex5/vowifi-go/engine/sim"
 )
 
@@ -216,4 +218,51 @@ func bytes16(start byte) []byte {
 		out[i] = start + byte(i)
 	}
 	return out
+}
+
+type nativeAKAModemFake struct {
+	akaProviderModemFake
+	isim      bool
+	challenge []byte
+	response  []byte
+	err       error
+}
+
+func (f *nativeAKAModemFake) AuthenticateSIM(isim bool, challenge []byte) ([]byte, error) {
+	f.isim = isim
+	f.challenge = append([]byte(nil), challenge...)
+	return f.response, f.err
+}
+
+func TestNativeAKAOnlyFallsBackWhenChallengeWasNotSent(t *testing.T) {
+	rand16, autn16 := make([]byte, 16), make([]byte, 16)
+	rand16[0], autn16[0] = 0xab, 0xcd
+	t.Run("ISIM AUTS", func(t *testing.T) {
+		response := append([]byte{0xdc, 14}, make([]byte, 14)...)
+		m := &nativeAKAModemFake{response: append(response, 0x90, 0)}
+		result, err := NewATAKAProvider(m).CalculateAKAWithPreference(rand16, autn16, AKAAppPreferenceISIM)
+		if err != nil || len(result.AUTS) != 14 || !m.isim || len(m.logicalAIDs) != 0 {
+			t.Fatalf("native result AUTS length %d; ISIM %v; channel opens %d; err %v", len(result.AUTS), m.isim, len(m.logicalAIDs), err)
+		}
+		want := append(append([]byte{16}, rand16...), append([]byte{16}, autn16...)...)
+		if !reflect.DeepEqual(m.challenge, want) {
+			t.Fatal("incorrect QMI challenge framing")
+		}
+	})
+	t.Run("USIM unsupported goes to APDU", func(t *testing.T) {
+		m := &nativeAKAModemFake{err: backend.ErrNativeAKAUnavailable}
+		m.resolvedAID = usimAIDPrefix + "01"
+		m.logicalResponses = []string{"DC0E00000000000000000000000000009000"}
+		result, err := NewATAKAProvider(m).CalculateAKA(rand16, autn16)
+		if err != nil || len(result.AUTS) != 14 || m.isim || len(m.logicalCalls) != 1 {
+			t.Fatalf("fallback result AUTS length %d; ISIM %v; APDUs %d; err %v", len(result.AUTS), m.isim, len(m.logicalCalls), err)
+		}
+	})
+	t.Run("timeout stops ISIM and USIM paths", func(t *testing.T) {
+		m := &nativeAKAModemFake{err: context.DeadlineExceeded}
+		_, err := NewATAKAProvider(m).CalculateAKAWithPreference(rand16, autn16, AKAAppPreferenceAuto)
+		if !errors.Is(err, context.DeadlineExceeded) || !m.isim || len(m.logicalAIDs) != 0 {
+			t.Fatalf("native timeout fell back, ISIM %v; channel opens %d; err %v", m.isim, len(m.logicalAIDs), err)
+		}
+	})
 }

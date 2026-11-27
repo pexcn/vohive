@@ -2113,8 +2113,14 @@ func (w *Worker) connectNetwork(ctx context.Context) error {
 	release()
 	if err != nil {
 		w.scheduleNetworkReconnect()
+		return err
 	}
-	return err
+	if w.QMICore != nil {
+		if err := w.QMICore.WaitDefaultDataPlaneReady(ctx); err != nil {
+			return fmt.Errorf("QMI 数据面尚未就绪: %w", err)
+		}
+	}
+	return nil
 }
 
 func (w *Worker) StopNetwork() error {

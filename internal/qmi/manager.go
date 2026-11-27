@@ -722,6 +722,8 @@ type Manager struct {
 	apduLeaseMu         sync.Mutex
 	apduArbiter         *apduarbiter.Arbiter
 	apduSessions        map[byte]apduSessionInfo
+	nativeAKAMu         sync.Mutex
+	nativeAKA           nativeAKAState
 	onConnect           func()
 	smsHandlersMu       sync.Mutex
 	onNewSMSStored      []func(storage uint8, index uint32)
@@ -1017,7 +1019,7 @@ func (m *Manager) handleQMIEvent(event qmimanager.Event) {
 	}
 }
 
-func (m *Manager) lookupPublicIPHost(ctx context.Context, host string) ([]string, error) {
+func (m *Manager) lookupPublicIPHost(ctx context.Context, iface, host string, family netprobe.Family) ([]string, error) {
 	if ip := net.ParseIP(strings.TrimSpace(host)); ip != nil {
 		return []string{ip.String()}, nil
 	}
@@ -1033,22 +1035,37 @@ func (m *Manager) lookupPublicIPHost(ctx context.Context, host string) ([]string
 		enableV4, enableV6 = true, false
 	}
 	dnsServers := m.publicIPDNSServers()
-	dialer := m.boundDialer(publicIPDialTimeout)
+	dialer := boundPublicIPDialer(iface, publicIPDialTimeout)
+	type dnsResult struct {
+		ips []string
+		err error
+	}
+	results := make(chan dnsResult, 2)
+	count := 0
+	if enableV4 && family != netprobe.FamilyV6 {
+		count++
+		go func() {
+			ips, err := resolveIPv4WithTCPDNS(lookupCtx, host, dnsServers, dialer)
+			results <- dnsResult{ips, err}
+		}()
+	}
+	if enableV6 && family != netprobe.FamilyV4 {
+		count++
+		go func() {
+			ips, err := resolveAAAAWithTCPDNS(lookupCtx, host, dnsServers, dialer)
+			results <- dnsResult{ips, err}
+		}()
+	}
 	var ips []string
 	var errs []error
-	if enableV6 {
-		v6, err := resolveAAAAWithTCPDNS(lookupCtx, host, dnsServers, dialer)
-		if err != nil {
-			errs = append(errs, err)
+	for range count {
+		select {
+		case result := <-results:
+			ips = append(ips, result.ips...)
+			errs = append(errs, result.err)
+		case <-lookupCtx.Done():
+			errs = append(errs, lookupCtx.Err())
 		}
-		ips = append(ips, v6...)
-	}
-	if enableV4 {
-		v4, err := resolveIPv4WithTCPDNS(lookupCtx, host, dnsServers, dialer)
-		if err != nil {
-			errs = append(errs, err)
-		}
-		ips = append(ips, v4...)
 	}
 	if len(ips) > 0 {
 		return dedupeStrings(ips), nil
@@ -1067,21 +1084,23 @@ func (m *Manager) publicIPDNSServers() []string {
 		if settings := m.qmiMgr.Settings(); settings != nil {
 			servers = appendDNSServer(servers, settings.IPv4DNS1)
 			servers = appendDNSServer(servers, settings.IPv4DNS2)
+			servers = appendDNSServer(servers, settings.IPv6DNS1)
+			servers = appendDNSServer(servers, settings.IPv6DNS2)
 		}
 	}
 	servers = append(servers, fallbackPublicIPDNSServers...)
 	return dedupeStrings(servers)
 }
 
-func (m *Manager) boundDialer(timeout time.Duration) *net.Dialer {
+func boundPublicIPDialer(iface string, timeout time.Duration) *net.Dialer {
 	dialer := &net.Dialer{Timeout: timeout}
-	if strings.TrimSpace(m.cfg.Interface) == "" {
+	if strings.TrimSpace(iface) == "" {
 		return dialer
 	}
 	dialer.Control = func(network, address string, c syscall.RawConn) error {
 		var sockErr error
 		if err := c.Control(func(fd uintptr) {
-			sockErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, m.cfg.Interface)
+			sockErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, syscall.SO_BINDTODEVICE, iface)
 		}); err != nil {
 			return err
 		}
@@ -2321,7 +2340,7 @@ func (m *Manager) WaitIdentityReady(ctx context.Context) error {
 // GetPublicIPNoCache 并发极速探测公网 IP (外网 IP)，不区分地址族，谁先连上用谁。
 // 双栈场景下该结果的地址族不确定，需要同时拿到 v4/v6 时请使用 GetPublicIPv4AndV6NoCache。
 func (m *Manager) GetPublicIPNoCache() string {
-	return m.publicIPProber().Probe(context.Background(), netprobe.FamilyAny)
+	return m.probePublicIP(netprobe.FamilyAny)
 }
 
 // GetPublicIPv4AndV6NoCache 按 DeviceConfig.IPVersion 对 v4/v6 分别独立探测，
@@ -2339,12 +2358,11 @@ func (m *Manager) GetPublicIPv4AndV6NoCache() (publicV4 string, publicV6 string)
 	}
 
 	var wg sync.WaitGroup
-	prober := m.publicIPProber()
 	if enableV4 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if ip := prober.Probe(context.Background(), netprobe.FamilyV4); ip != "" {
+			if ip := m.probePublicIP(netprobe.FamilyV4); ip != "" {
 				publicV4 = ip
 			}
 		}()
@@ -2353,7 +2371,7 @@ func (m *Manager) GetPublicIPv4AndV6NoCache() (publicV4 string, publicV6 string)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if ip := prober.Probe(context.Background(), netprobe.FamilyV6); ip != "" {
+			if ip := m.probePublicIP(netprobe.FamilyV6); ip != "" {
 				publicV6 = ip
 			}
 		}()
@@ -2368,15 +2386,6 @@ func (m *Manager) ipv6BearerUp() bool {
 		return m.hasIPv6Bearer()
 	}
 	return strings.TrimSpace(m.GetPrivateIPv6()) != ""
-}
-
-func (m *Manager) publicIPProber() *netprobe.Prober {
-	return netprobe.New(netprobe.Config{
-		Interface: m.cfg.Interface,
-		URLs:      ipCheckURLs,
-		Timeout:   publicIPRequestTimeout,
-		Lookup:    m.lookupPublicIPHost,
-	})
 }
 
 // GetPrivateIPv6 获取私有 IPv6 地址（v6/双栈模式下非空）

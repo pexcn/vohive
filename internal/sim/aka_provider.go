@@ -2,11 +2,13 @@ package sim
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/iniwex5/vohive/internal/backend"
 	"github.com/iniwex5/vohive/pkg/logger"
 	swusim "github.com/iniwex5/vowifi-go/engine/sim"
 )
@@ -117,18 +119,19 @@ func (d *ATAKAProvider) CalculateAKAWithPreference(rand16, autn16 []byte, prefer
 		return res, nil
 	}
 
-	if res, err := d.calculateAKAOnISIMLogicalChannel(rand16, autn16); err == nil {
+	if res, err := d.calculateAKAOnISIM(rand16, autn16); err == nil {
 		logger.Debug("AKA 使用的 SIM 应用", d.withDevice("app", "ISIM")...)
 		d.recordAKAProfile("ISIM", pref, false)
 		logger.Debug("AKA 路径画像", d.withDevice("selected_app", "ISIM", "preference", pref, "fallback", false)...)
-		logger.Debug("AKA 计算成功（ISIM 逻辑通道）",
+		logger.Debug("AKA 计算成功（ISIM）",
 			d.withDevice(
 				"res_len", len(res.RES), "ck_len", len(res.CK), "ik_len", len(res.IK), "auts_len", len(res.AUTS),
 				"res", maskHexBytes(res.RES), "ck", maskHexBytes(res.CK), "ik", maskHexBytes(res.IK), "auts", maskHexBytes(res.AUTS),
 			)...)
 		return res, nil
 	} else {
-		if pref == AKAAppPreferenceISIMStrict {
+		var nativeErr nativeAKAError
+		if pref == AKAAppPreferenceISIMStrict || errors.As(err, &nativeErr) {
 			return AKAResult{}, err
 		}
 		logger.Warn("ISIM 逻辑通道 AKA 失败，回退 USIM 逻辑通道", d.withDevice("err", err)...)
@@ -206,7 +209,49 @@ func (d *ATAKAProvider) openLogicalChannelWithCandidates(label, app, primaryAID,
 	return 0, "", "", err
 }
 
+type nativeAKAError struct{ error }
+
+func (e nativeAKAError) Unwrap() error { return e.error }
+
+func (d *ATAKAProvider) calculateNativeAKA(isim bool, rand16, autn16 []byte) (AKAResult, error) {
+	modem, ok := d.m.(interface {
+		AuthenticateSIM(bool, []byte) ([]byte, error)
+	})
+	if !ok {
+		return AKAResult{}, backend.ErrNativeAKAUnavailable
+	}
+	apdu, err := BuildUSIMAuthAPDU(rand16, autn16, false)
+	if err != nil {
+		return AKAResult{}, nativeAKAError{err}
+	}
+	raw, err := modem.AuthenticateSIM(isim, apdu[5:])
+	if errors.Is(err, backend.ErrNativeAKAUnavailable) {
+		return AKAResult{}, err
+	}
+	if err != nil {
+		return AKAResult{}, nativeAKAError{err}
+	}
+	result, err := ParseUSIMAuthResponse(d.deviceID(), raw)
+	if err != nil {
+		return AKAResult{}, nativeAKAError{err}
+	}
+	return result, nil
+}
+
+func (d *ATAKAProvider) calculateAKAOnISIM(rand16, autn16 []byte) (AKAResult, error) {
+	result, err := d.calculateNativeAKA(true, rand16, autn16)
+	if !errors.Is(err, backend.ErrNativeAKAUnavailable) {
+		return result, err
+	}
+	return d.calculateAKAOnISIMLogicalChannel(rand16, autn16)
+}
+
 func (d *ATAKAProvider) calculateAKAOnUSIM(rand16, autn16 []byte) (AKAResult, error) {
+	result, nativeErr := d.calculateNativeAKA(false, rand16, autn16)
+	if !errors.Is(nativeErr, backend.ErrNativeAKAUnavailable) {
+		return result, nativeErr
+	}
+
 	usimAID, aidSource, err := d.resolveLogicalChannelAID("usim", usimAIDPrefix, usimAIDPrefix)
 	if err != nil {
 		return AKAResult{}, err

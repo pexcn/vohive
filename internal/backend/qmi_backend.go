@@ -83,6 +83,20 @@ type qmiSIMAuthAIDSource interface {
 
 var ErrSIMAuthAIDNotReady = errors.New("sim_auth_aid_not_ready")
 
+// ErrNativeAKAUnavailable means the card has not received the challenge and
+// the caller can retry through the logical channel.
+var ErrNativeAKAUnavailable = errors.New("native UIM Authenticate unavailable")
+
+func (q *QMIBackend) AuthenticateSIM(ctx context.Context, isim bool, challenge []byte) ([]byte, error) {
+	source, ok := q.source.(interface {
+		AuthenticateSIM(context.Context, bool, []byte) ([]byte, error)
+	})
+	if !ok {
+		return nil, ErrNativeAKAUnavailable
+	}
+	return source.AuthenticateSIM(ctx, isim, challenge)
+}
+
 type qmiEFADReader interface {
 	UIMReadTransparentWithSession(ctx context.Context, sessionType uint8, fileID uint16, path []uint8) ([]byte, error)
 }
