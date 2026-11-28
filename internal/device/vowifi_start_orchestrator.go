@@ -134,8 +134,8 @@ func (p *Pool) prepareVoWiFiStartContext(deviceID, traceID, runtimeEPDGOverride 
 	}
 	startCtx.worker = w
 	volte := w.voLTERequested()
-	if volte && w.QMICore == nil {
-		return startCtx, fmt.Errorf("用户态 VoLTE 需要 QMI IMS 专用数据承载")
+	if volte && w.QMICore == nil && w.MBIMCore == nil {
+		return startCtx, fmt.Errorf("用户态 VoLTE 需要 QMI 或 MBIM IMS 专用数据承载")
 	}
 	if !volte {
 		if err := w.stopCellularRegistration(p.Context()); err != nil {
@@ -229,6 +229,16 @@ func (p *Pool) prepareVoWiFiStartContext(deviceID, traceID, runtimeEPDGOverride 
 			"err", errPrepare)
 		logVoWiFiFailureSummary(traceID, deviceID, "startup", "identity", errPrepare.Error(), false, 0)
 		return startCtx, errPrepare
+	}
+	if !volte && startProfile.HomeIMSI != "" && prepared.AuthenticationIMSI == startProfile.HomeIMSI {
+		startCtx.OnIMSReady = func() {
+			if p.GetWorker(deviceID) != w || p.IsESIMSwitching(deviceID) || db.CanonicalICCID(w.CurrentICCID()) != startProfile.ICCID {
+				return
+			}
+			if err := db.VerifySIMHomeIdentity(startProfile.ICCID, startProfile.HomeIMSI, time.Now()); err != nil {
+				logger.Warn("保存归属 IMSI 验证状态失败", "device", deviceID, "err", err)
+			}
+		}
 	}
 	startCtx.Prepared = prepared
 	logger.Info("VoWiFi 启动画像已准备",

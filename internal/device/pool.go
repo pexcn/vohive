@@ -114,6 +114,9 @@ type Worker struct {
 
 	// Serializes switch ownership and identity commits, including persistence.
 	simIdentityWriteMu sync.Mutex
+	homeIMSICapture    atomic.Bool
+	simSlot            atomic.Pointer[SIMSlotState]
+	simSlotRefreshing  atomic.Bool
 
 	cachedIP            string
 	cachedPublicIPv6    string
@@ -521,6 +524,7 @@ func (w *Worker) RefreshRuntime(ctx context.Context, reason string) error {
 		w.state.Meta.Healthy = healthy
 	}
 	w.cacheMu.Unlock()
+	w.refreshSIMSlot(ctx)
 	return nil
 }
 
@@ -706,6 +710,7 @@ func (p *Pool) bindMBIMSlotIndications(worker *Worker) {
 		return
 	}
 	worker.MBIMCore.OnSlotStatus(func(slotIndex, state uint32) {
+		worker.simSlot.Store(nil)
 		logger.Debug("收到 MBIM 卡槽状态指示", "device", worker.ID, "slot", slotIndex, "state", state)
 		p.wakeDesiredVoWiFiRecoverFromDeviceEvent(worker.ID, "mbim_slot_status")
 	})
@@ -982,6 +987,7 @@ func (p *Pool) bindESIMUIMIndications(worker *Worker) {
 	})
 
 	worker.QMICore.OnUIMSlotStatus(func(info *qmi.UIMSlotStatus) {
+		worker.simSlot.Store(nil)
 		slotCount := 0
 		if info != nil {
 			slotCount = len(info.Slots)
@@ -1221,12 +1227,12 @@ func (p *Pool) applyNetworkPreference(worker *Worker) error {
 				return err
 			}
 		}
-		if p.IsVoWiFiActive(worker.ID) {
+		if p.IsWiFiIMSActive(worker.ID) {
 			logger.Info("设备当前处于 VoWiFi 模式，跳过自动连接数据网络", "device", worker.ID)
 			return nil
 		}
 		worker.networkDesired.Store(true)
-		if nc.IsConnected() {
+		if nc.IsConnected() && worker.QMICore == nil && worker.MBIMCore == nil {
 			p.refreshIPs(worker, true)
 			return nil
 		}
@@ -1864,14 +1870,19 @@ func (p *Pool) MarkLifecycleRecovery(deviceID string, phase LifecyclePhase, reas
 
 // SetWorkerNetworkPolicy 在锁内同步 worker 运行时的网络策略字段（供热切换显示同步），
 // 不触发任何应用动作；返回该 worker（不存在返回 nil）。ipVersion 为空时不改。
-func (p *Pool) SetWorkerNetworkPolicy(deviceID string, networkEnabled bool, ipVersion, apn string) *Worker {
+func (p *Pool) SetWorkerNetworkPolicy(deviceID string, networkEnabled bool, ipVersion, apn string, expectedICCID ...string) *Worker {
 	w := p.GetWorker(deviceID)
 	if w == nil {
 		return nil
 	}
 	w.registrationMu.Lock()
 	defer w.registrationMu.Unlock()
-	w.networkPolicyICCID = w.CurrentICCID()
+	iccid := w.CurrentICCID()
+	if len(expectedICCID) != 0 &&
+		(db.CanonicalICCID(expectedICCID[0]) == "" || db.CanonicalICCID(expectedICCID[0]) != db.CanonicalICCID(iccid) || p.IsESIMSwitching(deviceID)) {
+		return nil
+	}
+	w.networkPolicyICCID = iccid
 	w.Config.NetworkEnabled = networkEnabled
 	if networkEnabled {
 		// 开网络与 VoWiFi/飞行互斥（与后端落库互斥保持一致），否则概览仍显示旧模式面板。
@@ -2110,7 +2121,18 @@ func (w *Worker) connectNetwork(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = nc.Connect()
+	w.registrationMu.Lock()
+	apn, ipVersion := w.Config.APN, w.Config.IPVersion
+	w.registrationMu.Unlock()
+	switch {
+	case w.QMICore != nil:
+		err = w.QMICore.ApplyDataConfig(ctx, apn, ipVersion)
+	case w.MBIMCore != nil:
+		err = w.MBIMCore.ApplyDataConfig(ctx, apn, ipVersion)
+	}
+	if err == nil && !nc.IsConnected() {
+		err = nc.Connect()
+	}
 	release()
 	if err != nil {
 		w.scheduleNetworkReconnect()

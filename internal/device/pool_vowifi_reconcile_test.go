@@ -186,6 +186,8 @@ func TestPolicyProjectionDuringESIMSwitchDefersDesiredRecover(t *testing.T) {
 	p := newDesiredVoWiFiTestPool(t, "dev-1", true, "001010000000001")
 	defer p.cancel()
 	w := p.GetWorker("dev-1")
+	// The switch coordinator has already put the radio in low power.
+	w.Backend = &workerStatusBackendStub{mode: backend.BackendQMI, opMode: backend.ModeRFOff}
 	p.switchMu.Lock()
 	p.switchingDevices = map[string]bool{w.ID: true}
 	p.switchMu.Unlock()

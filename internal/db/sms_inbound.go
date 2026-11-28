@@ -176,7 +176,7 @@ func LoadPendingInboundSMS(deviceID, imsi string) ([]SMSInboundSnapshot, error) 
 	return out, nil
 }
 
-func CommitInboundSMS(deviceID, imsi, id, sender, text string, at time.Time, suppress bool) (bool, error) {
+func CommitInboundSMS(deviceID, imsi, id, sender, text string, at time.Time, suppress bool, bearer ...string) (bool, error) {
 	if DB == nil {
 		return false, errors.New("SMS database unavailable")
 	}
@@ -184,6 +184,9 @@ func CommitInboundSMS(deviceID, imsi, id, sender, text string, at time.Time, sup
 	phone, _ := GetSIMCardPhoneNumberByIMSI(imsi)
 	phone = normalizeSMSLocalPhone(imsi, 1, phone, sender, phone)
 	sms := SMS{IMSI: imsi, ICCID: GetICCIDForIMSI(imsi), Peer: normalizeSMSPeer(1, sender, phone), LocalPhone: phone, Sender: sender, Recipient: phone, Content: text, Type: 1, Status: 0, Timestamp: at.Truncate(time.Second)}
+	if len(bearer) != 0 {
+		sms.Bearer = bearer[0]
+	}
 	fresh := false
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var row SMSInboundAssembly

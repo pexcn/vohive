@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/iniwex5/vohive/internal/config"
 	"github.com/iniwex5/vohive/internal/db"
 	"github.com/iniwex5/vowifi-go/runtimehost"
 )
@@ -15,9 +16,9 @@ type enabledPatchRequest struct {
 }
 
 type networkPatchRequest struct {
-	Enabled   *bool  `json:"enabled"`
-	IPVersion string `json:"ip_version"`
-	APN       string `json:"apn"`
+	Enabled   *bool   `json:"enabled"`
+	IPVersion string  `json:"ip_version"`
+	APN       *string `json:"apn"`
 }
 
 func (s *Server) handleDeviceNetworkPatch(c *gin.Context) {
@@ -30,19 +31,29 @@ func (s *Server) handleDeviceNetworkPatch(c *gin.Context) {
 	deviceID := deviceIDParam(c)
 
 	if *req.Enabled {
-		// 落库：network_enabled=true + ip_version + apn（APN/IP 供下次连接生效）
 		ipVersion := strings.TrimSpace(req.IPVersion)
-		apn := strings.TrimSpace(req.APN)
-		iccid, _, _ := s.patchCardPolicyForDevice(deviceID, func(p *db.CardPolicy) {
+		if _, _, err := config.ResolveIPFamily(ipVersion); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": err.Error()})
+			return
+		}
+		var apn string
+		iccid, applied, err := s.patchCardPolicyForDevice(deviceID, func(p *db.CardPolicy) {
 			p.NetworkEnabled = true
 			if ipVersion != "" {
 				p.IPVersion = ipVersion
 			}
-			p.APN = apn
+			if req.APN != nil {
+				p.APN = strings.TrimSpace(*req.APN)
+			}
+			apn, ipVersion = p.APN, p.IPVersion
 		})
-		// 同步 w.Config，使概览读到最新值（QMI APN 在下次连接时生效）
-		if iccid != "" {
-			s.pool.SetWorkerNetworkPolicy(deviceID, true, ipVersion, apn)
+		if err != nil {
+			c.JSON(http.StatusConflict, gin.H{"status": "error", "message": err.Error()})
+			return
+		}
+		if applied && s.pool.SetWorkerNetworkPolicy(deviceID, true, ipVersion, apn, iccid) == nil {
+			c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "当前 SIM 卡已变化，请刷新后重试"})
+			return
 		}
 		s.handleDeviceMgmtStartNetwork(c)
 		return

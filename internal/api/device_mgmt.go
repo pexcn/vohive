@@ -383,6 +383,8 @@ type deviceMgmtOverviewLiteItem struct {
 	BackendMode            string             `json:"backend_mode"`
 	NetworkConnected       bool               `json:"network_connected"`
 	RegistrationStateLabel string             `json:"registration_state_label"`
+
+	SIMSlot *device.SIMSlotState `json:"sim_slot,omitempty"`
 }
 
 type deviceMgmtListModem struct {
@@ -583,6 +585,7 @@ func (s *Server) buildOverviewLiteDetailItemFromWorker(w *device.Worker, cfg con
 func (s *Server) buildOverviewLiteItemFromWorkerWithModem(w *device.Worker, cfg config.DeviceConfig, status modem.DeviceStatus, radioLiveOK *bool, modemStatus modem.DeviceStatus) deviceMgmtOverviewLiteItem {
 	controlOnline := w.GetCachedHealthy()
 	item := deviceMgmtOverviewLiteItem{
+		SIMSlot:                w.SIMSlotState(),
 		ID:                     w.ID,
 		Name:                   cfg.Name,
 		Running:                true,
@@ -1423,35 +1426,6 @@ func (s *Server) handleDeviceMgmtUpdateDevice(c *gin.Context) {
 		"requires_restart": requiresRestart,
 		"warning":          warningMessage,
 	})
-}
-
-func (s *Server) handleDeviceMgmtDeleteDevice(c *gin.Context) {
-	id := deviceIDParam(c)
-
-	existing, err := config.GetDeviceByID(id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "读取设备配置失败: " + err.Error()})
-		return
-	}
-	if existing == nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": "设备未找到: " + id})
-		return
-	}
-
-	if err := s.pool.RemoveWorker(id); err != nil {
-		logger.Warn("删除设备配置前停止运行时设备失败", "device_id", id, "err", err)
-		if !strings.Contains(err.Error(), "设备未找到") {
-			c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "设备正在停止，请稍后重试: " + err.Error()})
-			return
-		}
-	}
-
-	if err := config.DeleteDeviceInFile(s.configPath, id); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": "error", "message": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 type addDeviceRequest struct {
@@ -2545,6 +2519,10 @@ func validateRebootWorkerIdentity(ctx context.Context, worker *device.Worker) er
 // handleDeviceMgmtReconnectVoWiFi 执行重连 VoWiFi 的操作
 func (s *Server) handleDeviceMgmtReconnectVoWiFi(c *gin.Context) {
 	id := deviceIDParam(c)
+	service := "VoWiFi"
+	if strings.Contains(c.FullPath(), "/ims/") {
+		service = "IMS"
+	}
 
 	// 验证设备存在（硬件/传输配置仍在 config.yaml）
 	md, err := config.GetDeviceByID(id)
@@ -2555,17 +2533,17 @@ func (s *Server) handleDeviceMgmtReconnectVoWiFi(c *gin.Context) {
 
 	// VoWiFi 开关已跟卡走、只存在于运行时投影。门禁读 worker 的有效策略；
 	// 无 worker 时跳过友好门禁，交由 RestartVoWiFi 报告底层错误。
-	if worker := s.pool.GetWorker(id); worker != nil && !worker.Config.VoWiFiEnabled {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "设备未开启 VoWiFi，无法重连"})
+	if worker := s.pool.GetWorker(id); worker != nil && !s.pool.IMSDesiredForDevice(id) {
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "设备未开启 " + service + "，无法重连"})
 		return
 	}
 
 	if err := s.pool.RestartVoWiFi(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": "VoWiFi 重连失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"status": "error", "message": service + " 重连失败: " + err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "已触发 VoWiFi 重连"})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "message": "已触发 " + service + " 重连"})
 }
 
 // handleDeviceMgmtOverviewStreamSingle 给前端管理的概览信息提供带有动态刷新的 SSE 推流（仅针对选中的单个设备）

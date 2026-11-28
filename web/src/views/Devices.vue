@@ -940,6 +940,10 @@ async function deleteDevice() {
   try {
     const result = await devicesService.deleteManaged(id)
     if (!result.ok) throw new Error(result.error.message || '删除失败')
+    if (!result.data) {
+      notify({ tone: 'info', message: '设备仍在删除，可在此再次查看进度' })
+      return
+    }
     notify({ tone: 'success', message: '设备已删除' })
     clearLiveRadioFallbackTimer()
     selectedDetail.value = null
@@ -1390,7 +1394,7 @@ usePollingScheduler(async () => {
     :card="cardSettings"
     :is-active-card="editingActiveCard"
     :device-online="selectedDevice?.running === true"
-    :supports-volte="selectedDevice?.backend_mode === 'qmi'"
+    :supports-volte="selectedDevice?.backend_mode === 'qmi' || selectedDevice?.backend_mode === 'mbim'"
     :esim-switching="selectedDevice?.esim_switching === true"
     :conceal-iccid="!showSensitive"
     @close="cardSettings = null"

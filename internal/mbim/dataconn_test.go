@@ -470,3 +470,36 @@ func TestUnexpectedDeactivationDelegatesRecoveryToHost(t *testing.T) {
 		t.Fatal("unexpected automatic data reconnection")
 	}
 }
+
+func TestSecondarySessionDeactivationLeavesDefaultConnectionUp(t *testing.T) {
+	m := New("/dev/cdc-wdm0", "auto")
+	m.connected = true
+	m.desiredConnection = true
+	m.OnDataDisconnected(func() { t.Error("secondary session triggered default data reconnect") })
+	m.handleConnectIndication(mbim.ConnectState{SessionID: imsSessionID, ActivationState: mbim.ActivationStateDeactivated})
+	if !m.IsConnected() {
+		t.Fatal("closing the IMS session marked the default session disconnected")
+	}
+}
+
+func TestApplyDataConfigDisconnectsOnlyForChangedAPNOrFamily(t *testing.T) {
+	m := New("/dev/cdc-wdm0", "auto")
+	m.SetDataConfig(DataConfig{APN: "internet", Interface: "wwan0", IPVersion: "v4"})
+	m.connected = true
+	if err := m.ApplyDataConfig(t.Context(), "internet", "ipv4"); err != nil || !m.IsConnected() {
+		t.Fatalf("equivalent configuration disturbed the data session: %v", err)
+	}
+	// Exercise the normal serialized deactivate path with a fake modem.
+	tr := mbim.NewFakeTransport(mbim.TestAnswerConnectAndIPv4Config)
+	if err := m.openWithTransport(t.Context(), tr); err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	m.netcfg = &fakeNetcfg{}
+	if err := m.ApplyDataConfig(t.Context(), "other", "v4v6"); err != nil {
+		t.Fatal(err)
+	}
+	if m.IsConnected() || m.dataCfg.APN != "other" || m.dataCfg.IPVersion != "v4v6" || m.dataCfg.Interface != "wwan0" {
+		t.Fatalf("stale default data call or settings after reconfiguration: %+v", m.dataCfg)
+	}
+}

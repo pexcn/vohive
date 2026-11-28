@@ -11,6 +11,7 @@ type Caps struct {
 	CellularClass uint32
 	DataClass     uint32
 	SmsCaps       uint32
+	MaxSessions   uint32
 	DeviceID      string
 	FirmwareInfo  string
 	HardwareInfo  string
@@ -43,6 +44,7 @@ func DeviceCaps(ctx context.Context, d *Device) (Caps, error) {
 	c.CellularClass, _ = r.u32At(4)
 	c.DataClass, _ = r.u32At(16)
 	c.SmsCaps, _ = r.u32At(20)
+	c.MaxSessions, _ = r.u32At(28)
 	if c.DeviceID, err = r.stringAt(capsPairDeviceID); err != nil {
 		return Caps{}, fmt.Errorf("mbim: parse DeviceId: %w", err)
 	}

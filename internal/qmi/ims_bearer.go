@@ -17,7 +17,13 @@ import (
 	"github.com/iniwex5/vowifi-go/runtimehost"
 )
 
-const imsMuxID = 2
+const defaultIMSMuxID = 2
+
+type IMSBearerOptions struct {
+	APN, IPStack                          string
+	MuxID, ProfileIndex                   uint8
+	EndpointType, InterfaceID, ClientType uint32
+}
 
 type imsEndpoint struct {
 	*imsbearer.PacketEndpoint
@@ -39,15 +45,22 @@ func (e *imsEndpoint) Close() error {
 
 // OpenIMSBearer creates a secondary QMAP session with no host IP addresses
 // or routes. The default data connection remains on its own mux.
-func (m *Manager) OpenIMSBearer(ctx context.Context, apn, ipStack string) (runtimehost.IMSBearer, error) {
+func (m *Manager) OpenIMSBearer(ctx context.Context, opts IMSBearerOptions) (runtimehost.IMSBearer, error) {
 	if m == nil || m.qmiMgr == nil {
 		return runtimehost.IMSBearer{}, errors.New("QMI manager is unavailable")
 	}
-	if apn = strings.TrimSpace(apn); apn == "" {
-		apn = "ims"
+	opts.APN = strings.TrimSpace(opts.APN)
+	if opts.APN == "" && opts.ProfileIndex == 0 {
+		opts.APN = "ims"
+	}
+	if opts.MuxID == 0 {
+		opts.MuxID = defaultIMSMuxID
+	}
+	if opts.EndpointType == 0 {
+		opts.EndpointType = 2
 	}
 	var families []uint8
-	switch strings.ToLower(ipStack) {
+	switch strings.ToLower(opts.IPStack) {
 	case "ipv4":
 		families = []uint8{4}
 	case "ipv6":
@@ -55,7 +68,7 @@ func (m *Manager) OpenIMSBearer(ctx context.Context, apn, ipStack string) (runti
 	case "", "ipv4v6":
 		families = []uint8{6, 4}
 	default:
-		return runtimehost.IMSBearer{}, fmt.Errorf("unsupported IMS IP stack %q", ipStack)
+		return runtimehost.IMSBearer{}, fmt.Errorf("unsupported IMS IP stack %q", opts.IPStack)
 	}
 	check, cancel := context.WithTimeout(ctx, 2*time.Second)
 	native, err := m.qmiMgr.IMSAGetIMSRegistrationStatus(check)
@@ -77,7 +90,7 @@ func (m *Manager) OpenIMSBearer(ctx context.Context, apn, ipStack string) (runti
 			return runtimehost.IMSBearer{}, fmt.Errorf("VoLTE requires QMAP: %s", snapshot.DegradedReason)
 		}
 	}
-	if snapshot.DefaultMuxID == imsMuxID {
+	if snapshot.DefaultMuxID == opts.MuxID {
 		return runtimehost.IMSBearer{}, errors.New("VoLTE IMS mux overlaps the default data mux")
 	}
 	var openErr error
@@ -87,8 +100,8 @@ func (m *Manager) OpenIMSBearer(ctx context.Context, apn, ipStack string) (runti
 		}
 		callType := qmi.WDSCallTypeEmbedded
 		pdn, err := m.qmiMgr.OpenPDN(ctx, qmimanager.PDNRequest{
-			APN: apn, MuxID: imsMuxID, IPFamily: family, CallType: &callType,
-			EndpointType: 2, UserspaceOnly: true,
+			APN: opts.APN, MuxID: opts.MuxID, ProfileIndex: opts.ProfileIndex, IPFamily: family, CallType: &callType,
+			EndpointType: opts.EndpointType, InterfaceID: opts.InterfaceID, ClientType: opts.ClientType, UserspaceOnly: true,
 		})
 		if err != nil {
 			openErr = errors.Join(openErr, err)
@@ -163,17 +176,8 @@ func imsBearerSettings(settings qmi.RuntimeSettings, family uint8) (runtimehost.
 }
 
 func ltePANI(cell *qmi.LTECellLocationInfo) string {
-	if cell == nil || !cell.HasEARFCN || cell.GlobalCellID == 0 || cell.GlobalCellID >= 1<<28 ||
-		len(cell.MCC) != 3 || len(cell.MNC) < 2 || len(cell.MNC) > 3 || strings.Trim(cell.MCC+cell.MNC, "0123456789") != "" {
+	if cell == nil || !cell.HasEARFCN || len(cell.MCC) != 3 {
 		return ""
 	}
-	duplex := "FDD"
-	switch {
-	case cell.EARFCN < 36000:
-	case cell.EARFCN <= 60254:
-		duplex = "TDD"
-	default:
-		return ""
-	}
-	return fmt.Sprintf("3GPP-E-UTRAN-%s;utran-cell-id-3gpp=%s%s%04X%07X", duplex, cell.MCC, cell.MNC, cell.TAC, cell.GlobalCellID)
+	return imsbearer.LTEPANI(cell.MCC+cell.MNC, uint32(cell.TAC), cell.GlobalCellID, uint32(cell.EARFCN))
 }

@@ -93,6 +93,7 @@ export type DeviceOverviewItem = {
   local_phone?: string
   e911_setup_available?: boolean
   active_esim_profile_name?: string
+  sim_slot?: { physical?: number; logical?: number; euicc: boolean }
   network_enabled: boolean
   vowifi_enabled?: boolean
   vowifi_active?: boolean

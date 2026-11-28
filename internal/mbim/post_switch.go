@@ -93,6 +93,26 @@ func (m *Manager) GetUIMReadiness(ctx context.Context) (qmimanager.UIMReadiness,
 	return out, nil
 }
 
+func (m *Manager) GetSIMSlotReadiness(ctx context.Context) (qmimanager.UIMReadiness, error) {
+	out, err := m.GetUIMReadiness(ctx)
+	if err != nil {
+		return out, err
+	}
+	if d, derr := m.device(); derr == nil && ctx.Err() == nil {
+		if caps := m.Capability(); caps != nil && caps.Services.Supports(mbim.UUIDMSBasicConnectExtensions, mbim.CIDDeviceSlotMappings) {
+			if slots, err := mbim.QuerySlotMappings(ctx, d); err == nil && len(slots) == 1 && slots[0] < 255 {
+				out.ActivePhysicalSlot, out.PhysicalSlotKnown = uint8(slots[0]+1), true
+				out.ActiveSlot, out.SlotKnown = 1, true
+				out.SlotSource = "mbim_slot_mapping"
+				if slot, err := mbim.QuerySlotInfoStatus(ctx, d, slots[0]); err == nil {
+					out.ActiveSlotIsEUICC = slot.State == mbim.UICCSlotStateActiveEsim || slot.State == mbim.UICCSlotStateActiveEsimNoProfiles
+				}
+			}
+		}
+	}
+	return out, nil
+}
+
 func (m *Manager) UIMPowerOffSIM(ctx context.Context, slot uint8) error {
 	if d, err := m.device(); err == nil && m.qmiReadUsable() {
 		return d.UIMPowerOffSIM(ctx, slot)

@@ -34,12 +34,25 @@ VoHive 把模组热插拔管理、SOCKS5/HTTP 代理编排、短信收发、VoWi
 
 ## 用户态 VoLTE
 
-在 QMI 设备的 SIM 卡设置中选择仅驻网或蜂窝数据，即可打开用户态 VoLTE。也可以通过 `PUT /api/cards/{iccid}/policy` 启用。请求体示例为
+在 QMI 或 MBIM 设备的 SIM 卡设置中选择仅驻网或蜂窝数据，即可打开用户态 VoLTE。也可以通过 `PUT /api/cards/{iccid}/policy` 启用。请求体示例为
 `{"volte_enabled":true,"airplane_enabled":false,"apply_device_id":"你的设备 ID"}`。
 `volte_enabled` 随 ICCID 保存。VoLTE 和 VoWiFi 共用 IMS 会话，切换时先关闭旧会话。
 `volte_enabled:false` 可关闭 VoLTE。
 
-VoLTE 需要支持 QMAP 的 QMI 模组、能建立 IMS 专用 APN 的 SIM 和容器网络管理权限。首次切换至 QMAP 时，已有的普通数据连接可能重新拨号。IMS 在独立的 mux 中使用运营商下发的地址与 P-CSCF，普通数据仍使用独立的默认数据承载。`ims_access` 和 `bearer_ready` 可从设备运行态读取。IMS 完成注册后使用现有通话接口。
+VoLTE 需要可用的 IMS 专用 APN 和容器网络管理权限。QMI 使用独立 QMAP mux，首次启用可能触发普通数据重新拨号。MBIM 使用独立 IMS 会话，需要模组支持至少两个 IP 会话，以及 Linux `cdc_mbim` 的 VLAN 会话接口。普通数据使用默认会话。设备运行态的 `ims_access` 和 `bearer_ready` 显示接入方式和承载状态。IMS 完成注册后，通话和短信使用现有接口。VoLTE 尚未就绪时，短信发送会返回冲突状态。
+
+卡策略中的 APN 和 IPv4／IPv6 设置变更后，QMI 或 MBIM 会按新配置重拨普通数据。QMI 的 `/api/health` 和拨号响应包含 `data_plane_health`，DNS 不通会显示诊断状态，仍可使用已有 IP 连接。
+
+## 运营商画像
+
+内置画像可离线使用。将本地的 `selectors/` 和 `profiles/` 放到 `data/carrier-profiles/` 可启用 Apple Bundle v3 选择和展开。本地 JSON 覆盖仍具有最高优先级。需要云端画像时，在服务配置中加入下列设置。
+
+```yaml
+vowifi:
+  carrier_profiles_url: https://raw.githubusercontent.com/iniwex5/ios-carrier-profiles/main
+```
+
+服务只请求归属 PLMN 对应的选择清单和匹配的画像，IMSI、ICCID、SPN、GID 在本机匹配。成功获取的文件保存在 `data/carrier-profiles-cache/`，云端不可用时可继续读缓存。显式配置的 ePDG 备用地址沿用该设备的 VoWiFi SOCKS5 DNS 和出口设置。
 
 ## LICENSE
 

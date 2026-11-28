@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unicode/utf8"
@@ -714,6 +715,8 @@ func qmiRawEventFields(event qmimanager.Event) []any {
 
 type Manager struct {
 	cfg                 config.DeviceConfig
+	activeIPVersion     atomic.Pointer[string]
+	defaultDataHealth   atomic.Pointer[DefaultDataHealth]
 	qmiMgr              *qmimanager.Manager // QMI 管理器
 	mu                  sync.Mutex
 	euiccMu             sync.Mutex           // 仅保护 Open/Close 通道操作（低频）
@@ -1030,7 +1033,11 @@ func (m *Manager) lookupPublicIPHost(ctx context.Context, iface, host string, fa
 	lookupCtx, cancel := context.WithTimeout(ctx, publicIPResolveTimeout)
 	defer cancel()
 
-	enableV4, enableV6, err := config.ResolveIPFamily(m.cfg.IPVersion)
+	ipVersion := m.cfg.IPVersion
+	if active := m.activeIPVersion.Load(); active != nil {
+		ipVersion = *active
+	}
+	enableV4, enableV6, err := config.ResolveIPFamily(ipVersion)
 	if err != nil {
 		enableV4, enableV6 = true, false
 	}
@@ -1633,6 +1640,19 @@ func (m *Manager) StartCoreContext(ctx context.Context) error {
 	return m.qmiMgr.StartCoreContext(ctx)
 }
 
+// ApplyDataConfig updates the default call through qmi-go's serialized reconfiguration.
+func (m *Manager) ApplyDataConfig(ctx context.Context, apn, ipVersion string) error {
+	v4, v6, err := config.ResolveIPFamily(ipVersion)
+	if err != nil {
+		return err
+	}
+	if err := m.qmiMgr.ReconfigureDataConfig(ctx, qmimanager.DataConfig{APN: apn, EnableIPv4: v4, EnableIPv6: v6}); err != nil {
+		return err
+	}
+	m.activeIPVersion.Store(&ipVersion)
+	return nil
+}
+
 // Connect 显式建立数据连接。
 func (m *Manager) Connect() error {
 	logger.Info(fmt.Sprintf("[%s] 建立数据连接", m.cfg.ID))
@@ -1641,6 +1661,7 @@ func (m *Manager) Connect() error {
 
 // Disconnect 断开数据连接，但保留 QMI Core。
 func (m *Manager) Disconnect() error {
+	m.defaultDataHealth.Store(nil)
 	logger.Info(fmt.Sprintf("[%s] 断开数据连接", m.cfg.ID))
 	return m.qmiMgr.Disconnect()
 }

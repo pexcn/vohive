@@ -733,6 +733,11 @@ paths:
       summary: 删除设备配置
       parameters:
         - $ref: '#/components/parameters/DeviceIDPath'
+        - in: query
+          name: async
+          description: 为 true 时返回设备删除任务
+          schema:
+            type: boolean
       responses:
         '200':
           description: 删除成功
@@ -740,7 +745,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusResponse'
+        '202':
+          description: 删除任务已受理
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceDeleteTask'
         '404':
+          $ref: '#/components/responses/ErrorMessage'
+
+  /devices/{device_id}/delete-status:
+    get:
+      tags: [devices]
+      summary: 查询设备删除任务进度
+      parameters:
+        - $ref: '#/components/parameters/DeviceIDPath'
+      responses:
+        '200':
+          description: 删除任务状态
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceDeleteTask'
+        '404':
+          $ref: '#/components/responses/ErrorMessage'
+
+  /devices/{device_id}/delete-status/retry:
+    post:
+      tags: [devices]
+      summary: 重试失败的设备删除任务
+      parameters:
+        - $ref: '#/components/parameters/DeviceIDPath'
+      responses:
+        '202':
+          description: 删除任务已重新受理
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceDeleteTask'
+        '409':
           $ref: '#/components/responses/ErrorMessage'
 
   /devices/{device_id}/actions/refresh:
@@ -2254,6 +2297,11 @@ components:
       type: object
       required: [phone, message]
       properties:
+        bearer:
+          type: string
+          enum: [auto, ims, cellular]
+          default: auto
+
         device_id:
           type: string
         imsi:
@@ -2281,6 +2329,21 @@ components:
         delivery_state:
           type: string
 
+    DeviceDeleteTask:
+      type: object
+      required: [device_id, state, updated_at]
+      properties:
+        device_id:
+          type: string
+        state:
+          type: string
+          enum: [running, succeeded, failed]
+        error:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+
     SMSDeliveryResponse:
       type: object
       properties:
@@ -2293,6 +2356,10 @@ components:
     SMSMessage:
       type: object
       properties:
+        bearer:
+          type: string
+          enum: [cellular, ims_volte, ims_vowifi]
+
         id:
           type: integer
         imsi:

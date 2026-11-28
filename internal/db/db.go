@@ -79,7 +79,14 @@ type PendingPhoneNumber struct {
 func (PendingPhoneNumber) TableName() string { return "pending_phone_numbers" }
 
 // SMS 短信表 (关联 IMSI)
+const (
+	SMSBearerCellular = "cellular"
+	SMSBearerVoLTE    = "ims_volte"
+	SMSBearerVoWiFi   = "ims_vowifi"
+)
+
 type SMS struct {
+	Bearer     string    `json:"bearer,omitempty"`
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	IMSI       string    `gorm:"column:imsi;index:idx_sms_imsi_peer_ts,priority:1;index:idx_sms_imsi_ts,priority:1" json:"imsi"`
 	ICCID      string    `gorm:"column:iccid;index" json:"iccid"`
@@ -144,6 +151,9 @@ func Init(dbPath string) error {
 	}
 
 	// 自动迁移
+	if err := DB.Transaction(repairSMSIndexes); err != nil {
+		return err
+	}
 	if err := DB.AutoMigrate(
 		&Device{},
 		&CardPolicy{},
@@ -513,7 +523,7 @@ func UpdateDeviceSignal(imei string, signalDBM int) error {
 // 注意：时间戳会被截断到秒精度，确保发送（time.Now() 有纳秒）和接收（SCTS 仅有秒）
 // 的消息在同一秒内能通过 id 正确排序
 func SaveSMS(imsi, sender, recipient, content string, smsType, status int, timestamp time.Time) error {
-	return SaveSMSWithLocalPhone(imsi, "", sender, recipient, content, smsType, status, timestamp)
+	return SaveSMSWithLocalPhone(imsi, "", sender, recipient, content, smsType, status, timestamp, SMSBearerCellular)
 }
 
 // HasDuplicateReceivedSMS 检查在指定时间窗口内是否已存在内容相同的下行接收短信。
@@ -548,7 +558,7 @@ func HasDuplicateReceivedSMS(imsi, localPhone, sender, recipient, content string
 
 // SaveSMSWithLocalPhone 保存短信记录并显式写入本机号码。
 // localPhone 为空时会按方向自动推导，并在必要时回退到订阅手机号。
-func SaveSMSWithLocalPhone(imsi, localPhone, sender, recipient, content string, smsType, status int, timestamp time.Time) error {
+func SaveSMSWithLocalPhone(imsi, localPhone, sender, recipient, content string, smsType, status int, timestamp time.Time, bearer ...string) error {
 	if DB == nil {
 		return nil
 	}
@@ -571,6 +581,9 @@ func SaveSMSWithLocalPhone(imsi, localPhone, sender, recipient, content string, 
 		Type:       smsType,
 		Status:     status,
 		Timestamp:  timestamp.Truncate(time.Second),
+	}
+	if len(bearer) != 0 {
+		sms.Bearer = bearer[0]
 	}
 	return DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&sms).Error; err != nil {

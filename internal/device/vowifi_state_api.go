@@ -40,6 +40,9 @@ func (p *Pool) SendVoWiFiSMSWithResult(ctx context.Context, deviceID, to, text s
 
 func (p *Pool) SendVoWiFiSMSWithOptions(ctx context.Context, deviceID, to, text string, opts smscodec.SubmitOptions) (messaging.SendOutcome, error) {
 	if inst := p.voWiFiHost().Instance(deviceID); inst != nil {
+		if state := inst.State(); state.IMSAccess == runtimehost.IMSAccessLTE && !state.SMSReady {
+			return messaging.SendOutcome{}, fmt.Errorf("VoLTE 短信服务尚未就绪")
+		}
 		svc := inst.Service()
 		if svc == nil {
 			return messaging.SendOutcome{}, fmt.Errorf("设备 %s 的 VoWiFi IMS 服务未就绪", deviceID)
@@ -51,6 +54,23 @@ func (p *Pool) SendVoWiFiSMSWithOptions(ctx context.Context, deviceID, to, text 
 
 func (p *Pool) IsVoWiFiActive(deviceID string) bool {
 	return p.voWiFiHost().Active(deviceID)
+}
+
+func (p *Pool) IMSDesiredForDevice(deviceID string) bool {
+	w := p.GetWorker(deviceID)
+	if w == nil {
+		return false
+	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
+	return !w.radioPolicyPending && (w.Config.VoWiFiEnabled || w.Config.VoLTEEnabled && !w.Config.AirplaneEnabled)
+}
+
+// IsWiFiIMSActive distinguishes Wi-Fi IMS from cellular IMS for operations
+// that would bring up or change the cellular default data call.
+func (p *Pool) IsWiFiIMSActive(deviceID string) bool {
+	inst := p.voWiFiHost().Instance(deviceID)
+	return inst != nil && inst.State().IMSAccess != runtimehost.IMSAccessLTE
 }
 
 // SendVoWiFiUSSD 通过 VoWiFi 发送 USSD 请求（首轮）。

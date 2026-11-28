@@ -335,6 +335,8 @@ const networkPanelMessage = computed(() => {
           :value="activeEsimProfileName"
           monospace
         />
+        <FieldRow v-if="device?.sim_slot?.physical" label="物理 SIM 槽" :value="String(device.sim_slot.physical)" />
+        <FieldRow v-if="device?.sim_slot?.logical" label="逻辑 SIM 槽" :value="String(device.sim_slot.logical)" />
         <FieldRow label="原运营商" :value="simOperatorDisplay" copyable>
           <CountryFlag :iso="simOperatorCountry" />{{ simOperatorDisplay }}
         </FieldRow>

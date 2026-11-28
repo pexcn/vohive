@@ -18,6 +18,8 @@ type PacketEndpoint struct {
 	file    *os.File
 	socket  syscall.RawConn
 	ifindex int
+	hwaddr  [8]byte
+	hwlen   uint8
 }
 
 func networkProtocol(v uint16) uint16 {
@@ -53,7 +55,11 @@ func OpenPacketEndpoint(iface string) (*PacketEndpoint, error) {
 		return nil, err
 	}
 	ready = true
-	return &PacketEndpoint{file: file, socket: socket, ifindex: link.Index}, nil
+	endpoint := &PacketEndpoint{file: file, socket: socket, ifindex: link.Index}
+	if len(link.HardwareAddr) == 6 {
+		endpoint.hwlen = uint8(copy(endpoint.hwaddr[:], link.HardwareAddr))
+	}
+	return endpoint, nil
 }
 
 func (e *PacketEndpoint) Close() error { return e.file.Close() }
@@ -121,7 +127,7 @@ func (e *PacketEndpoint) WritePacket(ctx context.Context, packet []byte) error {
 	}
 	stop := context.AfterFunc(ctx, func() { _ = e.file.SetWriteDeadline(time.Now()) })
 	defer stop()
-	destination := &unix.SockaddrLinklayer{Ifindex: e.ifindex, Protocol: networkProtocol(protocol)}
+	destination := &unix.SockaddrLinklayer{Ifindex: e.ifindex, Protocol: networkProtocol(protocol), Halen: e.hwlen, Addr: e.hwaddr}
 	var sendErr error
 	err := e.socket.Write(func(fd uintptr) bool {
 		for {

@@ -61,6 +61,8 @@ type Manager struct {
 
 	ussdWaiter    *ussdWaiter
 	reconnectGate atomic.Bool
+	imsActive     atomic.Bool
+	imsSession    *imsSession
 
 	healthProbeInterval time.Duration
 	healthProbeTimeout  time.Duration

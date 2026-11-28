@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	swusim "github.com/iniwex5/vowifi-go/engine/sim"
@@ -94,6 +95,22 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 		networkMode = strings.TrimSpace(req.Prepared.NetworkMode)
 	}
 
+	access := runtimehost.IMSAccessWiFi
+	if req.Prepared.OpenIMSBearer != nil {
+		access = runtimehost.IMSAccessLTE
+	}
+	if scoped, ok := req.DeliveryStore.(interface {
+		ForIMSAccess(string) messaging.DeliveryStore
+	}); ok {
+		req.DeliveryStore = scoped.ForIMSAccess(access)
+	}
+	if scoped, ok := req.Dispatch.(interface {
+		ForIMSAccess(string) eventhost.Dispatcher
+	}); ok {
+		req.Dispatch = scoped.ForIMSAccess(access)
+	}
+	var registered sync.Once
+
 	inst, err := m.runtimeStarter()(ctx, runtimehost.StartRequest{
 		OpenIMSBearer: req.Prepared.OpenIMSBearer,
 		Mode:          runtimehost.StartModeMain,
@@ -113,6 +130,9 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 		Observer: runtimehost.ObserverFunc(func(_ context.Context, ev runtimehost.Event) {
 			if m.RuntimeStore().RecordStartupStateForEpoch(deviceID, req.Epoch, ev.State) {
 				m.BroadcastState(deviceID)
+				if ev.State.IMSReady && req.Prepared.OnIMSReady != nil {
+					registered.Do(req.Prepared.OnIMSReady)
+				}
 			}
 		}),
 

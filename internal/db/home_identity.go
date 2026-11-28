@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -11,10 +12,11 @@ import (
 // SIMHomeIdentity is scoped to the physical card or eSIM profile, not the
 // visited operator or a transient IMSI advertised during roaming.
 type SIMHomeIdentity struct {
-	ICCID string `gorm:"column:iccid;primaryKey"`
-	IMSI  string `gorm:"column:imsi"`
-	MCC   string
-	MNC   string
+	ICCID      string `gorm:"column:iccid;primaryKey"`
+	IMSI       string `gorm:"column:imsi"`
+	MCC        string
+	MNC        string
+	VerifiedAt *time.Time
 }
 
 func RecordSIMHomeIdentity(iccid, imsi, mcc, mnc string) error {
@@ -39,7 +41,7 @@ func recordSIMHomeIdentity(iccid, imsi, mcc, mnc string, preferred bool) error {
 	if preferred {
 		conflict = clause.OnConflict{
 			Columns:   []clause.Column{{Name: "iccid"}},
-			DoUpdates: clause.AssignmentColumns([]string{"imsi", "mcc", "mnc"}),
+			DoUpdates: clause.AssignmentColumns([]string{"imsi", "mcc", "mnc", "verified_at"}),
 			Where:     clause.Where{Exprs: []clause.Expression{gorm.Expr("imsi NOT LIKE ?", mcc+mnc+"%")}},
 		}
 	}
@@ -57,4 +59,13 @@ func GetSIMHomeIdentity(iccid string) (SIMHomeIdentity, error) {
 		return home, nil
 	}
 	return home, err
+}
+
+func VerifySIMHomeIdentity(iccid, imsi string, at time.Time) error {
+	iccid, imsi = CanonicalICCID(iccid), strings.TrimSpace(imsi)
+	if DB == nil || iccid == "" || imsi == "" {
+		return nil
+	}
+	return DB.Model(&SIMHomeIdentity{}).Where("iccid = ? AND imsi = ?", iccid, imsi).
+		Update("verified_at", at).Error
 }

@@ -79,7 +79,7 @@ func (p *Pool) shouldReconcileVoWiFiForReason(w *Worker, reason string) bool {
 		return false
 	}
 
-	if w.voLTERequested() && w.QMICore == nil {
+	if w.voLTERequested() && w.QMICore == nil && w.MBIMCore == nil {
 		return false
 	}
 	if !p.voWiFiHost().DesiredRecoverable(deviceID) {

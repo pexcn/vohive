@@ -371,6 +371,9 @@ func (w *Worker) SendSMS(phone, message string) error {
 }
 
 func (w *Worker) SendSMSWithOptions(phone, message string, opts smscodec.SubmitOptions) error {
+	if w.requiresVoLTESMS() {
+		return fmt.Errorf("用户态 VoLTE 已启用，短信必须通过 IMS 发送")
+	}
 	if w.Backend != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 		defer cancel()

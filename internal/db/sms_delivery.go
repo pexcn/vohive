@@ -25,6 +25,7 @@ const (
 
 // SMSDelivery 记录一条上行短信(message 级别)的发送追踪状态。
 type SMSDelivery struct {
+	Bearer        string    `json:"bearer,omitempty"`
 	DeliveryState string    `json:"delivery_state"`
 	Delivered     int       `json:"delivered"`
 	MessageID     string    `gorm:"column:message_id;primaryKey" json:"message_id"`
@@ -70,6 +71,7 @@ func (SMSDeliveryPart) TableName() string { return "sms_delivery_part" }
 
 // SMSDeliveryStatus 用于 API 返回 message 及其分片状态。
 type SMSDeliveryStatus struct {
+	Bearer        string            `json:"bearer,omitempty"`
 	DeliveryState string            `json:"delivery_state"`
 	Delivered     int               `json:"delivered"`
 	MessageID     string            `json:"message_id"`
@@ -87,7 +89,7 @@ type SMSDeliveryStatus struct {
 	Parts         []SMSDeliveryPart `json:"parts"`
 }
 
-func CreateSMSDelivery(messageID, imsi, deviceID, peer, content string, partsTotal int, at time.Time) error {
+func CreateSMSDelivery(messageID, imsi, deviceID, peer, content string, partsTotal int, at time.Time, bearer ...string) error {
 	if DB == nil {
 		return nil
 	}
@@ -113,9 +115,12 @@ func CreateSMSDelivery(messageID, imsi, deviceID, peer, content string, partsTot
 		CreatedAt:  at,
 		UpdatedAt:  at,
 	}
+	if len(bearer) != 0 {
+		row.Bearer = bearer[0]
+	}
 	return DB.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "message_id"}},
-		DoUpdates: clause.AssignmentColumns([]string{"imsi", "iccid", "device_id", "peer", "content", "parts_total", "state", "last_error", "updated_at"}),
+		DoUpdates: clause.AssignmentColumns([]string{"imsi", "iccid", "device_id", "peer", "content", "parts_total", "state", "last_error", "updated_at", "bearer"}),
 	}).Create(&row).Error
 }
 
@@ -275,6 +280,7 @@ func GetSMSDeliveryStatus(messageID string) (*SMSDeliveryStatus, error) {
 	}
 	out := &SMSDeliveryStatus{
 		DeliveryState: delivery.DeliveryState,
+		Bearer:        delivery.Bearer,
 		Delivered:     delivery.Delivered,
 		MessageID:     delivery.MessageID,
 		IMSI:          delivery.IMSI,

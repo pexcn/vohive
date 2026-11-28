@@ -10,10 +10,14 @@ import (
 	"gorm.io/gorm"
 )
 
-type vowifiDeliveryStore struct{}
+type vowifiDeliveryStore struct{ bearer string }
 
-func (vowifiDeliveryStore) CreateSMSDelivery(messageID, imsi, deviceID, peer, content string, partsTotal int, at time.Time) error {
-	return db.CreateSMSDelivery(messageID, imsi, deviceID, peer, content, partsTotal, at)
+func (vowifiDeliveryStore) ForIMSAccess(access string) messaging.DeliveryStore {
+	return vowifiDeliveryStore{bearer: smsBearerForAccess(access)}
+}
+
+func (s vowifiDeliveryStore) CreateSMSDelivery(messageID, imsi, deviceID, peer, content string, partsTotal int, at time.Time) error {
+	return db.CreateSMSDelivery(messageID, imsi, deviceID, peer, content, partsTotal, at, s.bearer)
 }
 
 func (vowifiDeliveryStore) UpsertSMSDeliveryPart(messageID string, partNo int, callID string, rpMR int, state string, sentAt time.Time) error {
@@ -58,6 +62,7 @@ func (vowifiDeliveryStore) GetSMSDeliveryStatus(messageID string) (*messaging.De
 	}
 	out := &messaging.DeliveryStatus{
 		DeliveryState: status.DeliveryState,
+		Bearer:        status.Bearer,
 		Delivered:     status.Delivered,
 		ICCID:         status.ICCID,
 		MessageID:     status.MessageID,
@@ -127,6 +132,6 @@ func (vowifiDeliveryStore) LoadPendingInboundSMS(o messaging.Subscription) ([]me
 	}
 	return out, err
 }
-func (vowifiDeliveryStore) CommitInboundSMS(o messaging.Subscription, id, sender, text string, at time.Time) (bool, error) {
-	return db.CommitInboundSMS(o.DeviceID, o.IMSI, id, sender, text, at, smsnotify.ShouldSuppressReceivedSMS(text))
+func (s vowifiDeliveryStore) CommitInboundSMS(o messaging.Subscription, id, sender, text string, at time.Time) (bool, error) {
+	return db.CommitInboundSMS(o.DeviceID, o.IMSI, id, sender, text, at, smsnotify.ShouldSuppressReceivedSMS(text), s.bearer)
 }

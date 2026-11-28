@@ -39,6 +39,10 @@ type ConnectState struct {
 }
 
 func encodeConnect(sessionID, command uint32, accessString, userName, password string, authProtocol, ipType uint32) []byte {
+	return encodeConnectWithType(sessionID, command, accessString, userName, password, authProtocol, ipType, UUIDContextTypeInternet)
+}
+
+func encodeConnectWithType(sessionID, command uint32, accessString, userName, password string, authProtocol, ipType uint32, contextType UUID) []byte {
 	const fixed = 60
 	access := encodeUTF16LE(accessString)
 	user := encodeUTF16LE(userName)
@@ -66,7 +70,7 @@ func encodeConnect(sessionID, command uint32, accessString, userName, password s
 	le.PutUint32(info[32:], 0)
 	le.PutUint32(info[36:], authProtocol)
 	le.PutUint32(info[40:], ipType)
-	copy(info[44:60], UUIDContextTypeInternet[:])
+	copy(info[44:60], contextType[:])
 	return info
 }
 
@@ -89,7 +93,12 @@ func parseConnect(info []byte) (ConnectState, error) {
 }
 
 func Connect(ctx context.Context, d *Device, sessionID, command uint32, accessString, userName, password string, authProtocol, ipType uint32) (ConnectState, error) {
-	info := encodeConnect(sessionID, command, accessString, userName, password, authProtocol, ipType)
+	return SetConnect(ctx, d, sessionID, command, accessString, userName, password, authProtocol, ipType, UUIDContextTypeInternet)
+}
+
+// SetConnect sets a specific context type on an independent MBIM IP session.
+func SetConnect(ctx context.Context, d *Device, sessionID, command uint32, accessString, userName, password string, authProtocol, ipType uint32, contextType UUID) (ConnectState, error) {
+	info := encodeConnectWithType(sessionID, command, accessString, userName, password, authProtocol, ipType, contextType)
 	resp, err := d.Command(ctx, UUIDBasicConnect, CIDBasicConnectConnect, CommandTypeSet, info)
 	if err != nil {
 		return ConnectState{}, err

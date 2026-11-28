@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,6 +52,14 @@ func main() {
 	slog.SetDefault(slog.New(logger.NewSlogHandler(logger.ZapLogger())))
 	logger.Info("VoHive 模组管理器启动中...")
 
+	if err := carrier.SetBundleSource(carrier.BundleSource{
+		LocalDir: "data/carrier-profiles",
+		CacheDir: "data/carrier-profiles-cache",
+		BaseURL:  strings.TrimSpace(cfg.VoWiFi.CarrierProfilesURL),
+	}); err != nil {
+		logger.Warn("运营商画像云端地址无效", "err", err)
+		_ = carrier.SetBundleSource(carrier.BundleSource{LocalDir: "data/carrier-profiles"})
+	}
 	loadResult, err := carrier.LoadCarrierOverrides("")
 	if err != nil {
 		carrier.ClearCarrierOverrides()

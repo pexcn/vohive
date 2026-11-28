@@ -58,6 +58,32 @@ func ipTypeFromVersion(v string) uint32 {
 	}
 }
 
+// ApplyDataConfig changes the default session configuration. An active session
+// is deactivated first so the next Connect submits the new APN and IP type.
+func (m *Manager) ApplyDataConfig(ctx context.Context, apn, ipVersion string) error {
+	if _, _, err := config.ResolveIPFamily(ipVersion); err != nil {
+		return err
+	}
+	m.dataMu.Lock()
+	defer m.dataMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	apn = strings.TrimSpace(apn)
+	m.mu.Lock()
+	cfg := m.dataCfg
+	m.mu.Unlock()
+	if cfg.APN == apn && ipTypeFromVersion(cfg.IPVersion) == ipTypeFromVersion(ipVersion) {
+		return nil
+	}
+	if err := m.disconnectLocked(); err != nil {
+		return err
+	}
+	cfg.APN, cfg.IPVersion = apn, ipVersion
+	m.SetDataConfig(cfg)
+	return nil
+}
+
 func (m *Manager) Connect() error {
 	m.dataMu.Lock()
 	defer m.dataMu.Unlock()
@@ -365,6 +391,14 @@ func (m *Manager) handleConnectIndication(st mbim.ConnectState) {
 		return
 	}
 	m.mu.Lock()
+	if st.SessionID != dataSessionID {
+		ims := m.imsSession
+		m.mu.Unlock()
+		if st.SessionID == imsSessionID && st.ActivationState == mbim.ActivationStateDeactivated && ims != nil {
+			go func() { _ = ims.Close() }()
+		}
+		return
+	}
 	desired := m.desiredConnection && m.dataCfg.AutoReconnect
 	handler := m.dataDisconnected
 	wantData := m.desiredConnection

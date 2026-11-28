@@ -89,9 +89,10 @@ type ProxyConfig struct {
 }
 
 type VoWiFiConfig struct {
-	Enabled  bool   `mapstructure:"enabled"`
-	DeviceID string `mapstructure:"device_id"` // 留空则取第一个
-	Mode     string `mapstructure:"mode"`      // vowifi|volte(当前会回退为 vowifi)，默认 vowifi
+	CarrierProfilesURL string `mapstructure:"carrier_profiles_url"`
+	Enabled            bool   `mapstructure:"enabled"`
+	DeviceID           string `mapstructure:"device_id"` // 留空则取第一个
+	Mode               string `mapstructure:"mode"`      // vowifi|volte(当前会回退为 vowifi)，默认 vowifi
 }
 
 // ProxyInstance 定义一个代理实例配置

@@ -4,13 +4,20 @@ import (
 	"context"
 	"strings"
 
+	"github.com/iniwex5/vohive/internal/db"
 	"github.com/iniwex5/vohive/internal/smsnotify"
 	"github.com/iniwex5/vohive/pkg/logger"
 	"github.com/iniwex5/vowifi-go/runtimehost/eventhost"
 )
 
 type poolVoWiFiRuntimeDispatcher struct {
-	pool *Pool
+	pool   *Pool
+	bearer string
+}
+
+func (d poolVoWiFiRuntimeDispatcher) ForIMSAccess(access string) eventhost.Dispatcher {
+	d.bearer = smsBearerForAccess(access)
+	return d
 }
 
 func isCompatVoWiFiIncomingSMSLog(msg string) bool {
@@ -21,7 +28,7 @@ func (d poolVoWiFiRuntimeDispatcher) Dispatch(ctx context.Context, e eventhost.E
 	if d.pool == nil || e == nil {
 		return
 	}
-	recorder := vowifiSMSHistoryRecorder{pool: d.pool}
+	recorder := vowifiSMSHistoryRecorder{pool: d.pool, bearer: d.bearer}
 	var recordResult vowifiSMSRecordResult
 	switch v := e.(type) {
 	case eventhost.SMSReceived:
@@ -58,7 +65,11 @@ func (d poolVoWiFiRuntimeDispatcher) Dispatch(ctx context.Context, e eventhost.E
 			return
 		}
 		if withSource, ok := notifier.(SMSSourceNotifier); ok {
-			withSource.NotifySMSWithSource(sms.DevID, sms.Sender, sms.Content, "VoWiFi", sms.Time)
+			source := "VoWiFi"
+			if d.bearer == db.SMSBearerVoLTE {
+				source = "VoLTE"
+			}
+			withSource.NotifySMSWithSource(sms.DevID, sms.Sender, sms.Content, source, sms.Time)
 		} else {
 			notifier.NotifySMS(sms.DevID, sms.Sender, sms.Content, sms.Time)
 		}

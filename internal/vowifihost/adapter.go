@@ -19,6 +19,7 @@ type PreparedStart struct {
 	Proxy         *runtimehost.ProxyConfig
 	NetworkMode   string
 	StartupState  runtimehost.State
+	OnIMSReady    func()
 }
 
 type Adapter interface {

@@ -15,6 +15,29 @@ import (
 
 const dataPlaneReadyTimeout = 3 * time.Second
 
+type DefaultDataHealth struct {
+	Phase      string `json:"phase"`
+	Interface  string `json:"interface,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+	generation uint64
+}
+
+func (m *Manager) DefaultDataHealth() *DefaultDataHealth {
+	if m == nil || m.qmiMgr == nil {
+		return nil
+	}
+	status := m.defaultDataHealth.Load()
+	if status == nil || !m.qmiMgr.IsConnected() {
+		return nil
+	}
+	snapshot, ok := m.qmiMgr.CurrentDataPlaneSnapshot()
+	if !ok || snapshot.Generation != status.generation {
+		return nil
+	}
+	copy := *status
+	return &copy
+}
+
 // WaitDefaultDataPlaneReady checks the configured default data connection on
 // the host after QMI reports it connected. Dual stack can become usable on
 // either family since operators may reject the other PDP context.
@@ -22,10 +45,31 @@ func (m *Manager) WaitDefaultDataPlaneReady(ctx context.Context) error {
 	if m == nil || m.qmiMgr == nil {
 		return errors.New("QMI manager is unavailable")
 	}
-	ctx, cancel := context.WithTimeout(ctx, dataPlaneReadyTimeout)
-	defer cancel()
-	_, _, err := m.waitDefaultDataPlane(ctx, netprobe.FamilyAny)
-	return err
+	linkCtx, cancel := context.WithTimeout(ctx, dataPlaneReadyTimeout)
+	iface, generation, err := m.waitDefaultDataPlane(linkCtx, netprobe.FamilyAny)
+	cancel()
+	if err != nil {
+		snapshot, _ := m.qmiMgr.CurrentDataPlaneSnapshot()
+		m.defaultDataHealth.Store(&DefaultDataHealth{Phase: "data_plane_not_ready", Detail: err.Error(), generation: snapshot.Generation})
+		return err
+	}
+	dnsCtx, cancelDNS := context.WithTimeout(ctx, 2*time.Second)
+	_, dnsErr := m.lookupPublicIPHost(dnsCtx, iface, "api64.ipify.org", netprobe.FamilyAny)
+	cancelDNS()
+	snapshot, ok := m.qmiMgr.CurrentDataPlaneSnapshot()
+	if !ok || snapshot.Generation != generation || !m.qmiMgr.IsConnected() {
+		return errors.New("QMI data connection changed during DNS readiness check")
+	}
+	status := &DefaultDataHealth{Phase: "ready", Interface: iface, generation: generation}
+	if dnsErr != nil {
+		status.Phase, status.Detail = "dns_unavailable", dnsErr.Error()
+		if errors.Is(dnsErr, context.DeadlineExceeded) {
+			status.Phase = "dns_timeout"
+		}
+		logger.Warn("QMI 数据面 DNS 探测失败", "device", m.cfg.ID, "interface", iface, "phase", status.Phase, "err", dnsErr)
+	}
+	m.defaultDataHealth.Store(status)
+	return ctx.Err()
 }
 
 func (m *Manager) probePublicIP(family netprobe.Family) string {

@@ -87,6 +87,9 @@ type Server struct {
 	loginMu       sync.Mutex
 	loginAttempts map[string]loginAttempt
 
+	deviceDeleteMu sync.Mutex
+	deviceDeletes  map[string]*deviceDeleteTask
+
 	smsLimiterMu sync.Mutex
 	smsLimiter   *smsRateLimiter
 
@@ -295,15 +298,17 @@ func (s *Server) newRouter() *gin.Engine {
 		api.GET("/devices/:device_id/config", s.handleDeviceMgmtGetDeviceConfig)               // 获取设备配置
 		api.PUT("/devices/:device_id", s.handleDeviceMgmtUpdateDevice)                         // 更新设备配置
 		api.DELETE("/devices/:device_id", s.handleDeviceMgmtDeleteDevice)                      // 删除设备
-		api.POST("/devices/:device_id/actions/refresh", s.handleDeviceMgmtRefreshInfo)         // 手动触发刷新设备缓存信息
-		api.POST("/devices/:device_id/actions/reboot", s.handleDeviceMgmtReboot)               // 重启设备模组
-		api.POST("/devices/:device_id/actions/at", s.handleDeviceMgmtExecuteAT)                // 执行 AT 命令
-		api.POST("/devices/:device_id/actions/ussd", s.handleDeviceMgmtExecuteUSSD)            // 执行 USSD 指令
+		api.GET("/devices/:device_id/delete-status", s.handleDeviceDeleteStatus)
+		api.POST("/devices/:device_id/delete-status/retry", s.handleRetryDeviceDelete)
+		api.POST("/devices/:device_id/actions/refresh", s.handleDeviceMgmtRefreshInfo) // 手动触发刷新设备缓存信息
+		api.POST("/devices/:device_id/actions/reboot", s.handleDeviceMgmtReboot)       // 重启设备模组
+		api.POST("/devices/:device_id/actions/at", s.handleDeviceMgmtExecuteAT)        // 执行 AT 命令
+		api.POST("/devices/:device_id/actions/ussd", s.handleDeviceMgmtExecuteUSSD)    // 执行 USSD 指令
 		api.GET("/devices/:device_id/actions/ussd/session", s.handleDeviceMgmtUSSDSessionStatus)
-		api.POST("/devices/:device_id/actions/ussd/continue", s.handleDeviceMgmtContinueUSSD)  // USSD 续轮输入（多轮交互）
-		api.POST("/devices/:device_id/actions/ussd/cancel", s.handleDeviceMgmtCancelUSSD)      // 取消 USSD 会话
-		api.PATCH("/devices/:device_id/usbnet-mode", s.handleDeviceMgmtSetUSBNetMode)          // 设置 USBNET 模式
-		api.PATCH("/devices/:device_id/flight-mode", s.handleDeviceMgmtSetFlightMode)          // 切换飞行模式
+		api.POST("/devices/:device_id/actions/ussd/continue", s.handleDeviceMgmtContinueUSSD) // USSD 续轮输入（多轮交互）
+		api.POST("/devices/:device_id/actions/ussd/cancel", s.handleDeviceMgmtCancelUSSD)     // 取消 USSD 会话
+		api.PATCH("/devices/:device_id/usbnet-mode", s.handleDeviceMgmtSetUSBNetMode)         // 设置 USBNET 模式
+		api.PATCH("/devices/:device_id/flight-mode", s.handleDeviceMgmtSetFlightMode)         // 切换飞行模式
 		api.PATCH("/devices/:device_id/network", s.handleDeviceNetworkPatch)
 
 		api.GET("/cards/policies", s.handleListCardPolicies)
@@ -350,6 +355,8 @@ func (s *Server) newRouter() *gin.Engine {
 		api.PATCH("/devices/:device_id/vowifi", s.handleDeviceVoWiFiPatch)                          // 启用/禁用 VoWiFi
 		api.POST("/devices/:device_id/vowifi/actions/reconnect", s.handleDeviceMgmtReconnectVoWiFi) // 重连 VoWiFi
 		api.POST("/devices/:device_id/vowifi/e911/websheet", s.handleDeviceE911Websheet)            // 打开 E911 设置 websheet
+		api.POST("/devices/:device_id/ims/actions/reconnect", s.handleDeviceMgmtReconnectVoWiFi)
+		api.POST("/devices/:device_id/ims/e911/websheet", s.handleDeviceE911Websheet)
 
 		// ===== 日志 =====
 		api.GET("/logs/stream", s.handleLogStream)   // SSE 实时日志流
@@ -861,7 +868,7 @@ func (s *Server) handleDeviceMgmtStartNetwork(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "当前设备不支持网络控制"})
 		return
 	}
-	if s.pool.IsVoWiFiActive(deviceID) {
+	if s.pool.IsWiFiIMSActive(deviceID) {
 		c.JSON(http.StatusConflict, gin.H{"status": "error", "message": "VoWiFi 运行中，无法启动数据网络"})
 		return
 	}
@@ -870,7 +877,7 @@ func (s *Server) handleDeviceMgmtStartNetwork(c *gin.Context) {
 		return
 	}
 	go func() { _ = worker.RefreshRuntime(nil, "start_network") }()
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"status":            "ok",
 		"message":           "数据网络已启动",
 		"device":            deviceID,
@@ -879,7 +886,11 @@ func (s *Server) handleDeviceMgmtStartNetwork(c *gin.Context) {
 		"private_ipv6":      nc.GetPrivateIPv6(),
 		"public_ip":         worker.GetCachedIP(),
 		"public_ipv6":       worker.GetCachedIPv6(),
-	})
+	}
+	if worker.QMICore != nil {
+		response["data_plane_health"] = worker.QMICore.DefaultDataHealth()
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 func (s *Server) handleDeviceMgmtStopNetwork(c *gin.Context) {
@@ -921,6 +932,7 @@ func (s *Server) handleHealth(c *gin.Context) {
 		IfaceUp          bool `json:"iface_up"`
 		NetworkConnected bool `json:"network_connected"`
 		Signal           int  `json:"signal,omitempty"`
+		DataPlaneHealth  any  `json:"data_plane_health,omitempty"`
 	}
 
 	status := make(map[string]DeviceHealth)
@@ -940,13 +952,19 @@ func (s *Server) handleHealth(c *gin.Context) {
 			signal = s
 		}
 
-		status[w.ID] = DeviceHealth{
+		health := DeviceHealth{
 			Healthy:          healthy,
 			ModemOK:          modemOK,
 			IfaceUp:          ifaceUp,
 			NetworkConnected: ifaceUp,
 			Signal:           signal,
 		}
+		if w.QMICore != nil {
+			if dataHealth := w.QMICore.DefaultDataHealth(); dataHealth != nil {
+				health.DataPlaneHealth = dataHealth
+			}
+		}
+		status[w.ID] = health
 		if !healthy {
 			allHealthy = false
 		}
@@ -966,6 +984,7 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 		Phone    string `json:"phone" binding:"required"`
 		Message  string `json:"message" binding:"required"`
 		Encoding string `json:"encoding"`
+		Bearer   string `json:"bearer"`
 	}
 
 	var req SendSMSRequest
@@ -1015,6 +1034,19 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 		return
 	}
 
+	requested := strings.ToLower(strings.TrimSpace(req.Bearer))
+	switch requested {
+	case "", "auto", "ims", db.SMSBearerCellular:
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "message": "不支持的短信承载"})
+		return
+	}
+	bearer, err := s.pool.SMSBearer(worker, requested)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"status": "error", "message": err.Error()})
+		return
+	}
+
 	if rate := s.smsRateLimiter().Allow(); !rate.Allowed {
 		retryAfterSeconds := int64(rate.RetryAfter.Seconds())
 		if retryAfterSeconds < 0 {
@@ -1037,7 +1069,7 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 	partsTotal := 1
 	deliveryState := "acked"
 
-	if s.pool.IsVoWiFiActive(deviceID) {
+	if bearer != db.SMSBearerCellular {
 		// VoWiFi 模式下使用 IMS Core 发送；短信历史由宿主侧 runtime event / failure recorder 入库。
 		outcome, err := s.pool.SendVoWiFiSMSWithOptions(c.Request.Context(), deviceID, req.Phone, req.Message, sendOpts)
 		if outcome.PartsTotal > 0 {
@@ -1048,11 +1080,11 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 		}
 		messageID = strings.TrimSpace(outcome.MessageID)
 		if err != nil {
-			msg := "VoWiFi 短信发送失败: " + err.Error()
+			msg := "IMS 短信发送失败: " + err.Error()
 			if messageID != "" && outcome.State != "failed" {
-				msg = "VoWiFi 短信发送流程未完成，请查询投递状态，避免重复发送: " + err.Error()
+				msg = "IMS 短信发送流程未完成，请查询投递状态，避免重复发送: " + err.Error()
 				if errors.Is(err, messaging.ErrSendOutcomeUnknown) {
-					msg = "VoWiFi 短信发送结果未知，请查询投递状态，避免重复发送: " + err.Error()
+					msg = "IMS 短信发送结果未知，请查询投递状态，避免重复发送: " + err.Error()
 				}
 			} else {
 				failureIMSI := imsi
@@ -1069,6 +1101,7 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 				"message_id":     messageID,
 				"parts_total":    partsTotal,
 				"delivery_state": deliveryState,
+				"bearer":         bearer,
 			})
 			return
 		}
@@ -1101,6 +1134,7 @@ func (s *Server) handleSendSMS(c *gin.Context) {
 		"message_id":     messageID,
 		"parts_total":    partsTotal,
 		"delivery_state": deliveryState,
+		"bearer":         bearer,
 	})
 }
 

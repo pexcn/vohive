@@ -12,7 +12,8 @@ import (
 const vowifiReceivedSMSDuplicateWindow = 30 * time.Minute
 
 type vowifiSMSHistoryRecorder struct {
-	pool *Pool
+	pool   *Pool
+	bearer string
 }
 
 type vowifiSMSRecordResult struct {
@@ -22,7 +23,13 @@ type vowifiSMSRecordResult struct {
 }
 
 func RecordVoWiFiSMSSendFailure(p *Pool, deviceID, target, content string, at time.Time, imsi ...string) error {
-	return vowifiSMSHistoryRecorder{pool: p}.RecordSendFailure(deviceID, target, content, at, imsi...)
+	bearer := db.SMSBearerVoWiFi
+	if p != nil {
+		if state, ok := p.GetVoWiFiRuntimeState(deviceID); ok {
+			bearer = smsBearerForAccess(state.IMSAccess)
+		}
+	}
+	return vowifiSMSHistoryRecorder{pool: p, bearer: bearer}.RecordSendFailure(deviceID, target, content, at, imsi...)
 }
 
 func (r vowifiSMSHistoryRecorder) resolveIMSI(devID, fallbackIMSI string) string {
@@ -92,7 +99,7 @@ func (r vowifiSMSHistoryRecorder) RecordReceived(e eventhost.SMSReceived) (vowif
 		return vowifiSMSRecordResult{Duplicate: true}, nil
 	}
 
-	err = db.SaveSMSWithLocalPhone(imsi, localPhone, strings.TrimSpace(e.Sender), localPhone, e.Content, 1, 0, ts)
+	err = db.SaveSMSWithLocalPhone(imsi, localPhone, strings.TrimSpace(e.Sender), localPhone, e.Content, 1, 0, ts, r.bearer)
 	if err != nil {
 		return vowifiSMSRecordResult{}, err
 	}
@@ -105,7 +112,7 @@ func (r vowifiSMSHistoryRecorder) RecordSent(e eventhost.SMSSent) error {
 		return nil
 	}
 	localPhone := r.localPhone(e.DevID, imsi)
-	return db.SaveSMSWithLocalPhone(imsi, localPhone, localPhone, strings.TrimSpace(e.TargetURI), e.Content, 2, 2, r.eventTime(e.Time))
+	return db.SaveSMSWithLocalPhone(imsi, localPhone, localPhone, strings.TrimSpace(e.TargetURI), e.Content, 2, 2, r.eventTime(e.Time), r.bearer)
 }
 
 func (r vowifiSMSHistoryRecorder) RecordSendFailure(devID, target, content string, at time.Time, subscription ...string) error {
@@ -118,7 +125,7 @@ func (r vowifiSMSHistoryRecorder) RecordSendFailure(devID, target, content strin
 		return nil
 	}
 	localPhone := r.localPhone(devID, imsi)
-	return db.SaveSMSWithLocalPhone(imsi, localPhone, localPhone, strings.TrimSpace(target), content, 2, 3, r.eventTime(at))
+	return db.SaveSMSWithLocalPhone(imsi, localPhone, localPhone, strings.TrimSpace(target), content, 2, 3, r.eventTime(at), r.bearer)
 }
 
 func (r vowifiSMSHistoryRecorder) RecordLocalNumberLearned(e eventhost.LocalNumberLearned) error {

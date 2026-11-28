@@ -155,13 +155,19 @@ func (p *Pool) prepareCarrierIdentities(worker *Worker, reader liveSIMIdentityRe
 	}
 	if imsi := p.observeVoWiFiHomeIMSI(worker, reader, profile, plmn); imsi != "" {
 		profile.HomeIMSI = imsi
+	} else {
+		p.scheduleHomeIMSICapture(worker, reader, *profile, plmn)
 	}
 }
 
 // Observe only while the same card is in low power. A home-prefix IMSI
 // must be followed by a live ICCID confirmation before persistence.
 func (p *Pool) observeVoWiFiHomeIMSI(worker *Worker, reader liveSIMIdentityReader, profile *identity.Profile, plmn string) string {
-	ctx, cancel := context.WithTimeout(p.Context(), 5*time.Second)
+	return p.observeVoWiFiHomeIMSIWithin(p.Context(), worker, reader, profile, plmn)
+}
+
+func (p *Pool) observeVoWiFiHomeIMSIWithin(parent context.Context, worker *Worker, reader liveSIMIdentityReader, profile *identity.Profile, plmn string) string {
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
 	defer cancel()
 	for attempt := 0; attempt < 4; attempt++ {
 		if ctx.Err() != nil || p.IsESIMSwitching(worker.ID) {

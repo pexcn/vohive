@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
           />
         </label>
         <p :id="`${id}-volte-help`" class="policy-mode-help">
-          通过蜂窝网络接入 IMS 通话。需要支持 QMAP 的 QMI 模组，首次启用时数据连接可能短暂重拨。
+          通过蜂窝网络接入 IMS 通话。需要支持 QMAP 的 QMI 模组，或支持独立 IMS 会话的 MBIM 模组。首次启用时数据连接可能短暂重拨。
         </p>
       </template>
       <div class="policy-data">

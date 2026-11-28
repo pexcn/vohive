@@ -61,8 +61,8 @@ func (p *Pool) ApplySavedCardPolicy(deviceID, iccid string) error {
 	if result.Err != nil {
 		return result.Err
 	}
-	if volte && (w == nil || w.QMICore == nil) {
-		return fmt.Errorf("当前设备无法建立 QMI IMS 专用数据承载")
+	if volte && (w == nil || (w.QMICore == nil && w.MBIMCore == nil)) {
+		return fmt.Errorf("当前设备无法建立 IMS 专用数据承载")
 	}
 	if !result.Applied || db.CanonicalICCID(result.ICCID) != db.CanonicalICCID(iccid) {
 		return fmt.Errorf("设备未能应用当前卡设置，请稍后重试")
@@ -155,7 +155,7 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 			}
 		}
 	}
-	if pol.IMSRequested() && (!worker.voLTERequested() || worker.QMICore != nil) {
+	if pol.IMSRequested() && (!worker.voLTERequested() || worker.QMICore != nil || worker.MBIMCore != nil) {
 		p.scheduleDesiredVoWiFiRecover(worker.ID, reason, time.Now())
 	} else {
 		p.clearDesiredVoWiFiRecoverState(worker.ID)

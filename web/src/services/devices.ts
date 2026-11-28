@@ -20,6 +20,11 @@ type DeleteEsimProfileResponse = {
   space_delta?: EsimSpaceDelta
 }
 
+type DeviceDeleteTask = {
+  state: 'running' | 'failed' | 'succeeded'
+  error?: string
+}
+
 type NetworkControlResponse = {
   network_connected?: boolean
   private_ip?: string
@@ -221,8 +226,14 @@ export const devicesService = {
   },
   deleteManaged(id: string) {
     return callService(async () => {
-      await api.delete(`/devices/${id}`)
-      return true
+      const url = `/devices/${encodeURIComponent(id)}`
+      let task = (await api.delete<DeviceDeleteTask>(url, { params: { async: true } })).data
+      for (let poll = 0; task.state === 'running' && poll < 90; poll++) {
+        await sleep(1000)
+        task = (await api.get<DeviceDeleteTask>(`${url}/delete-status`)).data
+      }
+      if (task.state === 'failed') throw new Error(task.error || '删除失败')
+      return task.state === 'succeeded'
     })
   },
   setUSBNetMode(id: string, mode: number) {
