@@ -111,4 +111,4 @@ require (
 	modernc.org/sqlite v1.23.1 // indirect
 )
 
-replace github.com/iniwex5/vowifi-go => github.com/pexcn/vowifi-go v0.1.18-0.20261128084419-3893273aebcf
+replace github.com/iniwex5/vowifi-go => github.com/pexcn/vowifi-go v0.1.18-0.20261128091058-06ae3869498c
