@@ -952,6 +952,9 @@ func (m *Manager) dispatchHealthEvent(event qmimanager.Event) {
 
 func (m *Manager) handleQMIEvent(event qmimanager.Event) {
 	logQMIEvent(m.cfg.ID, event)
+	if event.Type == qmimanager.EventDisconnected || event.Type == qmimanager.EventModemReset {
+		m.defaultDataHealth.Store(nil)
+	}
 	m.dispatchHealthEvent(event)
 	switch event.Type {
 	case qmimanager.EventConnected,

@@ -18,20 +18,21 @@ import (
 const (
 	imsSessionID              = 1
 	ipv6AddressGenerationNone = 1 // IN6_ADDR_GEN_MODE_NONE from linux/if_link.h
+	mbimContextNotActivated   = 16
 )
 
 type imsSession struct {
 	*imsbearer.PacketEndpoint
 	closeOnce sync.Once
-	closeErr  error
 	release   func() error
 }
 
 func (s *imsSession) Close() error {
+	var err error
 	s.closeOnce.Do(func() {
-		s.closeErr = errors.Join(s.PacketEndpoint.Close(), s.release())
+		err = errors.Join(s.PacketEndpoint.Close(), s.release())
 	})
-	return s.closeErr
+	return err
 }
 
 // OpenIMSBearer uses a separate IP session and a cdc_mbim VLAN. The host never
@@ -77,10 +78,13 @@ func (m *Manager) OpenIMSBearer(ctx context.Context, iface, apn, ipStack string)
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 			defer cancel()
 			_, err = mbim.SetConnect(cleanupCtx, d, imsSessionID, mbim.ActivationCommandDeactivate, "", "", "", mbim.AuthProtocolNone, mbim.ContextIPTypeDefault, mbim.UUIDContextTypeIMS)
+			if isConnectStatus(err, mbimContextNotActivated) {
+				err = nil
+			}
 		}
 		return errors.Join(err, netlink.LinkDel(vlan))
 	}
-	var cleanupOnFailure = func(resultErr error) (runtimehost.IMSBearer, error) {
+	cleanupOnFailure := func(resultErr error) (runtimehost.IMSBearer, error) {
 		return runtimehost.IMSBearer{}, errors.Join(resultErr, release())
 	}
 	if err := netlink.LinkSetIP6AddrGenMode(vlan, ipv6AddressGenerationNone); err != nil {
