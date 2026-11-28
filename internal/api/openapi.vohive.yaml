@@ -2992,7 +2992,7 @@ components:
           default: system
         dns_server:
           type: string
-          description: DNS 服务器 IP，可附带端口
+          description: DNS 服务器 IP，可附端口。多个地址用逗号分隔，按顺序查询。
         disable_udp:
           type: boolean
           default: false

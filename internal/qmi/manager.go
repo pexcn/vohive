@@ -1088,7 +1088,7 @@ func (m *Manager) lookupPublicIPHost(ctx context.Context, iface, host string, fa
 	return nil, err
 }
 
-// ProxyEgress reports the active default mux and carrier DNS. In QMAP
+// ProxyEgress reports the active default mux and carrier DNS list. In QMAP
 // mode the default data interface can differ from the physical modem link.
 func (m *Manager) ProxyEgress() (iface, dns string) {
 	if m == nil || m.qmiMgr == nil {
@@ -1098,11 +1098,13 @@ func (m *Manager) ProxyEgress() (iface, dns string) {
 		iface = snapshot.DefaultInterface
 	}
 	if settings := m.qmiMgr.Settings(); settings != nil {
+		var servers []string
 		for _, ip := range []net.IP{settings.IPv4DNS1, settings.IPv4DNS2, settings.IPv6DNS1, settings.IPv6DNS2} {
 			if ip != nil && !ip.IsUnspecified() && !ip.IsMulticast() {
-				return iface, net.JoinHostPort(ip.String(), "53")
+				servers = append(servers, net.JoinHostPort(ip.String(), "53"))
 			}
 		}
+		return iface, strings.Join(servers, ",")
 	}
 	return iface, ""
 }

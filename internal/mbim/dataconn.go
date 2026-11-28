@@ -163,13 +163,13 @@ func (m *Manager) connectLocked() error {
 	m.mu.Lock()
 	m.privateIPv4 = ipc.IPv4Address
 	m.privateIPv6 = ipc.IPv6Address
-	m.defaultDNS = ""
+	var dnsServers []string
 	for _, address := range append(append([]string(nil), ipc.IPv4DNS...), ipc.IPv6DNS...) {
 		if ip := net.ParseIP(address); ip != nil && !ip.IsUnspecified() && !ip.IsMulticast() {
-			m.defaultDNS = net.JoinHostPort(ip.String(), "53")
-			break
+			dnsServers = append(dnsServers, net.JoinHostPort(ip.String(), "53"))
 		}
 	}
+	m.defaultDNS = strings.Join(dnsServers, ",")
 	m.connected = true
 	onConnect := m.dataConnected
 	m.mu.Unlock()
@@ -391,7 +391,7 @@ func (m *Manager) applyIPConfig(nc netConfigurator, iface string, ipc mbim.IPCon
 	return nil
 }
 
-// ProxyDNS reports the DNS address from the default data session.
+// ProxyDNS reports the DNS server list from the default data session.
 func (m *Manager) ProxyDNS() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -14,6 +14,7 @@ import (
 	"github.com/iniwex5/vohive/internal/data/repo"
 	"github.com/iniwex5/vohive/internal/db"
 	"github.com/iniwex5/vohive/internal/device"
+	"github.com/iniwex5/vohive/internal/proxy/server"
 
 	"github.com/gin-gonic/gin"
 )
@@ -87,6 +88,16 @@ func TestNormalizeProxyInstanceForSaveValidation(t *testing.T) {
 	}, nil)
 	if err == nil {
 		t.Fatalf("expected mode validation error")
+	}
+}
+
+func TestProxyDNSListKeepsItsOrderAndSupportsLegacyAddresses(t *testing.T) {
+	mode, servers, err := server.NormalizeDNS("egress", "9.9.9.9， [2606:4700:4700::1111]:5353, 9.9.9.9:53")
+	if err != nil || mode != "egress" || servers != "9.9.9.9:53,[2606:4700:4700::1111]:5353" {
+		t.Fatalf("wrong DNS list: %q %q %v", mode, servers, err)
+	}
+	if _, _, err := server.NormalizeDNS("egress", "9.9.9.9,not-an-ip"); err == nil {
+		t.Fatal("accepted an invalid backup server")
 	}
 }
 

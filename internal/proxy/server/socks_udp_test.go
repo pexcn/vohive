@@ -12,7 +12,7 @@ import (
 	"github.com/things-go/go-socks5/statute"
 )
 
-func TestSOCKSUDPUsesConfiguredDNSAndPinnedClient(t *testing.T) {
+func TestSOCKSUDPFallsBackToBackupDNSAndPinsClient(t *testing.T) {
 	echo, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -28,6 +28,17 @@ func TestSOCKSUDPUsesConfiguredDNSAndPinnedClient(t *testing.T) {
 			_, _ = echo.WriteToUDP(buf[:n], address)
 		}
 	}()
+	silentDNS, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silentDNS.Close()
+	firstQuery := make(chan error, 1)
+	go func() {
+		packet := make([]byte, 512)
+		_, _, err := silentDNS.ReadFrom(packet)
+		firstQuery <- err
+	}()
 	dnsSocket, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -36,6 +47,7 @@ func TestSOCKSUDPUsesConfiguredDNSAndPinnedClient(t *testing.T) {
 	queryReceived := make(chan struct{}, 2)
 	dnsServer := &dns.Server{PacketConn: dnsSocket, Handler: dns.HandlerFunc(func(w dns.ResponseWriter, req *dns.Msg) {
 		msg := new(dns.Msg).SetReply(req)
+		msg.RecursionAvailable = true
 		if len(req.Question) == 1 && req.Question[0].Name == "proxy-only.test." && req.Question[0].Qtype == dns.TypeA {
 			select {
 			case queryReceived <- struct{}{}:
@@ -48,7 +60,7 @@ func TestSOCKSUDPUsesConfiguredDNSAndPinnedClient(t *testing.T) {
 	go func() { _ = dnsServer.ActivateAndServe() }()
 	defer dnsServer.ShutdownContext(context.Background())
 
-	srv, err := newServer("test", ModeSocks5, "127.0.0.1", 0, "lo", false, "", "", EgressConfig{DNSMode: "egress", DNSServer: dnsSocket.LocalAddr().String()})
+	srv, err := newServer("test", ModeSocks5, "127.0.0.1", 0, "lo", false, "", "", EgressConfig{DNSMode: "egress", DNSServer: silentDNS.LocalAddr().String() + "," + dnsSocket.LocalAddr().String()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +141,14 @@ func TestSOCKSUDPUsesConfiguredDNSAndPinnedClient(t *testing.T) {
 	}
 	select {
 	case <-queryReceived:
+		select {
+		case err := <-firstQuery:
+			if err != nil {
+				t.Fatal(err)
+			}
+		default:
+			t.Fatal("backup DNS used before the primary")
+		}
 	default:
 		t.Fatal("proxy did not query the configured DNS server")
 	}

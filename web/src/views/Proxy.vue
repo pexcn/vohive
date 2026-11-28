@@ -906,7 +906,7 @@ usePollingScheduler(() => fetchUpstream(), 10000, {
           v-if="instanceForm.dns_mode === 'egress'"
           label="DNS 服务器"
           name="dns_server"
-          supporting-text="可留空，使用可用的模组 DNS 或默认解析器。也可填写 IP 和端口。"
+          supporting-text="多个 IP 用逗号分隔，可附端口。留空时使用模组 DNS 或默认解析器。"
           :value="instanceForm.dns_server || ''"
           :disabled="saving || instanceLoading"
           @input="instanceForm.dns_server = fieldValue($event)"
