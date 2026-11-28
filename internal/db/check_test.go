@@ -1,15 +1,15 @@
 package db
 
 import (
-	"fmt"
+	"path/filepath"
 	"testing"
 )
 
 func TestCheckSchema(t *testing.T) {
-	Init("/root/.gemini/antigravity/vohive.db")
-	var m []map[string]interface{}
-	DB.Raw("PRAGMA table_info(managed_devices)").Scan(&m)
-	for _, row := range m {
-		fmt.Println(row["name"])
+	if err := Init(filepath.Join(t.TempDir(), "vohive.db")); err != nil {
+		t.Fatal(err)
+	}
+	if !DB.Migrator().HasTable(&Device{}) {
+		t.Fatal("device table is missing from a fresh database")
 	}
 }
