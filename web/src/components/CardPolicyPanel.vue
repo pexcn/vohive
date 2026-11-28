@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import type { CardPolicy } from '../types/api'
 import { cardsService } from '../services/cards'
 import { notify } from '../stores/feedback'
-import { fieldValue } from '../utils/material'
+import { fieldSelected, fieldValue } from '../utils/material'
 import { cardConnectionMode, type ConnectionMode } from '../utils/cardPolicy'
 import SvgIcon from './SvgIcon.vue'
 import SensitiveText from './SensitiveText.vue'
@@ -14,13 +14,14 @@ import expandIcon from '@material-symbols/svg-400/outlined/keyboard_arrow_down.s
 type PolicyDraft = Pick<
   CardPolicy,
   'network_enabled' | 'vowifi_enabled' | 'airplane_enabled' | 'ip_version' | 'apn'
->
+> & { volte_enabled: boolean }
 const props = withDefaults(
   defineProps<{
     deviceId?: string
     iccid?: string
     cardName?: string
     deviceOnline: boolean
+    supportsVolte?: boolean
     isActiveCard?: boolean
     isVisible?: boolean
     esimSwitching?: boolean
@@ -42,6 +43,7 @@ const policy = ref<CardPolicy | null>(null)
 const draft = ref<PolicyDraft>({
   network_enabled: false,
   vowifi_enabled: false,
+  volte_enabled: false,
   airplane_enabled: false,
   ip_version: 'v4',
   apn: ''
@@ -56,6 +58,8 @@ let generation = 0
 const dirty = computed(() => !!policy.value && JSON.stringify(draft.value) !== baseline.value)
 const locked = computed(() => !policy.value || loading.value || saving.value || props.esimSwitching)
 const mode = computed(() => cardConnectionMode(draft.value))
+const canUseVolte = computed(() => mode.value === 'standby' || mode.value === 'network')
+const showVolte = computed(() => canUseVolte.value && (props.supportsVolte || draft.value.volte_enabled))
 const applyNow = computed(() => props.isActiveCard && props.deviceOnline && !!props.deviceId)
 watch(mode, value => { dataExpanded.value = value === 'network' })
 const modeHelp = computed(
@@ -72,6 +76,7 @@ function readDraft(p: CardPolicy): PolicyDraft {
   return {
     network_enabled: p.network_enabled,
     vowifi_enabled: p.vowifi_enabled,
+    volte_enabled: p.volte_enabled === true,
     airplane_enabled: p.airplane_enabled,
     ip_version: p.ip_version || 'v4',
     apn: p.apn || ''
@@ -89,6 +94,7 @@ function selectMode(value: ConnectionMode) {
   Object.assign(draft.value, {
     network_enabled: value === 'network',
     vowifi_enabled: value === 'vowifi',
+    volte_enabled: (value === 'network' || value === 'standby') && draft.value.volte_enabled,
     airplane_enabled: value === 'airplane'
   })
 }
@@ -225,6 +231,22 @@ onBeforeUnmount(() => {
         </div>
       </fieldset>
       <p class="policy-mode-help">{{ modeHelp }}</p>
+      <template v-if="showVolte">
+        <label class="m3-switch-row">
+          <span>用户态 VoLTE</span>
+          <md-switch
+            v-sync-switch
+            aria-label="用户态 VoLTE"
+            :aria-describedby="`${id}-volte-help`"
+            :selected="draft.volte_enabled"
+            :disabled="locked"
+            @change="draft.volte_enabled = fieldSelected($event)"
+          />
+        </label>
+        <p :id="`${id}-volte-help`" class="policy-mode-help">
+          通过蜂窝网络接入 IMS 通话。需要支持 QMAP 的 QMI 模组，首次启用时数据连接可能短暂重拨。
+        </p>
+      </template>
       <div class="policy-data">
         <button
           class="policy-data-toggle"

@@ -37,6 +37,8 @@ export type RealtimeTrafficSnapshot = {
 }
 
 export type VoWiFiRuntimeState = {
+  ims_access?: 'vowifi' | 'volte'
+  bearer_ready?: boolean
   device_id?: string
   dataplane_mode?: string
   sim_ready?: boolean
@@ -332,6 +334,7 @@ export type SMSContact = {
 
 export type CardPolicy = {
   iccid: string
+  volte_enabled?: boolean
   network_enabled: boolean
   vowifi_enabled: boolean
   airplane_enabled: boolean

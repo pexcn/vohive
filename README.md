@@ -32,6 +32,15 @@ VoHive 把模组热插拔管理、SOCKS5/HTTP 代理编排、短信收发、VoWi
 - **Database**:SQLite(`vohive.db`)
 - **CI/CD**:GitHub Actions 自动化多架构 Docker 镜像构建与发布
 
+## 用户态 VoLTE
+
+在 QMI 设备的 SIM 卡设置中选择仅驻网或蜂窝数据，即可打开用户态 VoLTE。也可以通过 `PUT /api/cards/{iccid}/policy` 启用。请求体示例为
+`{"volte_enabled":true,"airplane_enabled":false,"apply_device_id":"你的设备 ID"}`。
+`volte_enabled` 随 ICCID 保存。VoLTE 和 VoWiFi 共用 IMS 会话，切换时先关闭旧会话。
+`volte_enabled:false` 可关闭 VoLTE。
+
+VoLTE 需要支持 QMAP 的 QMI 模组、能建立 IMS 专用 APN 的 SIM 和容器网络管理权限。首次切换至 QMAP 时，已有的普通数据连接可能重新拨号。IMS 在独立的 mux 中使用运营商下发的地址与 P-CSCF，普通数据仍使用独立的默认数据承载。`ims_access` 和 `bearer_ready` 可从设备运行态读取。IMS 完成注册后使用现有通话接口。
+
 ## LICENSE
 
 本项目基于 [PolyForm Noncommercial License 1.0.0](LICENSE) 开源。

@@ -9,6 +9,7 @@ const props = defineProps<{
   card: { deviceId: string; iccid: string; name: string } | null
   isActiveCard: boolean
   deviceOnline: boolean
+  supportsVolte?: boolean
   esimSwitching?: boolean
   concealIccid?: boolean
 }>()
@@ -54,6 +55,7 @@ function onPolicyChanged(policy: CardPolicy, applyError: string) {
         :iccid="shownCard.iccid"
         :card-name="shownCard.name"
         :device-online="deviceOnline"
+        :supports-volte="supportsVolte"
         :is-active-card="isActiveCard"
         :esim-switching="esimSwitching"
         :conceal-iccid="concealIccid"

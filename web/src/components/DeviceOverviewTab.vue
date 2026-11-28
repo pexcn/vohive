@@ -89,7 +89,7 @@ const signalColor = computed<'green' | 'amber' | 'red' | 'gray'>(() => {
 })
 
 const flightModeEnabled = computed(() => {
-  if (props.device?.vowifi_active) return true
+  if (props.device?.vowifi_active && props.device.vowifi_runtime?.ims_access !== 'volte') return true
   const mode = props.device?.modem?.operating_mode
   return mode === 0 || mode === 4
 })
@@ -246,6 +246,11 @@ const networkPanelMessage = computed(() => {
           </div>
         </dl>
         <div class="overview-fields">
+          <FieldRow
+            v-if="device?.vowifi_runtime?.ims_access === 'volte'"
+            label="VoLTE"
+            :value="device.vowifi_runtime.ims_ready ? 'IMS 已注册' : device.vowifi_runtime.last_error || '等待 IMS 注册'"
+          />
           <FieldRow
             label="网络模式"
             :value="

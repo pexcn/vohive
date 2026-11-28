@@ -1390,6 +1390,7 @@ usePollingScheduler(async () => {
     :card="cardSettings"
     :is-active-card="editingActiveCard"
     :device-online="selectedDevice?.running === true"
+    :supports-volte="selectedDevice?.backend_mode === 'qmi'"
     :esim-switching="selectedDevice?.esim_switching === true"
     :conceal-iccid="!showSensitive"
     @close="cardSettings = null"
