@@ -53,7 +53,7 @@ func (p *Pool) handleVoWiFiStartupError(traceID, deviceID, runtimeEPDGOverride s
 }
 
 func (p *Pool) restoreNetworkAfterVoWiFiStartupFailure(traceID, deviceID string, w *Worker) {
-	if w == nil {
+	if w == nil || w.voLTERequested() {
 		return
 	}
 	if w.radioMustStayOff() {

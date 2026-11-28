@@ -95,6 +95,7 @@ func (m *Manager) StartRuntime(ctx context.Context, req RuntimeStartRequest) (Ru
 	}
 
 	inst, err := m.runtimeStarter()(ctx, runtimehost.StartRequest{
+		OpenIMSBearer: req.Prepared.OpenIMSBearer,
 		Mode:          runtimehost.StartModeMain,
 		DeviceID:      deviceID,
 		TraceID:       strings.TrimSpace(req.TraceID),

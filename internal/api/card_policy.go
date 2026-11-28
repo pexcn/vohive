@@ -66,6 +66,7 @@ func (s *Server) handlePutCardPolicy(c *gin.Context) {
 	var req struct {
 		NetworkEnabled  *bool   `json:"network_enabled"`
 		VoWiFiEnabled   *bool   `json:"vowifi_enabled"`
+		VoLTEEnabled    *bool   `json:"volte_enabled"`
 		AirplaneEnabled *bool   `json:"airplane_enabled"`
 		IPVersion       string  `json:"ip_version"`
 		APN             *string `json:"apn"`
@@ -98,9 +99,24 @@ func (s *Server) handlePutCardPolicy(c *gin.Context) {
 	if req.VoWiFiEnabled != nil {
 		pol.VoWiFiEnabled = *req.VoWiFiEnabled
 	}
+	if req.VoLTEEnabled != nil {
+		pol.VoLTEEnabled = *req.VoLTEEnabled
+		if pol.VoLTEEnabled {
+			if req.VoWiFiEnabled != nil && *req.VoWiFiEnabled {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "VoWiFi 和用户态 VoLTE 只能启用一种"})
+				return
+			}
+			pol.VoWiFiEnabled = false
+		}
+	}
 	if req.AirplaneEnabled != nil {
 		pol.AirplaneEnabled = *req.AirplaneEnabled
 	}
+	if req.VoLTEEnabled != nil && *req.VoLTEEnabled && pol.AirplaneEnabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "启用用户态 VoLTE 需要关闭飞行模式"})
+		return
+	}
+	db.NormalizeCardPolicy(&pol)
 	if req.IPVersion != "" {
 		pol.IPVersion = req.IPVersion
 	}

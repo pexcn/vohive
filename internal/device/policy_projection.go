@@ -46,7 +46,10 @@ func (p *Pool) ApplySavedCardPolicy(deviceID, iccid string) error {
 	if db.CanonicalICCID(pol.ICCID) != db.CanonicalICCID(iccid) {
 		return fmt.Errorf("当前 SIM 卡已变化，请刷新后重试")
 	}
-	if !pol.VoWiFiEnabled && (p.IsVoWiFiActive(deviceID) || p.voWiFiHost().Starting(deviceID)) {
+	w := p.GetWorker(deviceID)
+	volte := pol.VoLTEEnabled && !pol.VoWiFiEnabled && !pol.AirplaneEnabled
+	if (!pol.IMSRequested() || w.voLTERequested() != volte) &&
+		(p.IsVoWiFiActive(deviceID) || p.voWiFiHost().Starting(deviceID)) {
 		if err := p.voWiFiHost().Disable(p.ctx, deviceID, "card_policy_saved", false); err != nil {
 			return err
 		}
@@ -57,6 +60,9 @@ func (p *Pool) ApplySavedCardPolicy(deviceID, iccid string) error {
 	result := p.resolveAndApplyPolicy(p.GetWorker(deviceID), "card_policy_saved")
 	if result.Err != nil {
 		return result.Err
+	}
+	if volte && (w == nil || w.QMICore == nil) {
+		return fmt.Errorf("当前设备无法建立 QMI IMS 专用数据承载")
 	}
 	if !result.Applied || db.CanonicalICCID(result.ICCID) != db.CanonicalICCID(iccid) {
 		return fmt.Errorf("设备未能应用当前卡设置，请稍后重试")
@@ -80,6 +86,7 @@ func applyPolicyToWorker(w *Worker, p cardpolicy.Policy) bool {
 	w.networkPolicyICCID = strings.TrimSpace(p.ICCID)
 	w.Config.NetworkEnabled = p.NetworkEnabled
 	w.Config.VoWiFiEnabled = p.VoWiFiEnabled
+	w.Config.VoLTEEnabled = p.VoLTEEnabled && !p.VoWiFiEnabled && !p.AirplaneEnabled
 	w.Config.AirplaneEnabled = p.AirplaneEnabled
 	if p.VoWiFiEnabled {
 		w.Config.AirplaneEnabled = true
@@ -122,7 +129,7 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 		return policyApplyResult{ICCID: iccid, Reason: "identity_changed"}
 	}
 	logger.Info("已投影卡策略", "device", worker.ID, "iccid", iccid,
-		"network", pol.NetworkEnabled, "vowifi", pol.VoWiFiEnabled,
+		"network", pol.NetworkEnabled, "vowifi", pol.VoWiFiEnabled, "volte", worker.voLTERequested(),
 		"airplane", worker.Config.AirplaneEnabled, "reason", reason)
 
 	// 三态分支：VoWiFi / 纯飞行 / 在线(含连网)。射频模式按策略真正切换，
@@ -148,7 +155,7 @@ func (p *Pool) resolveAndApplyPolicy(worker *Worker, reason string) policyApplyR
 			}
 		}
 	}
-	if pol.VoWiFiEnabled {
+	if pol.IMSRequested() && (!worker.voLTERequested() || worker.QMICore != nil) {
 		p.scheduleDesiredVoWiFiRecover(worker.ID, reason, time.Now())
 	} else {
 		p.clearDesiredVoWiFiRecoverState(worker.ID)

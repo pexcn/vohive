@@ -79,6 +79,9 @@ func (p *Pool) shouldReconcileVoWiFiForReason(w *Worker, reason string) bool {
 		return false
 	}
 
+	if w.voLTERequested() && w.QMICore == nil {
+		return false
+	}
 	if !p.voWiFiHost().DesiredRecoverable(deviceID) {
 		return false
 	}
@@ -101,7 +104,7 @@ func (p *Pool) shouldReconcileVoWiFiForReason(w *Worker, reason string) bool {
 		return false
 	}
 	mcc, _, _ := vowifiProfileMCCMNC(status)
-	if mcc != "" && carrier.IsVoWiFiBlockedMCC(mcc) {
+	if !w.voLTERequested() && mcc != "" && carrier.IsVoWiFiBlockedMCC(mcc) {
 		p.clearDesiredVoWiFiRecoverState(deviceID)
 		logger.Warn("VoWiFi 目标态恢复跳过：MCC 策略禁止", "event", "VOWIFI_DESIRED_RECOVER_SKIPPED_POLICY", "device", deviceID, "mcc", formatVoWiFiPLMN3(mcc), "imsi", imsi)
 		return false
@@ -165,7 +168,7 @@ func (p *Pool) currentCardPolicyAllowsVoWiFi(w *Worker, statusICCID, reason stri
 			"err", err)
 		return false
 	}
-	if !pol.VoWiFiEnabled {
+	if !pol.IMSRequested() {
 		p.clearDesiredVoWiFiRecoverState(deviceID)
 		// logger.Info("VoWiFi 目标态恢复跳过：当前卡策略未开启 VoWiFi",
 		// 	"event", "VOWIFI_DESIRED_RECOVER_SKIPPED_CARD_POLICY",

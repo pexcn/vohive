@@ -133,12 +133,17 @@ func (p *Pool) prepareVoWiFiStartContext(deviceID, traceID, runtimeEPDGOverride 
 		return startCtx, fmt.Errorf("设备 %s 不存在", deviceID)
 	}
 	startCtx.worker = w
-	if err := w.stopCellularRegistration(p.Context()); err != nil {
-		return startCtx, fmt.Errorf("等待后台驻网退出失败: %w", err)
+	volte := w.voLTERequested()
+	if volte && w.QMICore == nil {
+		return startCtx, fmt.Errorf("用户态 VoLTE 需要 QMI IMS 专用数据承载")
 	}
-
-	if err := w.ensureRadioOff(p.Context()); err != nil {
-		return startCtx, err
+	if !volte {
+		if err := w.stopCellularRegistration(p.Context()); err != nil {
+			return startCtx, fmt.Errorf("等待后台驻网退出失败: %w", err)
+		}
+		if err := w.ensureRadioOff(p.Context()); err != nil {
+			return startCtx, err
+		}
 	}
 
 	modemIface, errModemIface := newVoWiFiModemInterface(w, deviceID)
@@ -197,7 +202,7 @@ func (p *Pool) prepareVoWiFiStartContext(deviceID, traceID, runtimeEPDGOverride 
 	}
 	startCtx.SIM = runtimehost.NewReaderSIMAdapter(akaProvider)
 
-	if carrier.IsVoWiFiBlockedMCC(startProfile.MCC) {
+	if !volte && carrier.IsVoWiFiBlockedMCC(startProfile.MCC) {
 		err := carrier.NewVoWiFiBlockedMCCError(startProfile.MCC)
 		logger.Warn("VoWiFi 启动被运营商策略拦截",
 			"trace_id", traceID,
@@ -215,6 +220,7 @@ func (p *Pool) prepareVoWiFiStartContext(deviceID, traceID, runtimeEPDGOverride 
 		Profile:             startProfile,
 		RuntimeEPDGOverride: runtimeEPDGOverride,
 		Access:              runtimehost.NewModemAccessAdapter(modemIface),
+		Cellular:            volte,
 	})
 	if errPrepare != nil {
 		logger.Warn("VoWiFi 启动画像准备失败",
@@ -237,6 +243,20 @@ func (p *Pool) prepareVoWiFiStartContext(deviceID, traceID, runtimeEPDGOverride 
 		"actual_source", prepared.IMSIdentity.ActualSource,
 		"aka_app_preference", prepared.IMSIdentity.AKAAppPreference,
 		"applied", prepared.IMSIdentity.Applied)
+
+	if volte {
+		if db.CanonicalICCID(startProfile.ICCID) == "" || db.CanonicalICCID(startProfile.ICCID) != db.CanonicalICCID(w.CurrentICCID()) {
+			return startCtx, fmt.Errorf("VoLTE 启动期间 SIM 身份发生变化")
+		}
+		startCtx.OpenIMSBearer = func(ctx context.Context) (runtimehost.IMSBearer, error) {
+			return p.openVoLTEIMSBearer(ctx, w, startProfile.ICCID, prepared.EffectiveCarrier.Parameters)
+		}
+		startCtx.NetworkMode = modemIface.GetNetworkMode()
+		startCtx.StartupState = newVoWiFiSIMReadyStartupState(deviceID, swu.DataplaneModeUserspace, startCtx.NetworkMode, time.Now())
+		startCtx.StartupState.IMSAccess = runtimehost.IMSAccessLTE
+		p.recordVoWiFiStartupState(deviceID, startCtx.StartupState)
+		return startCtx, nil
+	}
 
 	if nc := w.NetworkController(); nc != nil {
 		w.restoreNetworkAfterVoWiFi = w.Config.NetworkEnabled

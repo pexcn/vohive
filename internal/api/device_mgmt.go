@@ -428,6 +428,8 @@ type deviceMgmtListItem struct {
 }
 
 type voWiFiRuntimeDTO struct {
+	IMSAccess      string    `json:"ims_access,omitempty"`
+	BearerReady    bool      `json:"bearer_ready"`
 	DeviceID       string    `json:"device_id"`
 	Phase          string    `json:"phase"`
 	DataplaneMode  string    `json:"dataplane_mode"`
@@ -449,6 +451,8 @@ type voWiFiRuntimeDTO struct {
 
 func runtimeStateToDTO(st runtimehost.State, status modem.DeviceStatus) *voWiFiRuntimeDTO {
 	return &voWiFiRuntimeDTO{
+		IMSAccess:      st.IMSAccess,
+		BearerReady:    st.BearerReady,
 		DeviceID:       st.DeviceID,
 		Phase:          string(st.Phase),
 		DataplaneMode:  st.DataplaneMode,

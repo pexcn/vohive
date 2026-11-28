@@ -829,6 +829,47 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorMessage'
 
+  /cards/{iccid}/policy:
+    put:
+      tags: [devices]
+      summary: 保存 SIM 卡策略
+      description: 启用用户态 VoLTE 时会关闭该卡的 VoWiFi 意图。提供 apply_device_id 可立即应用到当前使用该卡的设备。
+      parameters:
+        - in: path
+          name: iccid
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                network_enabled:
+                  type: boolean
+                vowifi_enabled:
+                  type: boolean
+                volte_enabled:
+                  type: boolean
+                airplane_enabled:
+                  type: boolean
+                apn:
+                  type: string
+                ip_version:
+                  type: string
+                  enum: [v4, v6, v4v6]
+                apply_device_id:
+                  type: string
+      responses:
+        '200':
+          description: 返回已保存的卡策略。运行态应用失败时包含 apply_error。
+        '400':
+          $ref: '#/components/responses/ErrorMessage'
+        '409':
+          $ref: '#/components/responses/ErrorMessage'
+
   /devices/{device_id}/actions/ussd/session:
     get:
       tags: [devices]

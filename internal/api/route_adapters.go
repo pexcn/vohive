@@ -1,11 +1,13 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/iniwex5/vohive/internal/db"
+	"github.com/iniwex5/vowifi-go/runtimehost"
 )
 
 type enabledPatchRequest struct {
@@ -65,7 +67,19 @@ func (s *Server) handleDeviceVoWiFiPatch(c *gin.Context) {
 	if *req.Enabled {
 		// 落库：仅置 vowifi_enabled=true。不碰 airplane_enabled——它是用户的纯飞行
 		// 意图，作为关闭 VoWiFi 后的回退依据；VoWiFi 接管射频由运行时投影派生。
-		s.patchCardPolicyForDevice(deviceID, vowifiEnablePolicyMutation)
+		iccid, applied, err := s.patchCardPolicyForDevice(deviceID, vowifiEnablePolicyMutation)
+		if st, ok := s.pool.GetVoWiFiRuntimeState(deviceID); ok && st.IMSAccess == runtimehost.IMSAccessLTE {
+			if err == nil && applied {
+				err = s.pool.ApplySavedCardPolicy(deviceID, iccid)
+			}
+			if err != nil || !applied {
+				if err == nil {
+					err = fmt.Errorf("当前 SIM 身份不可用")
+				}
+				c.JSON(http.StatusConflict, gin.H{"status": "error", "message": err.Error()})
+				return
+			}
+		}
 		// 同步 w.Config，使概览即时切到 VoWiFi 模式面板（EnableVoWiFi 不碰 Config）。
 		s.pool.SetWorkerVoWiFiPolicy(deviceID, true)
 		s.handleVoWiFiEnable(c)

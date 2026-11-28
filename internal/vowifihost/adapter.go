@@ -11,13 +11,14 @@ import (
 )
 
 type PreparedStart struct {
-	Profile      identity.Profile
-	Prepared     identity.PreparedSession
-	Modem        runtimehost.Modem
-	SIM          runtimehost.SIMAdapter // optional override; when nil, derived from Modem APDU
-	Proxy        *runtimehost.ProxyConfig
-	NetworkMode  string
-	StartupState runtimehost.State
+	OpenIMSBearer func(context.Context) (runtimehost.IMSBearer, error)
+	Profile       identity.Profile
+	Prepared      identity.PreparedSession
+	Modem         runtimehost.Modem
+	SIM           runtimehost.SIMAdapter // optional override; when nil, derived from Modem APDU
+	Proxy         *runtimehost.ProxyConfig
+	NetworkMode   string
+	StartupState  runtimehost.State
 }
 
 type Adapter interface {

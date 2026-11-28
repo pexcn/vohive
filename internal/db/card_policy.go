@@ -14,6 +14,7 @@ type CardPolicy struct {
 	ICCID           string    `gorm:"column:iccid;primaryKey" json:"iccid"`
 	NetworkEnabled  bool      `gorm:"column:network_enabled" json:"network_enabled"`
 	VoWiFiEnabled   bool      `gorm:"column:vowifi_enabled" json:"vowifi_enabled"`
+	VoLTEEnabled    bool      `gorm:"column:volte_enabled;default:false" json:"volte_enabled"`
 	AirplaneEnabled bool      `gorm:"column:airplane_enabled" json:"airplane_enabled"`
 	IPVersion       string    `gorm:"column:ip_version" json:"ip_version"`
 	APN             string    `gorm:"column:apn" json:"apn"`
@@ -57,6 +58,9 @@ func NormalizeCardPolicy(p *CardPolicy) {
 		return
 	}
 	p.ICCID = CanonicalICCID(p.ICCID)
+	if p.VoWiFiEnabled {
+		p.VoLTEEnabled = false
+	}
 	switch strings.TrimSpace(p.IPVersion) {
 	case "v4", "v6", "v4v6":
 		p.IPVersion = strings.TrimSpace(p.IPVersion)
@@ -101,6 +105,7 @@ func UpsertCardPolicy(p CardPolicy) error {
 		DoUpdates: clause.Assignments(map[string]any{
 			"network_enabled":  p.NetworkEnabled,
 			"vowifi_enabled":   p.VoWiFiEnabled,
+			"volte_enabled":    p.VoLTEEnabled,
 			"airplane_enabled": p.AirplaneEnabled,
 			"ip_version":       p.IPVersion,
 			"apn":              p.APN,

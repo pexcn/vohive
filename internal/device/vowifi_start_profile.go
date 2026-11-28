@@ -124,35 +124,74 @@ func (p *Pool) buildVoWiFiStartProfile(worker *Worker, traceID string) (identity
 		}
 	}
 	if cardVerified {
-		refreshPreferredVoWiFiHomeIdentity(liveCtx, worker, reader, &profile)
+		p.prepareCarrierIdentities(worker, reader, &profile)
 	}
 	return profile, nil
 }
 
-func refreshPreferredVoWiFiHomeIdentity(ctx context.Context, worker *Worker, reader liveSIMIdentityReader, profile *identity.Profile) {
+func (p *Pool) prepareCarrierIdentities(worker *Worker, reader liveSIMIdentityReader, profile *identity.Profile) {
 	cfg, err := carrier.ResolveCarrierConfigForSIM(carrier.EffectiveCarrierConfigInput{
 		MCC: profile.MCC, MNC: profile.MNC, IMSI: profile.IMSI, ICCID: profile.ICCID,
 		SPN: profile.SPN, GID1: profile.GID1, GID2: profile.GID2,
 	})
+	if err != nil {
+		return
+	}
+	if format := cfg.Parameters.IMSPublicIdentityFormat; format == "msisdn" || format == "+msisdn" {
+		ctx, cancel := context.WithTimeout(p.Context(), 3*time.Second)
+		profile.MSISDN, _ = db.GetPhoneNumberByIMSIOrICCID(profile.IMSI, profile.ICCID)
+		if profile.MSISDN == "" {
+			number, err := worker.Backend.GetMSISDN(ctx)
+			if iccid, cardErr := reader.GetICCIDLive(ctx); err == nil && cardErr == nil && db.CanonicalICCID(iccid) == profile.ICCID {
+				profile.MSISDN = number
+			}
+		}
+		cancel()
+	}
 	plmn := cfg.VoWiFiHomePLMN
-	if err != nil || !strings.EqualFold(strings.TrimSpace(cfg.VoWiFiIMSI), "capture") || plmn == "" ||
-		strings.HasPrefix(profile.HomeIMSI, plmn) || !strings.HasPrefix(profile.IMSI, plmn) {
+	if worker.voLTERequested() || !strings.EqualFold(strings.TrimSpace(cfg.VoWiFiIMSI), "capture") ||
+		(len(plmn) != 5 && len(plmn) != 6) || strings.HasPrefix(profile.HomeIMSI, plmn) {
 		return
 	}
-	mcc, mnc, err := worker.Backend.GetNativeMCCMNC(ctx)
-	if err != nil || strings.TrimSpace(mcc)+strings.TrimSpace(mnc) != plmn {
-		return
+	if imsi := p.observeVoWiFiHomeIMSI(worker, reader, profile, plmn); imsi != "" {
+		profile.HomeIMSI = imsi
 	}
-	if iccid, err := reader.GetICCIDLive(ctx); err != nil || db.CanonicalICCID(iccid) != profile.ICCID {
-		return
+}
+
+// Observe only while the same card is in low power. A home-prefix IMSI
+// must be followed by a live ICCID confirmation before persistence.
+func (p *Pool) observeVoWiFiHomeIMSI(worker *Worker, reader liveSIMIdentityReader, profile *identity.Profile, plmn string) string {
+	ctx, cancel := context.WithTimeout(p.Context(), 5*time.Second)
+	defer cancel()
+	for attempt := 0; attempt < 4; attempt++ {
+		if ctx.Err() != nil || p.IsESIMSwitching(worker.ID) {
+			return ""
+		}
+		mode, err := worker.Backend.GetOperatingMode(ctx)
+		if err != nil || !isFlightOperatingMode(mode) {
+			return ""
+		}
+		imsi, err := reader.GetIMSILive(ctx)
+		if err == nil {
+			imsi, err = backend.NormalizeIMSI(imsi)
+			if err == nil && strings.HasPrefix(imsi, plmn) {
+				iccid, err := reader.GetICCIDLive(ctx)
+				if err == nil && db.CanonicalICCID(iccid) == profile.ICCID && !p.IsESIMSwitching(worker.ID) {
+					if err := db.RecordPreferredSIMHomeIdentity(profile.ICCID, imsi, plmn[:3], plmn[3:]); err != nil {
+						logger.Debug("保存运营商所需的 SIM 归属身份失败", "err", err)
+					}
+					return imsi
+				}
+				if err == nil && db.CanonicalICCID(iccid) != "" {
+					return ""
+				}
+			}
+		}
+		if attempt < 3 && sleepQMIRegistrationPoll(ctx, 500*time.Millisecond) != nil {
+			return ""
+		}
 	}
-	if err := db.RecordPreferredSIMHomeIdentity(profile.ICCID, profile.IMSI, mcc, mnc); err != nil {
-		logger.Debug("保存运营商所需的 SIM 归属身份失败", "err", err)
-		return
-	}
-	if home, err := db.GetSIMHomeIdentity(profile.ICCID); err == nil {
-		profile.HomeIMSI = home.IMSI
-	}
+	return ""
 }
 
 func buildVoWiFiRawProfile(imsi, mcc, mnc, imei, smsc string) identity.Profile {

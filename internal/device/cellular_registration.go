@@ -43,6 +43,9 @@ func (w *Worker) cellularRegistrationBlockedLocked(restoreSwitchSnapshot bool) b
 	if !restoreSwitchSnapshot && w.Pool.IsESIMSwitching(w.ID) {
 		return true
 	}
+	if w.Config.VoLTEEnabled {
+		return false
+	}
 	host := w.Pool.voWiFiHost()
 	return host.Active(w.ID) || host.Starting(w.ID)
 }
@@ -115,4 +118,13 @@ func (w *Worker) stopCellularRegistration(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+func (w *Worker) voLTERequested() bool {
+	if w == nil {
+		return false
+	}
+	w.registrationMu.Lock()
+	defer w.registrationMu.Unlock()
+	return w.Config.VoLTEEnabled && !w.Config.VoWiFiEnabled && !w.Config.AirplaneEnabled && !w.radioPolicyPending
 }

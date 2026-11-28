@@ -1898,6 +1898,7 @@ func (p *Pool) SetWorkerVoWiFiPolicy(deviceID string, vowifiEnabled bool) *Worke
 	defer w.registrationMu.Unlock()
 	w.Config.VoWiFiEnabled = vowifiEnabled
 	if vowifiEnabled {
+		w.Config.VoLTEEnabled = false
 		w.Config.AirplaneEnabled = true
 		w.Config.NetworkEnabled = false
 	}

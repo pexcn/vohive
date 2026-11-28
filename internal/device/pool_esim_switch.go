@@ -1029,7 +1029,7 @@ func (p *Pool) handleESIMSwitchFailure(deviceID string, token uint64, commandNot
 		"network_enabled_before", snapshot.NetworkEnabledBefore)
 	p.restoreRadioDataForSwitchSnapshot(deviceID, worker, snapshot, "switch_failed", false)
 	p.broadcastVoWiFiStateChange(deviceID)
-	if restoredIdentity && worker.Config.VoWiFiEnabled {
+	if restoredIdentity && (worker.Config.VoWiFiEnabled || worker.voLTERequested()) {
 		p.scheduleDesiredVoWiFiRecover(deviceID, "switch_prepare_failed", time.Now())
 	}
 }
@@ -1080,14 +1080,17 @@ func (p *Pool) handleESIMSwitchAfter(deviceID string, token uint64) {
 	if !ok {
 		return
 	}
+	finalizeOK := false
 	defer func() {
 		if snapshot.SwitchToken != 0 {
 			p.clearESIMSwitchIfToken(deviceID, snapshot.SwitchToken)
-			return
+		} else {
+			p.clearESIMSwitch(deviceID)
 		}
-		p.clearESIMSwitch(deviceID)
+		if w := p.GetWorker(deviceID); finalizeOK && w.voLTERequested() && p.shouldReconcileVoWiFi(w) {
+			p.scheduleDesiredVoWiFiRecover(deviceID, "post_switch_volte", time.Now())
+		}
 	}()
-	finalizeOK := false
 	defer func() {
 		if finalizeOK {
 			p.markESIMSwitchPhaseIfToken(deviceID, token, esim.SwitchPhaseDone)

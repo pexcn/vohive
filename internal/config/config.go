@@ -171,6 +171,7 @@ type DeviceConfig struct {
 	NetworkEnabled  bool   `mapstructure:"-"`
 	IPVersion       string `mapstructure:"-"`
 	VoWiFiEnabled   bool   `mapstructure:"-"`
+	VoLTEEnabled    bool   `mapstructure:"-"`
 	AirplaneEnabled bool   `mapstructure:"-"`
 	SMSEnabled      bool   `mapstructure:"-"` // SMS 恒开，运行时强制 true
 

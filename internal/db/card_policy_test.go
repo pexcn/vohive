@@ -4,8 +4,6 @@ import (
 	"testing"
 )
 
-
-
 func TestCardPolicyTableMigrated(t *testing.T) {
 	openTestDB(t)
 	if !DB.Migrator().HasTable(&CardPolicy{}) {
@@ -102,5 +100,26 @@ func TestGetCardPolicyMissing(t *testing.T) {
 	openTestDB(t)
 	if _, err := GetCardPolicy("nope"); err == nil {
 		t.Fatal("缺失应报错")
+	}
+}
+
+func TestVoLTECardPolicyPersistsAndVoWiFiTakesPriority(t *testing.T) {
+	openTestDB(t)
+	const iccid = "8944000000000000123"
+	p := CardPolicy{ICCID: iccid, VoLTEEnabled: true, NetworkEnabled: true}
+	if err := UpsertCardPolicy(p); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := (CardPolicyResolver{}).Resolve(iccid)
+	if err != nil || !resolved.VoLTEEnabled || !resolved.NetworkEnabled || !resolved.IMSRequested() {
+		t.Fatalf("saved VoLTE policy = %+v, %v", resolved, err)
+	}
+	p.VoWiFiEnabled = true
+	if err := UpsertCardPolicy(p); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = (CardPolicyResolver{}).Resolve(iccid)
+	if err != nil || resolved.VoLTEEnabled || !resolved.VoWiFiEnabled {
+		t.Fatalf("saved WiFi policy = %+v, %v", resolved, err)
 	}
 }

@@ -265,3 +265,16 @@ func TestApplySavedCardPolicyReportsNetworkFailure(t *testing.T) {
 		t.Fatal("missing data-plane capability must not be reported as applied")
 	}
 }
+
+func TestVoLTEProjectsOnlineWithNormalCellularRegistration(t *testing.T) {
+	w := &Worker{ID: "volte-device"}
+	w.state.Identity.ICCID = "test-iccid"
+	pol := cardpolicy.Policy{ICCID: "test-iccid", VoLTEEnabled: true, NetworkEnabled: true}
+	if !applyPolicyToWorker(w, pol) || !w.voLTERequested() || !w.Config.NetworkEnabled || w.radioMustStayOff() || w.cellularRegistrationBlocked() {
+		t.Fatalf("VoLTE must permit the default cellular data session: %+v", w.Config)
+	}
+	pol.AirplaneEnabled = true
+	if !applyPolicyToWorker(w, pol) || w.voLTERequested() || !w.radioMustStayOff() {
+		t.Fatalf("airplane mode failed to suspend VoLTE: %+v", w.Config)
+	}
+}
