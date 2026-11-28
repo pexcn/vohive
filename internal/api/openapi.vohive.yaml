@@ -248,6 +248,54 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorMessage'
 
+  /sip-bridge/status:
+    get:
+      tags: [sms]
+      summary: 查看 SIP 短信桥接与注册状态
+      responses:
+        '200':
+          description: 桥接与账号注册状态
+
+  /sip-bridge/sms/pending:
+    get:
+      tags: [sms]
+      summary: 查看待处理或需要核对的 SIP 短信任务
+      responses:
+        '200':
+          description: 待处理任务
+
+  /sip-bridge/sms/{message_id}:
+    parameters:
+      - in: path
+        name: message_id
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [sms]
+      summary: 查询 SIP 短信任务
+      responses:
+        '200':
+          description: 任务状态
+        '404':
+          $ref: '#/components/responses/ErrorMessage'
+
+  /sip-bridge/sms/{message_id}/retry:
+    parameters:
+      - in: path
+        name: message_id
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [sms]
+      summary: 重试发送给 SIP 客户端的短信
+      responses:
+        '202':
+          description: 已重新排队
+        '409':
+          $ref: '#/components/responses/ErrorMessage'
+
   /sms/delivery/{message_id}:
     get:
       tags: [sms]

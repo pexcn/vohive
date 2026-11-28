@@ -54,6 +54,32 @@ vowifi:
 
 服务只请求归属 PLMN 对应的选择清单和匹配的画像，IMSI、ICCID、SPN、GID 在本机匹配。成功获取的文件保存在 `data/carrier-profiles-cache/`，云端不可用时可继续读缓存。显式配置的 ePDG 备用地址沿用该设备的 VoWiFi SOCKS5 DNS 和出口设置。
 
+## SIP 短信桥接
+
+启用后，软电话或 PBX 可以使用 UDP、Digest SHA-256 注册，并发送和接收纯文本 SIP MESSAGE。每个账号绑定一台模组。下面是配置示例，`advertise_host` 填写客户端能访问的 NAS 地址。
+
+```yaml
+sip_bridge:
+  enabled: true
+  listen_addr: 0.0.0.0:5060
+  advertise_host: 192.168.1.10
+  accounts:
+    - username: modem1
+      password: "<替换为该账号的密码>"
+      device_id: modem1
+      bearer: auto
+```
+
+不填写监听地址时只监听 `127.0.0.1:5060`。容器通过端口映射接入时需映射 UDP 端口。客户端用相同账号注册，将 MESSAGE 的 Request-URI 设置为 `sip:+88612345678@NAS地址`。`bearer` 支持 `auto`、`ims` 和 `cellular`，沿用 VoLTE 未就绪时的发送保护。
+
+客户端收到 SIP 202 后，可用响应里的 `X-VoHive-SMS-ID` 查询 `/api/sip-bridge/sms/{message_id}`。202 表示已入队，`submitted` 表示发往运营商的提交已完成。IMS 消息可用返回的 `phone_message_id` 查询现有投递状态接口。模组收到的短信在 SIP 客户端离线时保留，注册后自动投递。管理员可通过 `/api/sip-bridge/status`、`/api/sip-bridge/sms/pending` 查看状态，用 `POST /api/sip-bridge/sms/{message_id}/retry` 重试发给 SIP 客户端的任务。发往手机号的结果不明时，任务标记为 `unknown`，可先核对投递结果。
+
+## 代理出口和 DNS
+
+在代理实例设置中选择指定模组或 NAS 默认网络。旧实例继续使用原绑定模组和系统解析。对 HTTP 与 SOCKS5 都可选择让 DNS 随出口解析，并填写 DNS 服务器 IP 或 IP 加端口。模组若提供 DNS，会优先用于未填写服务器的实例。其它情况下使用默认解析器地址 `1.1.1.1:53`，IPv6-only 网络可填写可用的 IPv6 DNS。
+
+SOCKS5 支持 UDP ASSOCIATE，沿用实例出口与 DNS。UDP 转发可以逐实例关停。容器需要让客户端能访问 UDP 中继动态端口，Linux 部署可使用 host networking。VoWiFi 上游 SOCKS5 的 ePDG DNS 仍由卡的 VoWiFi 配置控制。
+
 ## LICENSE
 
 本项目基于 [PolyForm Noncommercial License 1.0.0](LICENSE) 开源。

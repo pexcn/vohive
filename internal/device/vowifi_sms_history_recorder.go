@@ -99,7 +99,7 @@ func (r vowifiSMSHistoryRecorder) RecordReceived(e eventhost.SMSReceived) (vowif
 		return vowifiSMSRecordResult{Duplicate: true}, nil
 	}
 
-	err = db.SaveSMSWithLocalPhone(imsi, localPhone, strings.TrimSpace(e.Sender), localPhone, e.Content, 1, 0, ts, r.bearer)
+	err = db.SaveReceivedSMSForDevice(e.DevID, imsi, localPhone, strings.TrimSpace(e.Sender), e.Content, ts, r.bearer)
 	if err != nil {
 		return vowifiSMSRecordResult{}, err
 	}

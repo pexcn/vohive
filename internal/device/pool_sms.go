@@ -460,7 +460,7 @@ func (w *Worker) processSMS(sender, content string, timestamp time.Time) {
 	}
 	imsi, _ = backend.NormalizeIMSI(imsi)
 	if imsi != "" {
-		if err := db.SaveSMS(imsi, sender, "", content, 1, 0, timestamp); err != nil {
+		if err := db.SaveReceivedSMSForDevice(w.ID, imsi, "", sender, content, timestamp, db.SMSBearerCellular); err != nil {
 			logger.Warn(fmt.Sprintf("[%s] 保存短信到数据库失败", w.ID), "err", err)
 		}
 	}

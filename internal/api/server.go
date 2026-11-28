@@ -27,6 +27,7 @@ import (
 	"github.com/iniwex5/vohive/internal/notify"
 	"github.com/iniwex5/vohive/internal/proxy/server"
 	proxytraffic "github.com/iniwex5/vohive/internal/proxy/traffic"
+	"github.com/iniwex5/vohive/internal/sipbridge"
 	vwebsheet "github.com/iniwex5/vohive/internal/websheet"
 	"github.com/iniwex5/vohive/pkg/smscodec"
 	"github.com/iniwex5/vowifi-go/runtimehost/messaging"
@@ -67,6 +68,7 @@ type loginAttempt struct {
 
 // Server 是 API 服务器的核心结构
 type Server struct {
+	sipBridge   *sipbridge.Bridge
 	cfg         config.ServerConfig // HTTP 服务器配置
 	fullCfg     *config.Config      // 完整配置引用
 	pool        *device.Pool        // 设备工作器池
@@ -275,6 +277,10 @@ func (s *Server) newRouter() *gin.Engine {
 		api.GET("/sms/queue/:queue_id", s.handleSMSQueueStatus)
 		api.POST("/sms/send", s.handleSendSMS)                    // 发送短信（自动选择 AT 或 VoWiFi）
 		api.GET("/sms/delivery/:message_id", s.handleSMSDelivery) // 查询发送投递状态
+		api.GET("/sip-bridge/status", s.handleSIPBridgeStatus)
+		api.GET("/sip-bridge/sms/pending", s.handleSIPBridgePending)
+		api.GET("/sip-bridge/sms/:message_id", s.handleSIPBridgeSMS)
+		api.POST("/sip-bridge/sms/:message_id/retry", s.handleSIPBridgeRetry)
 		api.GET("/sms/contacts", s.handleGetSMSContacts)          // 获取短信联系人列表
 		api.GET("/sms/thread", s.handleGetSMSThread)              // 获取与某联系人的短信会话
 		api.DELETE("/sms/messages/:id", s.handleDeleteSMSMessage) // 删除单条历史短信

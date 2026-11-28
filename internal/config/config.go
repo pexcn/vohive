@@ -75,17 +75,32 @@ type Config struct {
 	QQ       QQConfig       `mapstructure:"qq"`
 	Webhook  WebhookConfig  `mapstructure:"webhook"`
 
-	Bark     BarkConfig     `mapstructure:"bark"`
-	Email    EmailConfig    `mapstructure:"email"`
-	Pushplus PushplusConfig `mapstructure:"pushplus"`
-	Web      WebConfig      `mapstructure:"web"`
-	Proxy    ProxyConfig    `mapstructure:"proxy"`
-	VoWiFi   VoWiFiConfig   `mapstructure:"vowifi"`
+	Bark      BarkConfig      `mapstructure:"bark"`
+	Email     EmailConfig     `mapstructure:"email"`
+	Pushplus  PushplusConfig  `mapstructure:"pushplus"`
+	Web       WebConfig       `mapstructure:"web"`
+	Proxy     ProxyConfig     `mapstructure:"proxy"`
+	VoWiFi    VoWiFiConfig    `mapstructure:"vowifi"`
+	SIPBridge SIPBridgeConfig `mapstructure:"sip_bridge"`
 }
 
 // ProxyConfig 定义代理服务配置
 type ProxyConfig struct {
 	Instances []ProxyInstance `mapstructure:"instances"` // 代理实例列表
+}
+
+type SIPBridgeConfig struct {
+	Enabled       bool               `mapstructure:"enabled"`
+	ListenAddr    string             `mapstructure:"listen_addr"`
+	AdvertiseHost string             `mapstructure:"advertise_host"`
+	Accounts      []SIPBridgeAccount `mapstructure:"accounts"`
+}
+
+type SIPBridgeAccount struct {
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	DeviceID string `mapstructure:"device_id"`
+	Bearer   string `mapstructure:"bearer"`
 }
 
 type VoWiFiConfig struct {

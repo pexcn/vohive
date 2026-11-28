@@ -172,6 +172,7 @@ func Init(dbPath string) error {
 		&SMSQueueEntry{},
 		&SMSNotification{},
 		&SMSNotificationReceipt{},
+		&SIPBridgeSMS{},
 		&TrafficMinute{},
 		&TrafficHour{},
 		&TrafficDay{},
@@ -559,6 +560,16 @@ func HasDuplicateReceivedSMS(imsi, localPhone, sender, recipient, content string
 // SaveSMSWithLocalPhone 保存短信记录并显式写入本机号码。
 // localPhone 为空时会按方向自动推导，并在必要时回退到订阅手机号。
 func SaveSMSWithLocalPhone(imsi, localPhone, sender, recipient, content string, smsType, status int, timestamp time.Time, bearer ...string) error {
+	return saveSMSForDevice("", imsi, localPhone, sender, recipient, content, smsType, status, timestamp, bearer...)
+}
+
+// SaveReceivedSMSForDevice records the device in the SIP delivery queue in
+// the same transaction as the user's SMS history.
+func SaveReceivedSMSForDevice(deviceID, imsi, localPhone, sender, content string, at time.Time, bearer string) error {
+	return saveSMSForDevice(deviceID, imsi, localPhone, sender, localPhone, content, 1, 0, at, bearer)
+}
+
+func saveSMSForDevice(deviceID, imsi, localPhone, sender, recipient, content string, smsType, status int, timestamp time.Time, bearer ...string) error {
 	if DB == nil {
 		return nil
 	}
@@ -588,6 +599,11 @@ func SaveSMSWithLocalPhone(imsi, localPhone, sender, recipient, content string, 
 	return DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&sms).Error; err != nil {
 			return err
+		}
+		if deviceID != "" {
+			if err := enqueueSIPBridgeInbound(tx, deviceID, &sms); err != nil {
+				return err
+			}
 		}
 		if peer == "" {
 			return nil

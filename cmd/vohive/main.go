@@ -21,6 +21,7 @@ import (
 	"github.com/iniwex5/vohive/internal/notify"
 	proxyserver "github.com/iniwex5/vohive/internal/proxy/server"
 	"github.com/iniwex5/vohive/internal/proxy/traffic"
+	"github.com/iniwex5/vohive/internal/sipbridge"
 	"github.com/iniwex5/vohive/internal/upstreamproxy"
 	"github.com/iniwex5/vowifi-go/runtimehost/carrier"
 	"github.com/iniwex5/vowifi-go/runtimehost/voicehost"
@@ -149,6 +150,19 @@ func main() {
 	}
 
 	// 5. 启动工作器 (代理, 短信, 健康检查)
+	bridge, err := sipbridge.Start(cfg.SIPBridge, sipbridge.SMSCallbacks{
+		CurrentICCID: func(id string) string {
+			if pool.IsESIMSwitching(id) {
+				return ""
+			}
+			return db.CanonicalICCID(pool.CurrentICCIDForDevice(id))
+		},
+		Send: pool.SubmitSIPBridgeSMS,
+	})
+	if err != nil {
+		logger.Error("启动 SIP 短信桥接失败", "err", err)
+	}
+
 	_ = pool.StartAll()
 
 	trafficSampler := traffic.New(traffic.Options{Pool: pool, Mgr: proxyMgr})
@@ -184,6 +198,7 @@ func main() {
 
 	apiServer := api.New(cfg, pool, staticFS, proxyMgr, voiceGW, notifyMgr, configPath)
 	apiServer.SetRealtimeTraffic(realtimeTraffic)
+	apiServer.SetSIPBridge(bridge)
 
 	syncProxyConfigs := func(reason, deviceID string) {
 		if err := apiServer.SyncProxyConfigs(); err != nil {
@@ -193,7 +208,7 @@ func main() {
 		logger.Debug("代理配置已同步", "reason", reason, "device_id", deviceID)
 	}
 	pool.OnDataConnected(func(deviceID string) {
-		syncProxyConfigs("qmi_data_connected", deviceID)
+		syncProxyConfigs("data_connected", deviceID)
 	})
 
 	// 启动后同步代理配置到实例管理器
@@ -249,6 +264,12 @@ func main() {
 		if voiceGW != nil {
 			if err := voiceGW.Stop(); err != nil {
 				logger.Error("关闭语音网关时出错", "err", err)
+			}
+		}
+
+		if bridge != nil {
+			if err := bridge.Close(shutdownCtx); err != nil {
+				logger.Warn("关闭 SIP 短信桥接失败", "err", err)
 			}
 		}
 
