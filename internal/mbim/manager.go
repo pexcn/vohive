@@ -45,6 +45,8 @@ type Manager struct {
 	netcfg            netConfigurator
 	desiredConnection bool
 	dataDisconnected  func()
+	dataConnected     func()
+	defaultDNS        string
 	connected         bool
 	privateIPv4       string
 	privateIPv6       string

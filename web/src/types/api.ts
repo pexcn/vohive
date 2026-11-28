@@ -369,6 +369,10 @@ export type NotificationSettings = {
 export type ProxyMode = 'socks5' | 'http'
 
 export type ProxyInstance = {
+  egress_mode?: 'device' | 'system'
+  dns_mode?: 'system' | 'egress'
+  dns_server?: string
+  disable_udp?: boolean
   id: string
   name: string
   device_id: string

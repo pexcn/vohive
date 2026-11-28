@@ -2934,6 +2934,20 @@ components:
     ProxyInstanceDTO:
       type: object
       properties:
+        egress_mode:
+          type: string
+          enum: [device, system]
+          default: device
+        dns_mode:
+          type: string
+          enum: [system, egress]
+          default: system
+        dns_server:
+          type: string
+          description: DNS 服务器 IP，可附带端口
+        disable_udp:
+          type: boolean
+          default: false
         id:
           type: string
         name:

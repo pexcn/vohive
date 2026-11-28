@@ -23,6 +23,10 @@ type proxyOverviewResponse struct {
 
 // proxyInstanceDTO 代理实例 DTO
 type proxyInstanceDTO struct {
+	EgressMode  string `json:"egress_mode"`
+	DNSMode     string `json:"dns_mode"`
+	DNSServer   string `json:"dns_server,omitempty"`
+	DisableUDP  bool   `json:"disable_udp"`
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	DeviceID    string `json:"device_id"`
@@ -164,8 +168,10 @@ func normalizeProxyInstanceForSave(inst config.ProxyInstance, oldInst *config.Pr
 	if strings.TrimSpace(inst.ID) == "" {
 		return config.ProxyInstance{}, errors.New("实例 id 不能为空")
 	}
-	if strings.TrimSpace(inst.DeviceID) == "" {
-		return config.ProxyInstance{}, errors.New("device_id 不能为空")
+	var err error
+	inst, err = normalizeProxyEgress(inst)
+	if err != nil {
+		return config.ProxyInstance{}, err
 	}
 	mode, err := normalizeProxyMode(inst.Mode)
 	if err != nil {
@@ -192,6 +198,25 @@ func normalizeProxyInstanceForSave(inst config.ProxyInstance, oldInst *config.Pr
 		return config.ProxyInstance{}, errors.New("启用认证时 username/password 不能为空")
 	}
 	return inst, nil
+}
+
+func normalizeProxyEgress(inst config.ProxyInstance) (config.ProxyInstance, error) {
+	inst.DeviceID = strings.TrimSpace(inst.DeviceID)
+	inst.EgressMode = strings.ToLower(strings.TrimSpace(inst.EgressMode))
+	switch inst.EgressMode {
+	case "", "device":
+		inst.EgressMode = "device"
+		if inst.DeviceID == "" {
+			return inst, errors.New("模组出口需要 device_id")
+		}
+	case "system":
+		inst.DeviceID = ""
+	default:
+		return inst, errors.New("出口模式仅支持 device 或 system")
+	}
+	var err error
+	inst.DNSMode, inst.DNSServer, err = server.NormalizeDNS(inst.DNSMode, inst.DNSServer)
+	return inst, err
 }
 
 func normalizeProxyMode(mode string) (string, error) {
@@ -274,6 +299,7 @@ func (s *Server) SyncProxyConfigs() error {
 
 func (s *Server) buildProxyConfigs(ctx context.Context) ([]server.InstanceConfig, error) {
 	deviceInterface := make(map[string]string)
+	deviceDNS := make(map[string]string)
 	{
 		managed := config.ListDevices()
 		for _, d := range managed {
@@ -288,6 +314,15 @@ func (s *Server) buildProxyConfigs(ctx context.Context) ([]server.InstanceConfig
 			continue
 		}
 		iface := strings.TrimSpace(w.Config.Interface)
+		if w.QMICore != nil {
+			dataInterface, dns := w.QMICore.ProxyEgress()
+			if dataInterface != "" {
+				iface = dataInterface
+			}
+			deviceDNS[w.ID] = dns
+		} else if w.MBIMCore != nil {
+			deviceDNS[w.ID] = w.MBIMCore.ProxyDNS()
+		}
 		if iface != "" {
 			deviceInterface[w.ID] = iface
 		}
@@ -300,8 +335,9 @@ func (s *Server) buildProxyConfigs(ctx context.Context) ([]server.InstanceConfig
 
 	out := make([]server.InstanceConfig, 0, len(instances))
 	for _, inst := range instances {
-		if strings.TrimSpace(inst.DeviceID) == "" {
-			return nil, errors.New("device_id 不能为空")
+		inst, err := normalizeProxyEgress(inst)
+		if err != nil {
+			return nil, err
 		}
 		mode, err := normalizeProxyMode(inst.Mode)
 		if err != nil {
@@ -321,8 +357,12 @@ func (s *Server) buildProxyConfigs(ctx context.Context) ([]server.InstanceConfig
 		}
 
 		iface := strings.TrimSpace(deviceInterface[inst.DeviceID])
-		if iface == "" {
+		if inst.EgressMode == "device" && iface == "" {
 			return nil, errors.New("device_id 无效: " + inst.DeviceID)
+		}
+		dns := inst.DNSServer
+		if inst.DNSMode == "egress" && dns == "" {
+			dns = deviceDNS[inst.DeviceID]
 		}
 
 		logger.Info("代理实例绑定信息",
@@ -339,6 +379,7 @@ func (s *Server) buildProxyConfigs(ctx context.Context) ([]server.InstanceConfig
 			ListenAddr:  inst.ListenAddr,
 			ListenPort:  inst.ListenPort,
 			Interface:   iface,
+			Egress:      server.EgressConfig{DNSMode: inst.DNSMode, DNSServer: dns, DisableUDP: inst.DisableUDP},
 			AuthEnabled: inst.AuthEnabled,
 			Username:    inst.Username,
 			Password:    inst.Password,
@@ -352,7 +393,14 @@ func instanceToDTO(inst config.ProxyInstance, mask bool) proxyInstanceDTO {
 	if mode == "" {
 		mode = server.ModeSocks5
 	}
+	if inst.EgressMode == "" {
+		inst.EgressMode = "device"
+	}
+	if inst.DNSMode == "" {
+		inst.DNSMode = "system"
+	}
 	return proxyInstanceDTO{
+		EgressMode: inst.EgressMode, DNSMode: inst.DNSMode, DNSServer: inst.DNSServer, DisableUDP: inst.DisableUDP,
 		ID:          inst.ID,
 		Name:        inst.Name,
 		DeviceID:    inst.DeviceID,

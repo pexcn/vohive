@@ -11,6 +11,7 @@ import (
 
 // InstanceConfig 表示代理实例运行参数。
 type InstanceConfig struct {
+	Egress      EgressConfig
 	ID          string
 	Mode        string
 	Enabled     bool
@@ -171,7 +172,7 @@ func (m *Manager) Start(ctx context.Context, id string) error {
 	}
 	m.mu.Unlock()
 
-	srv, err := New(id, cfg.Mode, cfg.ListenAddr, cfg.ListenPort, cfg.Interface, cfg.AuthEnabled, cfg.Username, cfg.Password)
+	srv, err := newServer(id, cfg.Mode, cfg.ListenAddr, cfg.ListenPort, cfg.Interface, cfg.AuthEnabled, cfg.Username, cfg.Password, cfg.Egress)
 	if err != nil {
 		m.recordError(id, err)
 		return err
@@ -418,5 +419,6 @@ func instanceConfigEqual(a, b InstanceConfig) bool {
 		a.Interface == b.Interface &&
 		a.AuthEnabled == b.AuthEnabled &&
 		a.Username == b.Username &&
-		a.Password == b.Password
+		a.Password == b.Password &&
+		a.Egress == b.Egress
 }

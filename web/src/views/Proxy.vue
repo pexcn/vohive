@@ -274,7 +274,7 @@ async function saveForm() {
     showError('实例 ID 不能为空')
     return
   }
-  if (!form.device_id) {
+  if (form.egress_mode !== 'system' && !form.device_id) {
     showError('必须绑定设备')
     return
   }
@@ -736,7 +736,7 @@ usePollingScheduler(() => fetchUpstream(), 10000, {
                 {{ formatModeLabel(inst.mode) }} · {{ inst.listen_addr }}:{{ inst.listen_port }}
               </p>
               <p class="m3-muted">
-                出口：{{ devices.find((d) => d.id === inst.device_id)?.name || inst.device_id }}
+                出口：{{ inst.egress_mode === 'system' ? 'NAS 默认网络' : devices.find((d) => d.id === inst.device_id)?.name || inst.device_id }}
               </p>
             </div>
           </div>
@@ -822,6 +822,20 @@ usePollingScheduler(() => fetchUpstream(), 10000, {
           />
         </div>
         <md-outlined-select
+          label="流量出口"
+          :value="instanceForm.egress_mode || 'device'"
+          :disabled="saving || instanceLoading"
+          @change="instanceForm.egress_mode = fieldValue($event) as 'device' | 'system'"
+        >
+          <md-select-option value="device" :selected="instanceForm.egress_mode !== 'system'">
+            <div slot="headline">指定模组</div>
+          </md-select-option>
+          <md-select-option value="system" :selected="instanceForm.egress_mode === 'system'">
+            <div slot="headline">NAS 默认网络</div>
+          </md-select-option>
+        </md-outlined-select>
+        <md-outlined-select
+          v-if="instanceForm.egress_mode !== 'system'"
           label="出口设备"
           name="device_id"
           required
@@ -875,6 +889,38 @@ usePollingScheduler(() => fetchUpstream(), 10000, {
             @input="instanceForm.listen_port = Number(fieldValue($event))"
           />
         </div>
+        <md-outlined-select
+          label="DNS 解析"
+          :value="instanceForm.dns_mode || 'system'"
+          :disabled="saving || instanceLoading"
+          @change="instanceForm.dns_mode = fieldValue($event) as 'system' | 'egress'"
+        >
+          <md-select-option value="system" :selected="instanceForm.dns_mode !== 'egress'">
+            <div slot="headline">系统解析</div>
+          </md-select-option>
+          <md-select-option value="egress" :selected="instanceForm.dns_mode === 'egress'">
+            <div slot="headline">随代理出口解析</div>
+          </md-select-option>
+        </md-outlined-select>
+        <md-outlined-text-field
+          v-if="instanceForm.dns_mode === 'egress'"
+          label="DNS 服务器"
+          name="dns_server"
+          supporting-text="可留空，使用可用的模组 DNS 或默认解析器。也可填写 IP 和端口。"
+          :value="instanceForm.dns_server || ''"
+          :disabled="saving || instanceLoading"
+          @input="instanceForm.dns_server = fieldValue($event)"
+        />
+        <label v-if="instanceForm.mode === 'socks5'" class="form-switch">
+          <span>转发 UDP</span>
+          <md-switch
+            v-sync-switch
+            aria-label="转发 UDP"
+            :selected="!instanceForm.disable_udp"
+            :disabled="saving || instanceLoading"
+            @change="instanceForm.disable_udp = !fieldSelected($event)"
+          />
+        </label>
         <label class="form-switch">
           <span>
             启用实例

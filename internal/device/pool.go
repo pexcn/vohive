@@ -698,6 +698,7 @@ func (p *Pool) bindMBIMStateIndications(worker *Worker) {
 		return
 	}
 
+	worker.MBIMCore.OnDataConnected(func() { p.notifyDataConnected(worker.ID) })
 	worker.MBIMCore.OnSimStatusChanged(func() {
 		logger.Info("[事件驱动] MBIM SIM 状态变化", "device", worker.ID)
 		p.handleSIMStatusEvent(worker.ID, "mbim_sim_status", nil, "")

@@ -40,10 +40,27 @@ type Server struct {
 	listener net.Listener
 	mu       sync.Mutex
 	shutdown bool
+	cancel   context.CancelFunc
 }
 
 // New 创建新的代理服务器。
 func New(id, mode, listenAddr string, port int, iface string, authEnabled bool, username, password string) (*Server, error) {
+	return newServer(id, mode, listenAddr, port, iface, authEnabled, username, password, EgressConfig{})
+}
+
+func newServer(id, mode, listenAddr string, port int, iface string, authEnabled bool, username, password string, egress EgressConfig) (*Server, error) {
+	dnsMode, dnsServer, err := NormalizeDNS(egress.DNSMode, egress.DNSServer)
+	if err != nil {
+		return nil, err
+	}
+	lifetime, cancel := context.WithCancel(context.Background())
+	started := false
+	defer func() {
+		if !started {
+			cancel()
+		}
+	}()
+
 	mode = normalizeMode(mode)
 	stats := NewTrafficStats()
 	if strings.TrimSpace(listenAddr) == "" {
@@ -51,6 +68,7 @@ func New(id, mode, listenAddr string, port int, iface string, authEnabled bool, 
 	}
 
 	dialer := newBoundDialer(id, iface)
+	setEgressDNS(dialer, dnsMode, dnsServer)
 
 	out := &Server{
 		ID:         id,
@@ -59,11 +77,12 @@ func New(id, mode, listenAddr string, port int, iface string, authEnabled bool, 
 		Port:       port,
 		Interface:  iface,
 		Stats:      stats,
+		cancel:     cancel,
 	}
 
 	switch mode {
 	case ModeSocks5:
-		srv, err := newSocks5Server(dialer, stats, authEnabled, username, password)
+		srv, err := newSocks5Server(lifetime, dialer, stats, authEnabled, username, password, egress.DisableUDP)
 		if err != nil {
 			return nil, err
 		}
@@ -78,6 +97,7 @@ func New(id, mode, listenAddr string, port int, iface string, authEnabled bool, 
 		return nil, fmt.Errorf("不支持的代理模式: %s", mode)
 	}
 
+	started = true
 	return out, nil
 }
 
@@ -89,8 +109,10 @@ func normalizeMode(mode string) string {
 	return m
 }
 
-func newSocks5Server(dialer *net.Dialer, stats *TrafficStats, authEnabled bool, username, password string) (*socks5.Server, error) {
+func newSocks5Server(lifetime context.Context, dialer *net.Dialer, stats *TrafficStats, authEnabled bool, username, password string, disableUDP bool) (*socks5.Server, error) {
 	opts := []socks5.Option{
+		socks5.WithResolver(deferredSOCKSResolver{}),
+		socks5.WithAssociateHandle(udpAssociateHandler(lifetime, dialer, stats, disableUDP)),
 		socks5.WithDial(func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return dialOutboundConn(ctx, dialer, stats, network, addr)
 		}),
@@ -186,6 +208,7 @@ var _ io.ReadWriteCloser = (*countingConn)(nil)
 
 // Start 启动代理服务器。
 func (s *Server) Start() error {
+	defer s.cancel()
 	address := net.JoinHostPort(s.ListenAddr, strconv.Itoa(s.Port))
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -193,8 +216,11 @@ func (s *Server) Start() error {
 	}
 
 	s.mu.Lock()
+	if s.shutdown {
+		s.mu.Unlock()
+		return listener.Close()
+	}
 	s.listener = listener
-	s.shutdown = false
 	s.mu.Unlock()
 
 	switch s.Mode {
@@ -230,6 +256,7 @@ func (s *Server) Start() error {
 
 // Shutdown 优雅关闭代理服务器。
 func (s *Server) Shutdown() error {
+	s.cancel()
 	s.mu.Lock()
 	if s.shutdown {
 		s.mu.Unlock()

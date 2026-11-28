@@ -97,6 +97,10 @@ type VoWiFiConfig struct {
 
 // ProxyInstance 定义一个代理实例配置
 type ProxyInstance struct {
+	EgressMode  string `mapstructure:"egress_mode" json:"egress_mode"`
+	DNSMode     string `mapstructure:"dns_mode" json:"dns_mode"`
+	DNSServer   string `mapstructure:"dns_server" json:"dns_server"`
+	DisableUDP  bool   `mapstructure:"disable_udp" json:"disable_udp"`
 	ID          string `mapstructure:"id" json:"id"`                   // 实例唯一标识
 	Name        string `mapstructure:"name" json:"name"`               // 显示名称
 	DeviceID    string `mapstructure:"device_id" json:"device_id"`     // 绑定设备 ID（强制绑定对应网卡）

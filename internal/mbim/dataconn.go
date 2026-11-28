@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -162,8 +163,19 @@ func (m *Manager) connectLocked() error {
 	m.mu.Lock()
 	m.privateIPv4 = ipc.IPv4Address
 	m.privateIPv6 = ipc.IPv6Address
+	m.defaultDNS = ""
+	for _, address := range append(append([]string(nil), ipc.IPv4DNS...), ipc.IPv6DNS...) {
+		if ip := net.ParseIP(address); ip != nil && !ip.IsUnspecified() && !ip.IsMulticast() {
+			m.defaultDNS = net.JoinHostPort(ip.String(), "53")
+			break
+		}
+	}
 	m.connected = true
+	onConnect := m.dataConnected
 	m.mu.Unlock()
+	if onConnect != nil {
+		go onConnect()
+	}
 	return nil
 }
 
@@ -377,6 +389,22 @@ func (m *Manager) applyIPConfig(nc netConfigurator, iface string, ipc mbim.IPCon
 		}
 	}
 	return nil
+}
+
+// ProxyDNS reports the DNS address from the default data session.
+func (m *Manager) ProxyDNS() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.connected {
+		return ""
+	}
+	return m.defaultDNS
+}
+
+func (m *Manager) OnDataConnected(handler func()) {
+	m.mu.Lock()
+	m.dataConnected = handler
+	m.mu.Unlock()
 }
 
 // OnDataDisconnected delegates data recovery to the host's active card policy.

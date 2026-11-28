@@ -11,6 +11,10 @@ import (
 )
 
 type ProxyInstance struct {
+	EgressMode  string    `json:"egress_mode"`
+	DNSMode     string    `json:"dns_mode"`
+	DNSServer   string    `json:"dns_server"`
+	DisableUDP  bool      `json:"disable_udp"`
 	ID          string    `gorm:"primaryKey" json:"id"`
 	Name        string    `json:"name"`
 	DeviceID    string    `gorm:"index" json:"device_id"`
@@ -27,7 +31,8 @@ type ProxyInstance struct {
 
 func ProxyInstanceFromConfig(in config.ProxyInstance) (ProxyInstance, error) {
 	out := ProxyInstance{
-		ID:          strings.TrimSpace(in.ID),
+		ID:         strings.TrimSpace(in.ID),
+		EgressMode: in.EgressMode, DNSMode: in.DNSMode, DNSServer: in.DNSServer, DisableUDP: in.DisableUDP,
 		Name:        strings.TrimSpace(in.Name),
 		DeviceID:    strings.TrimSpace(in.DeviceID),
 		Enabled:     in.Enabled,
@@ -50,7 +55,8 @@ func ProxyInstanceFromConfig(in config.ProxyInstance) (ProxyInstance, error) {
 
 func (p ProxyInstance) ToConfig() (config.ProxyInstance, error) {
 	out := config.ProxyInstance{
-		ID:          strings.TrimSpace(p.ID),
+		ID:         strings.TrimSpace(p.ID),
+		EgressMode: p.EgressMode, DNSMode: p.DNSMode, DNSServer: p.DNSServer, DisableUDP: p.DisableUDP,
 		Name:        strings.TrimSpace(p.Name),
 		DeviceID:    strings.TrimSpace(p.DeviceID),
 		Enabled:     p.Enabled,
